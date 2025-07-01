@@ -1,0 +1,37 @@
+{
+  "name": "airchainpay-relay",
+  "version": "1.0.0",
+  "description": "Relay server for AirChainPay offline transactions",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test": "mocha test/**/*.test.js --exit",
+    "lint": "eslint src/**/*.js",
+    "check-payments": "node scripts/check-payments.js",
+    "test-relay": "node scripts/test-relay.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "ethers": "^6.8.0",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.5.1",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "winston": "^3.17.0"
+  },
+  "devDependencies": {
+    "chai": "^4.5.0",
+    "chai-http": "^4.4.0",
+    "eslint": "^8.52.0",
+    "mocha": "^10.8.2",
+    "nodemon": "^3.0.1",
+    "sinon": "^17.0.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "author": "",
+  "license": "MIT"
+}
