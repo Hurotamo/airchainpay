@@ -1,0 +1,36 @@
+{
+  "chainName": "core_testnet",
+  "chainId": 1114,
+  "contractAddress": "0xF1E06d869f09a049081D018D6deA9071b482699d",
+  "owner": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
+  "deployer": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
+  "supportedTokens": [
+    "0x0000000000000000000000000000000000000000"
+  ],
+  "tokenConfigs": [
+    {
+      "name": "USDC",
+      "address": "0x",
+      "symbol": "USDC",
+      "decimals": 6,
+      "isStablecoin": true,
+      "minAmount": "1000000",
+      "maxAmount": "100000000000"
+    },
+    {
+      "name": "USDT",
+      "address": "0x",
+      "symbol": "USDT",
+      "decimals": 6,
+      "isStablecoin": true,
+      "minAmount": "1000000",
+      "maxAmount": "100000000000"
+    }
+  ],
+  "deployedAt": "2025-07-02T17:55:29.374Z",
+  "txHash": "0xa6490f4aa42c63c24c271878fa3e236f63fd84fcf7925a7835144df42b96a9d8",
+  "testTokens": {
+    "usdc": "0x960a4ECbd07eE1700E96df39242F1a13e904D50C",
+    "usdt": "0x2dF197428353c8847B8C3D042EB9d50e52f14B5a"
+  }
+}

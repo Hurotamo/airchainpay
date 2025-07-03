@@ -1,0 +1,15 @@
+{
+  "chainName": "core_testnet",
+  "chainId": 1114,
+  "contractAddress": "0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB",
+  "owner": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
+  "deployer": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
+  "blockExplorer": "https://scan.test2.btcs.network",
+  "deployedAt": "2024-12-13T00:00:00.000Z",
+  "verified": true,
+  "network": {
+    "name": "Core Blockchain TestNet",
+    "rpcUrl": "https://rpc.test2.btcs.network",
+    "nativeCurrency": "tCORE2"
+  }
+} 

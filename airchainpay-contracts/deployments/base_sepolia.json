@@ -1,0 +1,15 @@
+{
+  "chainName": "base_sepolia",
+  "chainId": 84532,
+  "contractAddress": "0x7B79117445C57eea1CEAb4733020A55e1D503934",
+  "owner": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
+  "deployer": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
+  "blockExplorer": "https://sepolia.basescan.org",
+  "deployedAt": "2024-12-13T00:00:00.000Z",
+  "verified": true,
+  "network": {
+    "name": "Base Sepolia",
+    "rpcUrl": "https://sepolia.base.org",
+    "nativeCurrency": "ETH"
+  }
+} 

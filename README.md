@@ -6,27 +6,34 @@ AirChainPay is an offline-first crypto payment system enabling secure peer-to-pe
 
 ## Architecture
 
-- **airchainpay-contracts/** — Solidity smart contracts for payments/transfers
-- **airchainpay-wallet/** — React Native (Expo) mobile wallet app
-- **airchainpay-relay/** — Node.js relay server for broadcasting transactions
+- **airchainpay-contracts/** — EVM smart contracts (Base Sepolia, Core Testnet)
+- **airchainpay-solana/** — Native Rust Solana program (Devnet)
+- **airchainpay-wallet/** — React Native (Expo) mobile wallet app with multi-chain support
+- **airchainpay-relay/** — Node.js relay server for broadcasting transactions across chains
 
 ```
-[User Wallet] <---Bluetooth---> [Relay Node] <---Internet---> [Blockchain]
+[User Wallet] <---Bluetooth---> [Relay Node] <---Internet---> [Multiple Blockchains]
+                                                              ├── Base Sepolia (EVM)
+                                                              ├── Core Testnet (EVM)
+                                                              └── Solana Devnet
 ```
 
 ---
 
 ## Features
-- Offline transaction signing and queueing
-- Bluetooth (BLE) peer-to-peer transfer
-- USSD transaction submission (for feature phones)
-- Secure key storage (Expo SecureStore)
-- EVM wallet and signing (ethers.js)
-- Relay server for broadcasting signed transactions
-- Minimal, auditable Solidity contract
-- Comprehensive logging and error handling
-- JWT authentication for API endpoints
-- Rate limiting to prevent abuse
+- **Multi-Chain Support**: Base Sepolia, Core Testnet, and Solana Devnet
+- **Offline transaction signing and queueing** across all supported chains
+- **Bluetooth (BLE) peer-to-peer transfer** for cross-chain transactions
+- **USSD transaction submission** (for feature phones)
+- **Secure key storage** (Expo SecureStore) with separate EVM and Solana wallets
+- **EVM wallet and signing** (ethers.js) for Base and Core networks
+- **Solana wallet and signing** (native web3.js) for Solana transactions
+- **Multi-chain relay server** for broadcasting signed transactions
+- **Minimal, auditable smart contracts** (Solidity + native Rust)
+- **Unified mobile UI** with chain selection and switching
+- **Comprehensive logging and error handling** across all chains
+- **JWT authentication** for API endpoints
+- **Rate limiting** to prevent abuse
 
 ---
 

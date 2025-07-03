@@ -1,0 +1,38 @@
+{
+  "deployments": [
+    {
+      "chainName": "base_sepolia",
+      "chainId": 84532,
+      "contractAddress": "0x7B79117445C57eea1CEAb4733020A55e1D503934",
+      "owner": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
+      "deployer": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
+      "blockExplorer": "https://sepolia.basescan.org",
+      "deployedAt": "2024-12-13T00:00:00.000Z"
+    },
+    {
+      "chainName": "core_testnet",
+      "chainId": 1114,
+      "contractAddress": "0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB",
+      "owner": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
+      "deployer": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
+      "blockExplorer": "https://scan.test2.btcs.network",
+      "deployedAt": "2024-12-13T00:00:00.000Z"
+    }
+  ],
+  "failures": [],
+  "totalDeployments": 2,
+  "totalFailures": 0,
+  "lastUpdated": "2024-12-13T12:00:00.000Z",
+  "summary": {
+    "base_sepolia": {
+      "status": "deployed",
+      "address": "0x7B79117445C57eea1CEAb4733020A55e1D503934",
+      "explorer": "https://sepolia.basescan.org/address/0x7B79117445C57eea1CEAb4733020A55e1D503934"
+    },
+    "core_testnet": {
+      "status": "deployed", 
+      "address": "0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB",
+      "explorer": "https://scan.test2.btcs.network/address/0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB"
+    }
+  }
+} 

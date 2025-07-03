@@ -1,0 +1,25 @@
+{
+  "programId": "G68huaPMLJn5z8MooDa8SnKVUGEwrZJ82e9aGJBV5ZMf",
+  "cluster": "devnet",
+  "deployer": "7EQErYwf8wZ4avwcaXhYHaedkd66VsHCHLNkk8GnVQyv",
+  "deployedAt": "2025-01-03T00:50:00Z",
+  "programPath": "target/deploy/airchainpay_solana.so",
+  "signature": "3x7g1BmyDBaJfKp6iofgtuSZWFjmLVyU7cDrdeUbL9iSMcFSAk3ifZdytddEEzd5cHnCQzmaWFvZZLVMLgUa5B8x",
+  "slot": 391640418,
+  "programDataAddress": "Gf2zJutY1MuRgXFqpqvwjZVDwQuk6EfVtTfkP59p7P3D",
+  "dataLength": 106400,
+  "balance": "0.74174808 SOL",
+  "features": {
+    "nativeSOLPayments": true,
+    "splTokenPayments": false,
+    "paymentRecords": true,
+    "programStateManagement": true,
+    "authorityWithdrawals": true
+  },
+  "instructions": [
+    "InitializeProgram",
+    "ProcessPayment", 
+    "ProcessTokenPayment (not implemented)",
+    "WithdrawFunds"
+  ]
+} 
