@@ -13,9 +13,9 @@ use solana_program::{
     program_pack::{IsInitialized, Pack},
     pubkey::Pubkey,
     rent::Rent,
+    system_instruction,
     sysvar::Sysvar,
 };
-use solana_system_interface::instruction as system_instruction;
 use spl_token::{
     instruction as token_instruction,
     state::{Account as TokenAccount, Mint},
@@ -30,6 +30,7 @@ pub struct TokenPaymentData {
 
 /// Known token mint addresses on Solana Devnet
 pub const USDC_MINT_DEVNET: &str = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"; // USDC on Devnet
+pub const USDT_MINT_DEVNET: &str = "DAwBSXe6w9g37wdE2tCrFbho3QHKZi4PjuBytQCULap2"; // USDT on Devnet
 
 /// Process SPL token payment
 pub fn process_token_payment(
@@ -257,23 +258,29 @@ pub fn create_token_account_if_needed<'a>(
     Ok(())
 }
 
-/// Validate if a mint is a supported stablecoin
+/// Check if a token mint is a supported stablecoin
 pub fn is_supported_stablecoin(mint: &Pubkey) -> bool {
     let mint_str = mint.to_string();
     match mint_str.as_str() {
         USDC_MINT_DEVNET => true,
-        // Add other supported tokens here
+        USDT_MINT_DEVNET => true,
         _ => false,
     }
 }
 
-/// Get token info for supported tokens
+/// Get token information for a given mint
 pub fn get_token_info(mint: &Pubkey) -> Option<TokenInfo> {
     let mint_str = mint.to_string();
     match mint_str.as_str() {
         USDC_MINT_DEVNET => Some(TokenInfo {
             symbol: "USDC".to_string(),
             name: "USD Coin".to_string(),
+            decimals: 6,
+            is_stablecoin: true,
+        }),
+        USDT_MINT_DEVNET => Some(TokenInfo {
+            symbol: "USDT".to_string(),
+            name: "Tether USD".to_string(),
             decimals: 6,
             is_stablecoin: true,
         }),

@@ -4,7 +4,7 @@
 
 | Chain | Main Contract | Token Contract | USDC | USDT | Status |
 |-------|---------------|----------------|------|------|--------|
-| **Base Sepolia** | ✅ Deployed | ❌ Insufficient Funds | ✅ Native USDC | ✅ Native USDT | **Partial** |
+| **Base Sepolia** | ✅ Deployed | ✅ Deployed | ✅ Native USDC + Mock | ✅ Native USDT + Mock | **Complete** |
 | **Core Testnet** | ✅ Deployed | ✅ Deployed | ✅ Mock USDC | ✅ Mock USDT | **Complete** |
 | **Solana Devnet** | ✅ Deployed | N/A (Native Program) | ✅ Native USDC | ❌ Not Implemented | **Partial** |
 
@@ -14,11 +14,13 @@
 
 ### **Base Sepolia (EVM)**
 - **Main Contract**: `0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB` ✅
-- **Token Contract**: ❌ Not deployed (insufficient funds)
-- **USDC**: `0x036CbD53842c5426634e7929541eC2318f3dCF7e` ✅ (Official Base Sepolia USDC)
-- **USDT**: `0xf55BEC9cafDbE8730f096Aa55dad6D22d44099Df` ✅ (Official Base Sepolia USDT)
+- **Token Contract**: `0x3B8D998A3675b697DA6bC1DACf042156F2fd3DC0` ✅
+- **Native USDC**: `0x036CbD53842c5426634e7929541eC2318f3dCF7e` ✅ (Official Base Sepolia USDC)
+- **Native USDT**: `0xf55BEC9cafDbE8730f096Aa55dad6D22d44099Df` ✅ (Official Base Sepolia USDT)
+- **Mock USDC**: `0xd250fA5C28d47d76ec92147Ac896c6478f378f4F` ✅ (For testing)
+- **Mock USDT**: `0xc28E82C4ddA7b8160C0B43Ccc2e5EBc4FDCe6460` ✅ (For testing)
 - **Explorer**: https://sepolia.basescan.org
-- **Status**: Ready for payments with native USDC/USDT
+- **Status**: ✅ Fully deployed and configured with both native and mock tokens
 
 ### **Core Testnet (EVM)**
 - **Main Contract**: `0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB` ✅
@@ -26,7 +28,7 @@
 - **Mock USDC**: `0x960a4ECbd07eE1700E96df39242F1a13e904D50C` ✅
 - **Mock USDT**: `0x2dF197428353c8847B8C3D042EB9d50e52f14B5a` ✅
 - **Explorer**: https://scan.test2.btcs.network
-- **Status**: Fully deployed and configured
+- **Status**: ✅ Fully deployed and configured
 
 ### **Solana Devnet**
 - **Program ID**: `G68huaPMLJn5z8MooDa8SnKVUGEwrZJ82e9aGJBV5ZMf` ✅
@@ -54,7 +56,9 @@
 tokens: [
   { symbol: 'ETH', isNative: true },
   { symbol: 'USDC', address: '0x036CbD53842c5426634e7929541eC2318f3dCF7e' },
-  { symbol: 'USDT', address: '0xf55BEC9cafDbE8730f096Aa55dad6D22d44099Df' }
+  { symbol: 'USDT', address: '0xf55BEC9cafDbE8730f096Aa55dad6D22d44099Df' },
+  { symbol: 'mockUSDC', address: '0xd250fA5C28d47d76ec92147Ac896c6478f378f4F' },
+  { symbol: 'mockUSDT', address: '0xc28E82C4ddA7b8160C0B43Ccc2e5EBc4FDCe6460' }
 ]
 ```
 
@@ -80,9 +84,8 @@ tokens: [
 ## 💰 **Funding Requirements**
 
 ### **Base Sepolia**
-- **Current Balance**: 0.0016 ETH
-- **Required**: ~0.005 ETH for token contract deployment
-- **Action Needed**: Add more ETH to deployer wallet
+- **Current Balance**: 0.408907359125010796 ETH ✅
+- **Status**: Sufficient funds, all contracts deployed
 
 ### **Core Testnet** 
 - **Current Balance**: 10.21 tCORE2 ✅
@@ -124,8 +127,8 @@ tokens: [
 ## 📋 **Next Steps**
 
 ### **Immediate Actions**
-1. **Fund Base Sepolia wallet** with 0.005 ETH
-2. **Deploy token contract** to Base Sepolia
+1. ✅ **Deploy token contract to Base Sepolia** - COMPLETED
+2. ✅ **Configure native and mock tokens** - COMPLETED
 3. **Re-enable SPL token support** in Solana program
 4. **Test cross-chain USDC/USDT payments**
 

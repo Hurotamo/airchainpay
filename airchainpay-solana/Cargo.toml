@@ -8,19 +8,33 @@ crate-type = ["cdylib", "lib"]
 
 [dependencies]
 solana-program = "2.3.0"
-solana-system-interface = "1.0.0"
 solana-sdk-ids = "2.2.1"
+solana-system-interface = "1.0.0"
 borsh = "1.5.7"
 borsh-derive = "1.5.7"
 thiserror = "2.0.12"
+spl-token = { version = "8.0.0", features = ["no-entrypoint"] }
+spl-associated-token-account = { version = "7.0.0", features = ["no-entrypoint"] }
 
 [dev-dependencies]
-solana-program-test = "2.3.0"
-solana-sdk = "2.3.0"
+solana-program-test = "2.3.3"
+solana-sdk = "2.3.1"
 tokio = { version = "1.46.0", features = ["macros"] }
 
 [features]
 no-entrypoint = []
 test-sbf = []
 custom-heap = []
-custom-panic = [] 
+custom-panic = []
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
+
+[profile.bpf]
+inherits = "release"
+debug = false
+overflow-checks = false
+opt-level = 2
+strip = "symbols" 

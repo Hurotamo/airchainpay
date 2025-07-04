@@ -5,6 +5,7 @@ use crate::{
     // spl_token_support, // Commented out to avoid global allocator conflicts
 };
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
     clock::Clock,
@@ -15,9 +16,10 @@ use solana_program::{
     program_pack::{IsInitialized, Pack},
     pubkey::Pubkey,
     rent::Rent,
+    system_instruction,
     sysvar::Sysvar,
 };
-use solana_system_interface::instruction as system_instruction;
+use solana_system_interface::system_instruction;
 
 pub struct Processor;
 
@@ -27,11 +29,12 @@ impl Processor {
         accounts: &[AccountInfo],
         instruction_data: &[u8],
     ) -> ProgramResult {
-        let instruction = AirChainPayInstruction::unpack(instruction_data)?;
+        let instruction = AirChainPayInstruction::try_from_slice(instruction_data)
+            .map_err(|_| ProgramError::InvalidInstructionData)?;
 
         match instruction {
-            AirChainPayInstruction::InitializeProgram => {
-                msg!("Instruction: InitializeProgram");
+            AirChainPayInstruction::InitializeProgramState => {
+                msg!("Instruction: InitializeProgramState");
                 Self::process_initialize_program(accounts, program_id)
             }
             AirChainPayInstruction::ProcessPayment {
@@ -60,15 +63,9 @@ impl Processor {
         program_id: &Pubkey,
     ) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
-        let authority_info = next_account_info(account_info_iter)?;
         let program_state_info = next_account_info(account_info_iter)?;
         let system_program_info = next_account_info(account_info_iter)?;
         let rent_info = next_account_info(account_info_iter)?;
-
-        // Verify authority is signer
-        if !authority_info.is_signer {
-            return Err(ProgramError::MissingRequiredSignature);
-        }
 
         // Verify program state account is owned by this program
         if program_state_info.owner != program_id {
@@ -91,7 +88,7 @@ impl Processor {
             let lamports = rent.minimum_balance(space);
 
             let create_account_ix = system_instruction::create_account(
-                authority_info.key,
+                program_id, // Use program_id as the payer
                 program_state_info.key,
                 lamports,
                 space as u64,
@@ -101,7 +98,6 @@ impl Processor {
             invoke(
                 &create_account_ix,
                 &[
-                    authority_info.clone(),
                     program_state_info.clone(),
                     system_program_info.clone(),
                 ],
@@ -111,14 +107,13 @@ impl Processor {
         // Initialize program state
         let program_state = ProgramState {
             is_initialized: true,
-            authority: *authority_info.key,
             total_payments: 0,
             total_volume: 0,
         };
 
-        ProgramState::pack(program_state, &mut program_state_info.data.borrow_mut())?;
+        program_state.serialize(&mut *program_state_info.data.borrow_mut())?;
 
-        msg!("AirChainPay program initialized with authority: {}", authority_info.key);
+        msg!("AirChainPay program initialized");
 
         Ok(())
     }
@@ -129,6 +124,10 @@ impl Processor {
         amount: u64,
         payment_reference: String,
     ) -> ProgramResult {
+        if payment_reference.is_empty() {
+            return Err(AirChainPayError::InvalidPaymentReference.into());
+        }
+
         let account_info_iter = &mut accounts.iter();
         let payer_info = next_account_info(account_info_iter)?;
         let recipient_info = next_account_info(account_info_iter)?;
@@ -152,10 +151,6 @@ impl Processor {
             return Err(AirChainPayError::PaymentReferenceTooLong.into());
         }
 
-        if payment_reference.is_empty() {
-            return Err(AirChainPayError::InvalidPaymentReference.into());
-        }
-
         // Validate amount
         if amount == 0 {
             return Err(AirChainPayError::ExpectedAmountMismatch.into());
@@ -167,7 +162,7 @@ impl Processor {
         }
 
         // Load and validate program state
-        let mut program_state = ProgramState::unpack(&program_state_info.data.borrow())?;
+        let mut program_state = ProgramState::try_from_slice(&program_state_info.data.borrow())?;
         if !program_state.is_initialized() {
             return Err(AirChainPayError::AccountNotInitialized.into());
         }
@@ -233,7 +228,7 @@ impl Processor {
             .checked_add(amount)
             .ok_or(AirChainPayError::AmountOverflow)?;
 
-        ProgramState::pack(program_state, &mut program_state_info.data.borrow_mut())?;
+        program_state.serialize(&mut *program_state_info.data.borrow_mut())?;
 
         msg!(
             "Payment processed: {} lamports from {} to {} with reference: {}",
@@ -252,15 +247,9 @@ impl Processor {
         amount: u64,
     ) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
-        let authority_info = next_account_info(account_info_iter)?;
         let program_state_info = next_account_info(account_info_iter)?;
         let destination_info = next_account_info(account_info_iter)?;
         let _system_program_info = next_account_info(account_info_iter)?;
-
-        // Verify authority is signer
-        if !authority_info.is_signer {
-            return Err(ProgramError::MissingRequiredSignature);
-        }
 
         // Verify program state account
         if program_state_info.owner != program_id {
@@ -271,11 +260,6 @@ impl Processor {
         let program_state = ProgramState::unpack(&program_state_info.data.borrow())?;
         if !program_state.is_initialized() {
             return Err(AirChainPayError::AccountNotInitialized.into());
-        }
-
-        // Verify authority
-        if program_state.authority != *authority_info.key {
-            return Err(AirChainPayError::Unauthorized.into());
         }
 
         // Validate amount

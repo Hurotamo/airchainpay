@@ -5,15 +5,13 @@ use solana_program::{
 };
 
 /// Maximum length for payment reference string
-pub const MAX_PAYMENT_REFERENCE_LEN: usize = 128;
+pub const MAX_PAYMENT_REFERENCE_LEN: usize = 32;
 
 /// Program state account
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub struct ProgramState {
     /// Is initialized flag
     pub is_initialized: bool,
-    /// Program authority (owner)
-    pub authority: Pubkey,
     /// Total number of payments processed
     pub total_payments: u64,
     /// Total volume processed (in lamports)
@@ -29,7 +27,7 @@ impl IsInitialized for ProgramState {
 }
 
 impl Pack for ProgramState {
-    const LEN: usize = 1 + 32 + 8 + 8; // bool + pubkey + u64 + u64
+    const LEN: usize = 1 + 8 + 8; // bool + u64 + u64
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, solana_program::program_error::ProgramError> {
         let mut data = src;

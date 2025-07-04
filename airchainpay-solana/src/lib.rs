@@ -9,7 +9,7 @@ pub mod error;
 pub mod instruction;
 pub mod processor;
 pub mod state;
-// pub mod spl_token_support; // Commented out to avoid global allocator conflicts
+pub mod spl_token_support;
 
 use crate::processor::Processor;
 

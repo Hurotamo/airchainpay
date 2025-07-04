@@ -3,30 +3,25 @@ use solana_program::{
     instruction::{AccountMeta, Instruction},
     program_error::ProgramError,
     pubkey::Pubkey,
+    system_program,
 };
 use solana_sdk_ids::system_program;
 
 /// Instructions supported by the AirChainPay program
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub enum AirChainPayInstruction {
-    /// Initialize the program state
+    /// Initialize program state
     /// 
     /// Accounts expected:
-    /// 0. `[signer, writable]` Authority account (program owner)
-    /// 1. `[writable]` Program state account
-    /// 2. `[]` System program
-    /// 3. `[]` Rent sysvar
-    InitializeProgram,
+    /// 0. `[writable]` Program state account
+    InitializeProgramState,
 
     /// Process a payment
     /// 
     /// Accounts expected:
-    /// 0. `[signer, writable]` Payer account (sender)
-    /// 1. `[writable]` Recipient account
-    /// 2. `[writable]` Payment record account
-    /// 3. `[writable]` Program state account
-    /// 4. `[]` System program
-    /// 5. `[]` Rent sysvar
+    /// 0. `[signer]` Payer account
+    /// 1. `[]` Recipient account
+    /// 2. `[writable]` Program state account
     ProcessPayment {
         /// Amount to pay in lamports
         amount: u64,
@@ -72,59 +67,46 @@ impl AirChainPayInstruction {
         let mut data = input;
         Self::deserialize(&mut data).map_err(|_| ProgramError::InvalidInstructionData)
     }
-}
 
-/// Create an initialize program instruction
-pub fn initialize_program(
-    program_id: &Pubkey,
-    authority: &Pubkey,
-    program_state: &Pubkey,
-) -> Result<Instruction, ProgramError> {
-    let accounts = vec![
-        AccountMeta::new(*authority, true),
-        AccountMeta::new(*program_state, false),
-        AccountMeta::new_readonly(system_program::id(), false),
-        AccountMeta::new_readonly(solana_program::sysvar::rent::id(), false),
-    ];
+    pub fn initialize_program_state(
+        program_id: &Pubkey,
+        program_state: &Pubkey,
+    ) -> Instruction {
+        let accounts = vec![
+            AccountMeta::new(*program_state, false),
+            AccountMeta::new_readonly(system_program::id(), false),
+        ];
 
-    let instruction_data = AirChainPayInstruction::InitializeProgram;
+        Instruction::new_with_borsh(
+            *program_id,
+            &AirChainPayInstruction::InitializeProgramState,
+            accounts,
+        )
+    }
 
-    Ok(Instruction {
-        program_id: *program_id,
-        accounts,
-        data: borsh_to_vec(&instruction_data).unwrap(),
-    })
-}
+    pub fn process_payment(
+        program_id: &Pubkey,
+        payer: &Pubkey,
+        recipient: &Pubkey,
+        program_state: &Pubkey,
+        amount: u64,
+        payment_reference: String,
+    ) -> Instruction {
+        let accounts = vec![
+            AccountMeta::new(*payer, true),
+            AccountMeta::new_readonly(*recipient, false),
+            AccountMeta::new(*program_state, false),
+        ];
 
-/// Create a process payment instruction
-pub fn process_payment(
-    program_id: &Pubkey,
-    payer: &Pubkey,
-    recipient: &Pubkey,
-    payment_record: &Pubkey,
-    program_state: &Pubkey,
-    amount: u64,
-    payment_reference: String,
-) -> Result<Instruction, ProgramError> {
-    let accounts = vec![
-        AccountMeta::new(*payer, true),
-        AccountMeta::new(*recipient, false),
-        AccountMeta::new(*payment_record, false),
-        AccountMeta::new(*program_state, false),
-        AccountMeta::new_readonly(system_program::id(), false),
-        AccountMeta::new_readonly(solana_program::sysvar::rent::id(), false),
-    ];
-
-    let instruction_data = AirChainPayInstruction::ProcessPayment {
-        amount,
-        payment_reference,
-    };
-
-    Ok(Instruction {
-        program_id: *program_id,
-        accounts,
-        data: borsh_to_vec(&instruction_data).unwrap(),
-    })
+        Instruction::new_with_borsh(
+            *program_id,
+            &AirChainPayInstruction::ProcessPayment {
+                amount,
+                payment_reference,
+            },
+            accounts,
+        )
+    }
 }
 
 /// Create a process token payment instruction
@@ -159,7 +141,7 @@ pub fn process_token_payment(
     Ok(Instruction {
         program_id: *program_id,
         accounts,
-        data: borsh_to_vec(&instruction_data).unwrap(),
+        data: borsh_to_vec(&instruction_data)?,
     })
 }
 
@@ -183,6 +165,6 @@ pub fn withdraw_funds(
     Ok(Instruction {
         program_id: *program_id,
         accounts,
-        data: borsh_to_vec(&instruction_data).unwrap(),
+        data: borsh_to_vec(&instruction_data)?,
     })
 } 
