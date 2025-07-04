@@ -16,8 +16,7 @@ const environments = {
     rateLimits: {
       windowMs: 15 * 60 * 1000, // 15 minutes
       max: 100 // 100 requests per IP per windowMs
-    },
-    ussdEnabled: true
+    }
   },
   
   test: {
@@ -32,8 +31,7 @@ const environments = {
     rateLimits: {
       windowMs: 15 * 60 * 1000,
       max: 1000
-    },
-    ussdEnabled: true
+    }
   },
   
   production: {
@@ -48,8 +46,7 @@ const environments = {
     rateLimits: {
       windowMs: 15 * 60 * 1000,
       max: parseInt(process.env.RATE_LIMIT_MAX || '100')
-    },
-    ussdEnabled: process.env.USSD_ENABLED === 'true'
+    }
   }
 };
 

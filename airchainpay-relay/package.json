@@ -12,6 +12,8 @@
     "test-relay": "node scripts/test-relay.js"
   },
   "dependencies": {
+    "@abandonware/noble": "^1.9.2-15",
+    "@abandonware/bleno": "^1.1.31",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
     "ethers": "^6.8.0",
