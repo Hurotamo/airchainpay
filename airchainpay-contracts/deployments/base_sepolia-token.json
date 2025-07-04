@@ -1,0 +1,38 @@
+{
+  "chainName": "base_sepolia",
+  "chainId": 84532,
+  "contractAddress": "0x3B8D998A3675b697DA6bC1DACf042156F2fd3DC0",
+  "owner": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
+  "deployer": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
+  "supportedTokens": [
+    "0x0000000000000000000000000000000000000000",
+    "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+    "0xf55BEC9cafDbE8730f096Aa55dad6D22d44099Df"
+  ],
+  "tokenConfigs": [
+    {
+      "name": "USDC",
+      "address": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      "symbol": "USDC",
+      "decimals": 6,
+      "isStablecoin": true,
+      "minAmount": "1000000",
+      "maxAmount": "100000000000"
+    },
+    {
+      "name": "USDT",
+      "address": "0xf55BEC9cafDbE8730f096Aa55dad6D22d44099Df",
+      "symbol": "USDT",
+      "decimals": 6,
+      "isStablecoin": true,
+      "minAmount": "1000000",
+      "maxAmount": "100000000000"
+    }
+  ],
+  "deployedAt": "2025-07-03T16:50:23.648Z",
+  "txHash": "0x1cb29f2853593e68a3ca61d8b01754cdc76455ad581bd1f6565daee07670b377",
+  "testTokens": {
+    "usdc": "0xd250fA5C28d47d76ec92147Ac896c6478f378f4F",
+    "usdt": "0xc28E82C4ddA7b8160C0B43Ccc2e5EBc4FDCe6460"
+  }
+}
