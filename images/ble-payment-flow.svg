@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="800" height="1200" xmlns="http://www.w3.org/2000/svg">
+    <style>
+        .node { fill: #f9f9f9; stroke: #333; stroke-width: 1px; }
+        .highlight { fill: #326CE5; stroke: #285AB1; color: #fff; }
+        .decision { fill: #FF9800; stroke: #F57C00; color: #fff; }
+        .process { fill: #4CAF50; stroke: #388E3C; color: #fff; }
+        .error { fill: #F44336; stroke: #D32F2F; color: #fff; }
+        .success { fill: #8BC34A; stroke: #689F38; color: #fff; }
+        text { font-family: Arial, sans-serif; font-size: 14px; fill: #fff; }
+    </style>
+    <a href="https://rose-imaginative-lion-87.mypinata.cloud/ipfs/bafkreiflt3r7spjqf6seqcn272auausuhmkpwlpwc34qsvdvpsssfsxipe" target="_blank">
+        <image href="https://rose-imaginative-lion-87.mypinata.cloud/ipfs/bafkreiflt3r7spjqf6seqcn272auausuhmkpwlpwc34qsvdvpsssfsxipe" 
+               width="800" height="1200" 
+               preserveAspectRatio="xMidYMid meet"/>
+    </a>
+</svg> 
