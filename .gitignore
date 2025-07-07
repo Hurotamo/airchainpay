@@ -61,6 +61,7 @@ android/local.properties
 android/.idea/
 android/*.iml
 android/app/*.iml
+android/app/debug.keystore
 
 # Hardhat
 airchainpay-contracts/cache/
@@ -73,3 +74,24 @@ airchainpay-contracts/typechain/
 *.swp
 *.swo
 .DS_Store 
+
+# Relay specific
+airchainpay-relay/env.staging
+airchainpay-relay/env.prod
+airchainpay-relay/env.example
+airchainpay-relay/Dockerfile
+airchainpay-relay/env.dev
+airchainpay-relay/logs/
+airchainpay-relay/data/
+airchainpay-relay/server.log
+
+# Wallet specific
+airchainpay-wallet/android/app/debug.keystore
+airchainpay-wallet/android/app/release.keystore
+airchainpay-wallet/android/app/upload-keystore.jks
+airchainpay-wallet/android/key.properties
+
+# Contract specific
+airchainpay-contracts/.env
+airchainpay-contracts/.env.local
+airchainpay-contracts/.env.production

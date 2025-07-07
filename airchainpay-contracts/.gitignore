@@ -1,2 +1,20 @@
 /node_modules
 .env
+.env.local
+.env.production
+.env.staging
+.env.dev
+
+# Hardhat artifacts
+cache/
+artifacts/
+typechain/
+
+# Deployment files with sensitive data
+deployments/*.json
+!deployments/all-chains.json
+
+# Private keys and secrets
+*.pem
+*.key
+secrets.json
