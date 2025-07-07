@@ -1,25 +1,29 @@
 version: '3.8'
 
 services:
-  relay:
+  relay-dev:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: airchainpay-relay
-    restart: always
+    container_name: airchainpay-relay-dev
+    restart: unless-stopped
     ports:
       - "4000:4000"
     volumes:
       - ./logs:/usr/src/app/logs
       - ./data:/usr/src/app/data
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
     environment:
-      - NODE_ENV=${NODE_ENV:-production}
+      - NODE_ENV=development
+      - DEBUG=true
     env_file:
-      - .env.${NODE_ENV:-production}
+      - .env.dev
       - .env
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:4000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s 
+      start_period: 10s
+    command: ["npm", "run", "dev"] 

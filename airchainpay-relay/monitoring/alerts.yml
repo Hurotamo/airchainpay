@@ -1,0 +1,201 @@
+groups:
+  - name: airchainpay-relay-alerts
+    rules:
+      # Server Health Alerts
+      - alert: RelayServerDown
+        expr: up{job="airchainpay-relay"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: relay
+        annotations:
+          summary: "AirChainPay Relay Server is down"
+          description: "The relay server has been down for more than 1 minute"
+
+      - alert: RelayServerHighResponseTime
+        expr: http_request_duration_seconds{job="airchainpay-relay"} > 2
+        for: 5m
+        labels:
+          severity: warning
+          service: relay
+        annotations:
+          summary: "High response time on relay server"
+          description: "Response time is above 2 seconds for more than 5 minutes"
+
+      # Transaction Processing Alerts
+      - alert: HighTransactionFailureRate
+        expr: rate(transaction_failures_total[5m]) / rate(transaction_requests_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          service: relay
+        annotations:
+          summary: "High transaction failure rate"
+          description: "Transaction failure rate is above 10% for more than 2 minutes"
+
+      - alert: TransactionQueueFull
+        expr: transaction_queue_size > 100
+        for: 1m
+        labels:
+          severity: warning
+          service: relay
+        annotations:
+          summary: "Transaction queue is full"
+          description: "Transaction queue has more than 100 pending transactions"
+
+      # BLE Connection Alerts
+      - alert: BLEDeviceConnectionIssues
+        expr: ble_connected_devices < 1
+        for: 5m
+        labels:
+          severity: warning
+          service: relay
+        annotations:
+          summary: "No BLE devices connected"
+          description: "No Bluetooth devices are connected to the relay server"
+
+      - alert: BLEKeyExchangeFailures
+        expr: rate(ble_key_exchange_failures_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+          service: relay
+        annotations:
+          summary: "BLE key exchange failures detected"
+          description: "Bluetooth key exchange failures are occurring"
+
+      # Blockchain Connection Alerts
+      - alert: BlockchainRPCError
+        expr: rate(blockchain_rpc_errors_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: relay
+        annotations:
+          summary: "Blockchain RPC errors"
+          description: "Errors connecting to blockchain RPC endpoints"
+
+      - alert: HighGasPrice
+        expr: blockchain_gas_price > 100000000000
+        for: 5m
+        labels:
+          severity: warning
+          service: relay
+        annotations:
+          summary: "High gas price detected"
+          description: "Gas price is above 100 gwei"
+
+      # Authentication Alerts
+      - alert: AuthenticationFailures
+        expr: rate(auth_failures_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          service: relay
+        annotations:
+          summary: "High authentication failure rate"
+          description: "Authentication failure rate is above 10%"
+
+      - alert: UnauthorizedAccessAttempts
+        expr: rate(unauthorized_requests_total[5m]) > 5
+        for: 1m
+        labels:
+          severity: warning
+          service: relay
+        annotations:
+          summary: "Multiple unauthorized access attempts"
+          description: "More than 5 unauthorized access attempts per minute"
+
+      # System Resource Alerts
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: relay
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is above 80% for more than 5 minutes"
+
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          service: relay
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is above 85% for more than 5 minutes"
+
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_size_bytes - node_filesystem_free_bytes) / node_filesystem_size_bytes * 100 > 90
+        for: 5m
+        labels:
+          severity: critical
+          service: relay
+        annotations:
+          summary: "Low disk space"
+          description: "Disk usage is above 90%"
+
+      # Network Alerts
+      - alert: HighNetworkErrors
+        expr: rate(node_network_receive_errs_total[5m]) + rate(node_network_transmit_errs_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+          service: relay
+        annotations:
+          summary: "Network errors detected"
+          description: "Network receive or transmit errors are occurring"
+
+      # Docker Container Alerts
+      - alert: ContainerRestarting
+        expr: changes(container_start_time_seconds[15m]) > 2
+        for: 1m
+        labels:
+          severity: warning
+          service: relay
+        annotations:
+          summary: "Container restarting frequently"
+          description: "Container has restarted more than 2 times in 15 minutes"
+
+      - alert: ContainerDown
+        expr: container_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: relay
+        annotations:
+          summary: "Container is down"
+          description: "Docker container is not running"
+
+      # Application Specific Alerts
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          service: relay
+        annotations:
+          summary: "High HTTP error rate"
+          description: "HTTP 5xx error rate is above 5%"
+
+      - alert: SlowTransactions
+        expr: histogram_quantile(0.95, rate(transaction_duration_seconds_bucket[5m])) > 30
+        for: 2m
+        labels:
+          severity: warning
+          service: relay
+        annotations:
+          summary: "Slow transaction processing"
+          description: "95th percentile of transaction processing time is above 30 seconds"
+
+      - alert: QueueBacklog
+        expr: transaction_queue_processing_duration_seconds > 300
+        for: 1m
+        labels:
+          severity: warning
+          service: relay
+        annotations:
+          summary: "Transaction queue backlog"
+          description: "Transactions are waiting in queue for more than 5 minutes" 

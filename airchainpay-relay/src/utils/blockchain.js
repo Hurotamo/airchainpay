@@ -1,7 +1,6 @@
 const { ethers } = require('ethers');
 const logger = require('./logger');
-const { SUPPORTED_CHAINS } = require('../../config/default');
-const { AirChainPay } = require('../abi/AirChainPay.json');
+const config = require('../../config/default');
 
 // Cache for providers and contracts
 const providers = new Map();
@@ -11,12 +10,12 @@ const contracts = new Map();
  * Get provider for a specific chain
  */
 function getProvider(chainId) {
-  if (!SUPPORTED_CHAINS[chainId]) {
+  if (!config.SUPPORTED_CHAINS[chainId]) {
     throw new Error(`Unsupported chain: ${chainId}`);
   }
 
   if (!providers.has(chainId)) {
-    const provider = new ethers.JsonRpcProvider(SUPPORTED_CHAINS[chainId].rpcUrl);
+    const provider = new ethers.JsonRpcProvider(config.SUPPORTED_CHAINS[chainId].rpcUrl);
     providers.set(chainId, provider);
   }
 
@@ -27,18 +26,18 @@ function getProvider(chainId) {
  * Get contract instance for a specific chain
  */
 function getContract(chainId) {
-  if (!SUPPORTED_CHAINS[chainId]) {
+  if (!config.SUPPORTED_CHAINS[chainId]) {
     throw new Error(`Unsupported chain: ${chainId}`);
   }
 
   if (!contracts.has(chainId)) {
     const provider = getProvider(chainId);
-    const contractAddress = SUPPORTED_CHAINS[chainId].contractAddress;
-    if (!contractAddress) {
-      throw new Error(`No contract address for chain: ${chainId}`);
+    const contractAddress = config.SUPPORTED_CHAINS[chainId].contractAddress;
+    if (!contractAddress || contractAddress === '0x0000000000000000000000000000000000000000') {
+      throw new Error(`No contract address configured for chain: ${chainId}`);
     }
 
-    const contract = new ethers.Contract(contractAddress, AirChainPay.abi, provider);
+    const contract = new ethers.Contract(contractAddress, require('../abi/AirChainPay.json'), provider);
     contracts.set(chainId, contract);
   }
 
@@ -130,7 +129,7 @@ async function validateTransaction(txData) {
     logger.error('[Blockchain] Transaction validation error:', error);
     return { 
       isValid: false, 
-      error: error instanceof Error ? error.message : 'Unknown validation error' 
+      error: error instanceof Error ? error.message : 'Unknown validation error', 
     };
   }
 }
@@ -145,7 +144,7 @@ async function estimateGas(txData, provider) {
   try {
     const tx = {
       to: txData.to,
-      value: ethers.utils.parseEther(txData.amount.toString())
+      value: ethers.parseEther(txData.amount.toString()),
     };
 
     if (txData.tokenAddress) {
@@ -153,12 +152,12 @@ async function estimateGas(txData, provider) {
       const tokenContract = new ethers.Contract(
         txData.tokenAddress,
         ['function transfer(address to, uint256 amount)'],
-        provider
+        provider,
       );
       
       const gasLimit = await tokenContract.estimateGas.transfer(
         txData.to,
-        ethers.utils.parseUnits(txData.amount.toString(), 18) // Assuming 18 decimals
+        ethers.parseUnits(txData.amount.toString(), 18), // Assuming 18 decimals
       );
       
       return { gasLimit };
@@ -171,7 +170,7 @@ async function estimateGas(txData, provider) {
     logger.error('[Blockchain] Gas estimation error:', error);
     return { 
       gasLimit: ethers.BigNumber.from(21000), // Default gas limit
-      error: error instanceof Error ? error.message : 'Gas estimation failed' 
+      error: error instanceof Error ? error.message : 'Gas estimation failed', 
     };
   }
 }
@@ -181,5 +180,5 @@ module.exports = {
   getContract,
   cleanup,
   validateTransaction,
-  estimateGas
+  estimateGas,
 }; 

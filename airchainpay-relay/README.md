@@ -6,7 +6,7 @@ This is the relay node for AirChainPay, responsible for receiving signed transac
 - Node.js + Express server
 - Receives signed transactions from wallet apps
 - Broadcasts transactions to EVM-compatible blockchains (via ethers.js)
-- (Planned) BLE and USSD support
+- (Planned) BLE support
 - (Optional) PostgreSQL logging
 
 ## Setup

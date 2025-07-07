@@ -17,11 +17,8 @@ RUN chmod -R 755 data logs
 # Expose port
 EXPOSE 4000
 
-# Set environment variables
-ENV NODE_ENV=production
-
 # Run as non-root user for better security
 USER node
 
-# Start the server
+# Start the server (NODE_ENV will be set by docker-compose or environment)
 CMD ["node", "src/server.js"] 

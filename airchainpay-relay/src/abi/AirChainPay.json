@@ -1,5 +1,5 @@
 [
-  {"inputs":[],"stateMutability":"nonpayable","type":"constructor"},
+  {"inputs":[{"internalType":"address","name":"_owner","type":"address"}],"stateMutability":"nonpayable","type":"constructor"},
   {"inputs":[],"name":"InsufficientBalance","type":"error"},
   {"inputs":[],"name":"InvalidAmount","type":"error"},
   {"inputs":[],"name":"InvalidFeeRate","type":"error"},
@@ -41,5 +41,9 @@
   {"inputs":[{"internalType":"address","name":"token","type":"address"},{"internalType":"uint256","name":"minAmount","type":"uint256"},{"internalType":"uint256","name":"maxAmount","type":"uint256"}],"name":"updateTokenConfig","outputs":[],"stateMutability":"nonpayable","type":"function"},
   {"inputs":[{"internalType":"address","name":"","type":"address"}],"name":"userPaymentCount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
   {"inputs":[{"internalType":"address","name":"token","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"withdrawFees","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"stateMutability":"payable","type":"receive"}
+  {"stateMutability":"payable","type":"receive"},
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"from","type":"address"},{"indexed":true,"internalType":"address","name":"to","type":"address"},{"indexed":false,"internalType":"uint256","name":"amount","type":"uint256"},{"indexed":false,"internalType":"string","name":"paymentReference","type":"string"}],"name":"Payment","type":"event"},
+  {"inputs":[{"internalType":"address","name":"recipient","type":"address"},{"internalType":"string","name":"paymentReference","type":"string"}],"name":"sendPayment","outputs":[],"stateMutability":"payable","type":"function"},
+  {"inputs":[{"internalType":"address","name":"token","type":"address"},{"internalType":"address","name":"recipient","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"},{"internalType":"string","name":"paymentReference","type":"string"}],"name":"sendTokenPayment","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"address","name":"newOwner","type":"address"}],"name":"transferOwnership","outputs":[],"stateMutability":"nonpayable","type":"function"}
 ] 

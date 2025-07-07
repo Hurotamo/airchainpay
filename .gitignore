@@ -95,3 +95,4 @@ airchainpay-wallet/android/key.properties
 airchainpay-contracts/.env
 airchainpay-contracts/.env.local
 airchainpay-contracts/.env.production
+airchainpay-relay/.env.prod
