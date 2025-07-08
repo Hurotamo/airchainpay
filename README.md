@@ -49,7 +49,7 @@ AirChainPay is a next-generation multi-chain payment platform designed to enable
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/airchainpay.git
+git clone https://github.com/Hurotamo/airchainpay.git
 cd airchainpay
 ```
 
