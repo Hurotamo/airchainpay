@@ -1,4 +1,4 @@
-![AirChainPay Logo](images/airchainpay-logo.png)
+![AirChainPay Logo](https://rose-imaginative-lion-87.mypinata.cloud/ipfs/bafybeiaer2oyqh5qpkmtuewgqcbaxjjvrleblkisor37nkib3nhesgency)
 
 # AirChainPay
 
