@@ -1,6 +1,8 @@
+![AirChainPay Logo](images/airchainpay-logo.png)
+
 # AirChainPay
 
-A multi-chain payment solution for offline and online transactions.
+AirChainPay is a next-generation multi-chain payment platform designed to enable seamless, secure, and instant transactions both online and offline. By leveraging blockchain technology and Bluetooth connectivity, AirChainPay empowers users to make payments across multiple networks, even in environments with limited or no internet access. The platform is built to support interoperability, privacy, and ease of use for merchants and consumers alike.
 
 ## Project Structure
 
