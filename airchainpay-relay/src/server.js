@@ -294,7 +294,7 @@ const authenticateToken = (req, res, next) => {
   
   if (!token) return res.status(401).json({ error: 'Authentication required' });
   
-  jwt.verify(token, config.jwtSecret || 'airchainpay_secret_key', (err, user) => {
+  jwt.verify(token, config.jwtSecret || process.env.JWT_SECRET || 'dev_jwt_secret_placeholder', (err, user) => {
     if (err) return res.status(403).json({ error: 'Invalid or expired token' });
     req.user = user;
     next();
@@ -898,7 +898,7 @@ app.post('/auth/token',
     
     const token = jwt.sign(
       { id: 'api-client', type: 'relay' },
-      config.jwtSecret || 'airchainpay_secret_key',
+      config.jwtSecret || process.env.JWT_SECRET || 'dev_jwt_secret_placeholder',
       { expiresIn: '24h' }
     );
     

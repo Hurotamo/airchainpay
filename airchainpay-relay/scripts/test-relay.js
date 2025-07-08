@@ -4,7 +4,7 @@ const path = require('path');
 
 // Test configuration
 const RELAY_URL = process.env.RELAY_URL || 'http://localhost:4000';
-const API_KEY = process.env.API_KEY || 'c3dc80f325d9b8a95f94228b7f7e82de7b9b88598e5da87989251eeb19f5b22f';
+const API_KEY = process.env.API_KEY || 'test_api_key_placeholder';
 
 let serverProcess = null;
 
