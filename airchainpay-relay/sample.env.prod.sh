@@ -13,10 +13,10 @@ LOG_LEVEL=warn
 # SECURITY - PRODUCTION SECRETS (GENERATE SECURELY)
 # ===========================================
 # Production API Key - GENERATE WITH: node -e "console.log('API_KEY:', require('crypto').randomBytes(32).toString('hex'))"
-API_KEY=611d4388b3f0df7e419877a661d1286b136698d9f9399bda6aa10904917c846d
+API_KEY=611d4388b3f0df7e419877a661d1286b136698d9f9399bda6aa10904917c846djdjew82 = sample 
 
 # Production JWT Secret - GENERATE WITH: node -e "console.log('JWT_SECRET:', require('crypto').randomBytes(64).toString('hex'))"
-JWT_SECRET=d3dc0c63f32701a6520154fa7d9432d6c66576fb0ce82f1124f441cc911c7c228252257a5638614e1c6f1a5170a4facd31af3e918b8cfa7177237b381956e875
+JWT_SECRET=sample-d3dcdsdw0c63f32701a6520154fa7d9432d6c66576fb0ce82f1124f441cc911c7c228252257a5638614e1c6f1a5170a4facd31af3e918b8cfa7177237b381956e875
 
 # ===========================================
 # CORS CONFIGURATION - PRODUCTION
