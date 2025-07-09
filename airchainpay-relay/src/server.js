@@ -17,6 +17,68 @@ const { processTransaction } = require('./processors/TransactionProcessor');
 const { validateTransaction } = require('./validators/TransactionValidator');
 const { getProvider, getContract } = require('./utils/blockchain');
 
+// Database integration
+const database = require('./utils/database');
+
+// Swagger/OpenAPI documentation
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpec = require('./swagger');
+
+// Metrics collection
+const metrics = {
+  // Transaction metrics
+  transactionsReceived: 0,
+  transactionsProcessed: 0,
+  transactionsFailed: 0,
+  transactionsBroadcasted: 0,
+  
+  // BLE metrics
+  bleConnections: 0,
+  bleDisconnections: 0,
+  bleAuthentications: 0,
+  bleKeyExchanges: 0,
+  
+  // Blockchain metrics
+  rpcErrors: 0,
+  gasPriceUpdates: 0,
+  contractEvents: 0,
+  
+  // Security metrics
+  authFailures: 0,
+  rateLimitHits: 0,
+  blockedDevices: 0,
+  
+  // System metrics
+  uptime: 0,
+  memoryUsage: 0,
+  cpuUsage: 0,
+  
+  // Reset function
+  reset() {
+    this.transactionsReceived = 0;
+    this.transactionsProcessed = 0;
+    this.transactionsFailed = 0;
+    this.transactionsBroadcasted = 0;
+    this.bleConnections = 0;
+    this.bleDisconnections = 0;
+    this.bleAuthentications = 0;
+    this.bleKeyExchanges = 0;
+    this.rpcErrors = 0;
+    this.gasPriceUpdates = 0;
+    this.contractEvents = 0;
+    this.authFailures = 0;
+    this.rateLimitHits = 0;
+    this.blockedDevices = 0;
+  }
+};
+
+// Update system metrics periodically
+setInterval(() => {
+  metrics.uptime = process.uptime();
+  metrics.memoryUsage = process.memoryUsage().heapUsed;
+  metrics.cpuUsage = process.cpuUsage().user;
+}, 5000);
+
 // Input sanitization utilities
 const sanitizeInput = {
   // Sanitize string inputs
@@ -301,7 +363,40 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// Health check endpoint to verify server is running
+// Swagger UI endpoint for API documentation
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+  customCss: '.swagger-ui .topbar { display: none }',
+  customSiteTitle: 'AirChainPay Relay API Documentation',
+  customfavIcon: '/favicon.ico',
+  swaggerOptions: {
+    docExpansion: 'list',
+    filter: true,
+    showRequestHeaders: true,
+    showCommonExtensions: true
+  }
+}));
+
+/**
+ * @swagger
+ * /health:
+ *   get:
+ *     summary: Get server health status
+ *     description: Returns comprehensive health information including BLE status and metrics
+ *     tags: [Health]
+ *     responses:
+ *       200:
+ *         description: Server health information
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/HealthStatus'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 app.get('/health', (req, res) => {
   const bleStatus = getBLEStatus();
   
@@ -310,8 +405,119 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     version: process.env.npm_package_version || '1.0.0',
-    ble: bleStatus
+    ble: bleStatus,
+    metrics: {
+      transactions: {
+        received: metrics.transactionsReceived,
+        processed: metrics.transactionsProcessed,
+        failed: metrics.transactionsFailed,
+        broadcasted: metrics.transactionsBroadcasted
+      },
+      ble: {
+        connections: metrics.bleConnections,
+        disconnections: metrics.bleDisconnections,
+        authentications: metrics.bleAuthentications,
+        keyExchanges: metrics.bleKeyExchanges
+      },
+      system: {
+        uptime: metrics.uptime,
+        memoryUsage: metrics.memoryUsage,
+        cpuUsage: metrics.cpuUsage
+      }
+    }
   });
+});
+
+/**
+ * @swagger
+ * /metrics:
+ *   get:
+ *     summary: Get Prometheus metrics
+ *     description: Returns server metrics in Prometheus format for monitoring
+ *     tags: [Monitoring]
+ *     responses:
+ *       200:
+ *         description: Prometheus metrics
+ *         content:
+ *           text/plain:
+ *             schema:
+ *               type: string
+ *               example: |
+ *                 # HELP airchainpay_transactions_received_total Total number of transactions received
+ *                 # TYPE airchainpay_transactions_received_total counter
+ *                 airchainpay_transactions_received_total 5
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+app.get('/metrics', (req, res) => {
+  const prometheusMetrics = [
+    '# HELP airchainpay_transactions_received_total Total number of transactions received',
+    '# TYPE airchainpay_transactions_received_total counter',
+    `airchainpay_transactions_received_total ${metrics.transactionsReceived}`,
+    '',
+    '# HELP airchainpay_transactions_processed_total Total number of transactions processed',
+    '# TYPE airchainpay_transactions_processed_total counter',
+    `airchainpay_transactions_processed_total ${metrics.transactionsProcessed}`,
+    '',
+    '# HELP airchainpay_transactions_failed_total Total number of transactions failed',
+    '# TYPE airchainpay_transactions_failed_total counter',
+    `airchainpay_transactions_failed_total ${metrics.transactionsFailed}`,
+    '',
+    '# HELP airchainpay_transactions_broadcasted_total Total number of transactions broadcasted',
+    '# TYPE airchainpay_transactions_broadcasted_total counter',
+    `airchainpay_transactions_broadcasted_total ${metrics.transactionsBroadcasted}`,
+    '',
+    '# HELP airchainpay_ble_connections_total Total number of BLE connections',
+    '# TYPE airchainpay_ble_connections_total counter',
+    `airchainpay_ble_connections_total ${metrics.bleConnections}`,
+    '',
+    '# HELP airchainpay_ble_disconnections_total Total number of BLE disconnections',
+    '# TYPE airchainpay_ble_disconnections_total counter',
+    `airchainpay_ble_disconnections_total ${metrics.bleDisconnections}`,
+    '',
+    '# HELP airchainpay_ble_authentications_total Total number of BLE authentications',
+    '# TYPE airchainpay_ble_authentications_total counter',
+    `airchainpay_ble_authentications_total ${metrics.bleAuthentications}`,
+    '',
+    '# HELP airchainpay_ble_key_exchanges_total Total number of BLE key exchanges',
+    '# TYPE airchainpay_ble_key_exchanges_total counter',
+    `airchainpay_ble_key_exchanges_total ${metrics.bleKeyExchanges}`,
+    '',
+    '# HELP airchainpay_rpc_errors_total Total number of RPC errors',
+    '# TYPE airchainpay_rpc_errors_total counter',
+    `airchainpay_rpc_errors_total ${metrics.rpcErrors}`,
+    '',
+    '# HELP airchainpay_auth_failures_total Total number of authentication failures',
+    '# TYPE airchainpay_auth_failures_total counter',
+    `airchainpay_auth_failures_total ${metrics.authFailures}`,
+    '',
+    '# HELP airchainpay_rate_limit_hits_total Total number of rate limit hits',
+    '# TYPE airchainpay_rate_limit_hits_total counter',
+    `airchainpay_rate_limit_hits_total ${metrics.rateLimitHits}`,
+    '',
+    '# HELP airchainpay_blocked_devices_total Total number of blocked devices',
+    '# TYPE airchainpay_blocked_devices_total counter',
+    `airchainpay_blocked_devices_total ${metrics.blockedDevices}`,
+    '',
+    '# HELP airchainpay_uptime_seconds Server uptime in seconds',
+    '# TYPE airchainpay_uptime_seconds gauge',
+    `airchainpay_uptime_seconds ${metrics.uptime}`,
+    '',
+    '# HELP airchainpay_memory_usage_bytes Memory usage in bytes',
+    '# TYPE airchainpay_memory_usage_bytes gauge',
+    `airchainpay_memory_usage_bytes ${metrics.memoryUsage}`,
+    '',
+    '# HELP airchainpay_cpu_usage_microseconds CPU usage in microseconds',
+    '# TYPE airchainpay_cpu_usage_microseconds gauge',
+    `airchainpay_cpu_usage_microseconds ${metrics.cpuUsage}`
+  ].join('\n');
+  
+  res.set('Content-Type', 'text/plain');
+  res.send(prometheusMetrics);
 });
 
 /**
@@ -449,7 +655,7 @@ app.get('/contract/owner', async (req, res) => {
 
 /**
  * Complete BLE transaction receiving implementation
- * Handles secure transaction processing from BLE devices
+ * Handles secure transaction processing from BLE devices with multi-chain support
  */
 async function receiveTxViaBLE(deviceId, transactionData) {
   try {
@@ -497,9 +703,40 @@ async function receiveTxViaBLE(deviceId, transactionData) {
       return { success: false, error: 'Missing transaction ID' };
     }
 
+    // Multi-chain support: Validate and determine chain ID
+    let targetChainId = transactionData.chainId;
+    
+    // If no chainId provided, use default (Base Sepolia)
+    if (!targetChainId) {
+      targetChainId = 84532; // Default to Base Sepolia
+      logger.info(`[BLE] No chainId provided, defaulting to Base Sepolia (84532) for device ${deviceId}`);
+    }
+
+    // Validate chain ID is supported
+    const supportedChains = [84532, 1114]; // Base Sepolia, Core Testnet 2
+    if (!supportedChains.includes(parseInt(targetChainId))) {
+      logger.error(`[BLE] Unsupported chain ID ${targetChainId} from device ${deviceId}`);
+      return { 
+        success: false, 
+        error: `Unsupported chain ID: ${targetChainId}. Supported chains: ${supportedChains.join(', ')}`,
+      };
+    }
+
+    // Get network info for logging
+    const networkInfo = {
+      84532: 'Base Sepolia',
+      1114: 'Core Testnet 2',
+    };
+    
+    logger.info(`[BLE] Processing transaction for ${networkInfo[targetChainId]} (${targetChainId}) from device ${deviceId}`);
+
     // Validate the transaction format using blockchain validator
     const { validateTransaction } = require('./validators/TransactionValidator');
-    const validationResult = await validateTransaction(transactionData);
+    const validationResult = await validateTransaction({
+      ...transactionData,
+      chainId: targetChainId
+    });
+    
     if (!validationResult.isValid) {
       logger.error(`[BLE] Transaction validation failed for ${deviceId}: ${validationResult.error}`);
       return { success: false, error: validationResult.error };
@@ -515,22 +752,55 @@ async function receiveTxViaBLE(deviceId, transactionData) {
       };
     }
 
-    // Process the transaction using the blockchain processor
+    // Process the transaction using the blockchain processor with specific chain ID
     const { processTransaction } = require('./processors/TransactionProcessor');
     const result = await processTransaction({
       id: transactionData.id,
       signedTransaction: transactionData.signedTransaction,
-      chainId: transactionData.chainId || config.chainId,
+      chainId: targetChainId,
       metadata: {
         deviceId,
         source: 'ble',
+        network: networkInfo[targetChainId],
         timestamp: Date.now()
       }
     });
 
-    logger.info(`[BLE] Transaction processed successfully`, {
+    // Save transaction to database
+    const transactionRecord = {
+      id: transactionData.id,
+      hash: result.hash,
+      chainId: targetChainId,
+      network: networkInfo[targetChainId],
+      deviceId: deviceId,
+      source: 'ble',
+      status: 'confirmed',
+      blockNumber: result.blockNumber,
+      gasUsed: result.gasUsed,
+      timestamp: new Date().toISOString(),
+      metadata: {
+        amount: transactionData.amount,
+        to: transactionData.to,
+        from: transactionData.from
+      }
+    };
+    
+    database.saveTransaction(transactionRecord);
+    
+    // Update device information
+    database.saveDevice(deviceId, {
+      name: `BLE Device ${deviceId}`,
+      lastTransaction: transactionRecord.id,
+      lastTransactionTime: transactionRecord.timestamp,
+      status: 'active',
+      capabilities: ['ble', 'transactions']
+    });
+
+    logger.info(`[BLE] Transaction processed successfully on ${networkInfo[targetChainId]}`, {
       deviceId,
       txId: transactionData.id,
+      chainId: targetChainId,
+      network: networkInfo[targetChainId],
       hash: result.hash,
       blockNumber: result.blockNumber,
       gasUsed: result.gasUsed
@@ -541,6 +811,8 @@ async function receiveTxViaBLE(deviceId, transactionData) {
       await bleManager.sendTransactionStatus(deviceId, {
         txId: transactionData.id,
         status: 'success',
+        chainId: targetChainId,
+        network: networkInfo[targetChainId],
         hash: result.hash,
         blockNumber: result.blockNumber,
         gasUsed: result.gasUsed,
@@ -553,13 +825,16 @@ async function receiveTxViaBLE(deviceId, transactionData) {
       deviceId,
       txId: transactionData.id,
       hash: result.hash,
-      chainId: transactionData.chainId || config.chainId,
+      chainId: targetChainId,
+      network: networkInfo[targetChainId],
       amount: transactionData.amount,
       to: transactionData.to
     });
 
     return { 
       success: true, 
+      chainId: targetChainId,
+      network: networkInfo[targetChainId],
       hash: result.hash,
       blockNumber: result.blockNumber,
       gasUsed: result.gasUsed,
@@ -570,6 +845,7 @@ async function receiveTxViaBLE(deviceId, transactionData) {
     logger.error(`[BLE] Error processing transaction from ${deviceId}:`, {
       deviceId,
       txId: transactionData?.id,
+      chainId: transactionData?.chainId,
       error: error.message,
       stack: error.stack
     });
@@ -593,7 +869,7 @@ async function receiveTxViaBLE(deviceId, transactionData) {
       deviceId,
       txId: transactionData?.id,
       error: error.message,
-      chainId: transactionData?.chainId || config.chainId
+      chainId: transactionData?.chainId
     });
 
     return { 
@@ -1247,6 +1523,277 @@ app.get('/ble/key-exchange/devices', authenticateToken, (req, res) => {
   res.json({ devices });
 });
 
+// ============================================================================
+// DATABASE API ENDPOINTS
+// ============================================================================
+
+// Get all transactions with pagination
+app.get('/api/database/transactions', 
+  authenticateToken,
+  validateInput.types({ limit: 'number', offset: 'number' }),
+  (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit) || 100;
+      const offset = parseInt(req.query.offset) || 0;
+      
+      const transactions = database.getTransactions(limit, offset);
+      const total = database.getTransactions(10000).length; // Get total count
+      
+      res.json({
+        success: true,
+        data: {
+          transactions,
+          pagination: {
+            limit,
+            offset,
+            total,
+            hasMore: offset + limit < total
+          }
+        }
+      });
+    } catch (error) {
+      logger.error('Error fetching transactions:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+// Get transaction by ID
+app.get('/api/database/transactions/:id',
+  authenticateToken,
+  validateInput.types({ id: 'string' }),
+  (req, res) => {
+    try {
+      const { id } = req.params;
+      const transaction = database.getTransactionById(id);
+      
+      if (!transaction) {
+        return res.status(404).json({ error: 'Transaction not found' });
+      }
+      
+      res.json({
+        success: true,
+        data: transaction
+      });
+    } catch (error) {
+      logger.error('Error fetching transaction:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+// Get transactions by device
+app.get('/api/database/transactions/device/:deviceId',
+  authenticateToken,
+  validateInput.types({ deviceId: 'deviceId' }),
+  validateInput.types({ limit: 'number' }),
+  (req, res) => {
+    try {
+      const { deviceId } = req.params;
+      const limit = parseInt(req.query.limit) || 50;
+      
+      const transactions = database.getTransactionsByDevice(deviceId, limit);
+      
+      res.json({
+        success: true,
+        data: {
+          deviceId,
+          transactions,
+          count: transactions.length
+        }
+      });
+    } catch (error) {
+      logger.error('Error fetching device transactions:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+// Get all devices
+app.get('/api/database/devices',
+  authenticateToken,
+  (req, res) => {
+    try {
+      const devices = database.getAllDevices();
+      
+      res.json({
+        success: true,
+        data: {
+          devices,
+          count: Object.keys(devices).length
+        }
+      });
+    } catch (error) {
+      logger.error('Error fetching devices:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+// Get device by ID
+app.get('/api/database/devices/:deviceId',
+  authenticateToken,
+  validateInput.types({ deviceId: 'deviceId' }),
+  (req, res) => {
+    try {
+      const { deviceId } = req.params;
+      const device = database.getDevice(deviceId);
+      
+      if (!device) {
+        return res.status(404).json({ error: 'Device not found' });
+      }
+      
+      res.json({
+        success: true,
+        data: device
+      });
+    } catch (error) {
+      logger.error('Error fetching device:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+// Update device status
+app.put('/api/database/devices/:deviceId/status',
+  authenticateToken,
+  validateInput.types({ deviceId: 'deviceId' }),
+  validateInput.types({ status: 'string' }),
+  (req, res) => {
+    try {
+      const { deviceId } = req.params;
+      const { status } = req.body;
+      
+      const success = database.updateDeviceStatus(deviceId, status);
+      
+      if (!success) {
+        return res.status(404).json({ error: 'Device not found' });
+      }
+      
+      res.json({
+        success: true,
+        message: 'Device status updated successfully'
+      });
+    } catch (error) {
+      logger.error('Error updating device status:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+// Get metrics with time range
+app.get('/api/database/metrics',
+  authenticateToken,
+  validateInput.types({ timeRange: 'string' }),
+  (req, res) => {
+    try {
+      const timeRange = req.query.timeRange || '24h';
+      const metrics = database.getMetrics(timeRange);
+      
+      res.json({
+        success: true,
+        data: {
+          timeRange,
+          metrics,
+          count: metrics.length
+        }
+      });
+    } catch (error) {
+      logger.error('Error fetching metrics:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+// Create database backup
+app.post('/api/database/backup',
+  authenticateToken,
+  (req, res) => {
+    try {
+      const backupPath = database.createBackup();
+      
+      res.json({
+        success: true,
+        data: {
+          backupPath,
+          message: 'Backup created successfully'
+        }
+      });
+    } catch (error) {
+      logger.error('Error creating backup:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+// Get database statistics
+app.get('/api/database/stats',
+  authenticateToken,
+  (req, res) => {
+    try {
+      const transactions = database.getTransactions(10000);
+      const devices = database.getAllDevices();
+      const metrics = database.getMetrics('24h');
+      
+      const stats = {
+        transactions: {
+          total: transactions.length,
+          recent: transactions.slice(-10).length,
+          byChain: transactions.reduce((acc, tx) => {
+            const chain = tx.chainId || 'unknown';
+            acc[chain] = (acc[chain] || 0) + 1;
+            return acc;
+          }, {})
+        },
+        devices: {
+          total: Object.keys(devices).length,
+          active: Object.values(devices).filter(d => d.status === 'active').length,
+          inactive: Object.values(devices).filter(d => d.status === 'inactive').length
+        },
+        metrics: {
+          total: metrics.length,
+          timeRange: '24h'
+        },
+        storage: {
+          dataDirectory: database.dataDir,
+          backupDirectory: path.join(database.dataDir, 'backups')
+        }
+      };
+      
+      res.json({
+        success: true,
+        data: stats
+      });
+    } catch (error) {
+      logger.error('Error fetching database stats:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+// Get database security status
+app.get('/api/database/security',
+  authenticateToken,
+  (req, res) => {
+    try {
+      const securityStatus = database.getSecurityStatus();
+      const recentAuditLogs = database.getRecentAuditLogs(20);
+      
+      res.json({
+        success: true,
+        data: {
+          securityStatus,
+          recentAuditLogs,
+          timestamp: new Date().toISOString()
+        }
+      });
+    } catch (error) {
+      logger.error('Error fetching security status:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
 // Legacy /tx endpoint (for backward compatibility with tests)
 app.post('/tx', (req, res) => {
   res.status(400).json({ error: 'Legacy endpoint not supported' });
@@ -1283,4 +1830,72 @@ module.exports = {
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, shutting down gracefully');
   process.exit(0);
+}); 
+
+// Network status endpoint - shows status of all supported networks
+app.get('/networks/status', async (req, res) => {
+  try {
+    const networks = [
+      {
+        chainId: 84532,
+        name: 'Base Sepolia',
+        rpcUrl: 'https://sepolia.base.org',
+        contractAddress: '0x7B79117445C57eea1CEAb4733020A55e1D503934',
+        explorer: 'https://sepolia.basescan.org',
+        currency: 'ETH',
+      },
+      {
+        chainId: 1114,
+        name: 'Core Testnet 2',
+        rpcUrl: 'https://rpc.test2.btcs.network',
+        contractAddress: '0x7B79117445C57eea1CEAb4733020A55e1D503934',
+        explorer: 'https://scan.test2.btcs.network',
+        currency: 'TCORE2',
+      },
+    ];
+
+    const networkStatus = [];
+
+    for (const network of networks) {
+      try {
+        const provider = getProvider(network.chainId);
+        const latestBlock = await provider.getBlock('latest');
+        const gasPrice = await provider.getFeeData();
+        const contractCode = await provider.getCode(network.contractAddress);
+
+        networkStatus.push({
+          ...network,
+          status: 'online',
+          blockNumber: latestBlock.number,
+          gasPrice: ethers.formatUnits(gasPrice.gasPrice, 'gwei'),
+          contractExists: contractCode !== '0x',
+          lastChecked: new Date().toISOString(),
+        });
+      } catch (error) {
+        networkStatus.push({
+          ...network,
+          status: 'offline',
+          error: error.message,
+          lastChecked: new Date().toISOString(),
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        networks: networkStatus,
+        totalNetworks: networks.length,
+        onlineNetworks: networkStatus.filter(n => n.status === 'online').length,
+        timestamp: new Date().toISOString(),
+      },
+    });
+  } catch (error) {
+    logger.error('Error getting network status:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
 }); 

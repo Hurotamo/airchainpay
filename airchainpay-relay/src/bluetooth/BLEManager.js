@@ -340,30 +340,71 @@ class BLEManager extends EventEmitter {
         return;
       }
 
-      // Validate transaction format and data
+      // Multi-chain support: Validate chain ID
+      let targetChainId = txData.chainId;
+      
+      // If no chainId provided, use default (Base Sepolia)
+      if (!targetChainId) {
+        targetChainId = 84532; // Default to Base Sepolia
+        logger.info(`[BLE] No chainId provided, defaulting to Base Sepolia (84532) for device ${deviceId}`);
+      }
+
+      // Validate chain ID is supported
+      const supportedChains = [84532, 1114]; // Base Sepolia, Core Testnet 2
+      if (!supportedChains.includes(parseInt(targetChainId))) {
+        logger.error(`[BLE] Unsupported chain ID ${targetChainId} from device ${deviceId}`);
+        await this.sendData(deviceId, {
+          type: 'error',
+          error: `Unsupported chain ID: ${targetChainId}. Supported chains: ${supportedChains.join(', ')}`,
+        });
+        return;
+      }
+
+      // Get network info for logging
+      const networkInfo = {
+        84532: 'Base Sepolia',
+        1114: 'Core Testnet 2',
+      };
+      
+      logger.info(`[BLE] Processing transaction for ${networkInfo[targetChainId]} (${targetChainId}) from device ${deviceId}`);
+
+      // Validate transaction format and data with chain ID
       const { validateTransaction } = require('../utils/blockchain');
-      const validationResult = await validateTransaction(txData);
+      const validationResult = await validateTransaction({
+        ...txData,
+        chainId: targetChainId,
+      });
+      
       if (!validationResult.isValid) {
         throw new Error(`Invalid transaction: ${validationResult.error}`);
       }
+
+      // Add chain ID to transaction data
+      const enrichedTxData = {
+        ...txData,
+        chainId: targetChainId,
+        network: networkInfo[targetChainId],
+      };
 
       // Add to transaction queue
       if (!this.transactionQueue.has(deviceId)) {
         this.transactionQueue.set(deviceId, []);
       }
-      this.transactionQueue.get(deviceId).push(txData);
+      this.transactionQueue.get(deviceId).push(enrichedTxData);
 
       // Emit transaction received event
-      this.emit('transactionReceived', deviceId, txData);
+      this.emit('transactionReceived', deviceId, enrichedTxData);
 
       // Send acknowledgment back to device
       await this.sendData(deviceId, {
         type: 'ack',
         txId: txData.id,
         status: 'received',
+        chainId: targetChainId,
+        network: networkInfo[targetChainId],
       });
 
-      logger.info('[BLE] Transaction processed successfully:', txData.id);
+      logger.info(`[BLE] Transaction processed successfully for ${networkInfo[targetChainId]}:`, txData.id);
     } catch (error) {
       logger.error('[BLE] Failed to process transaction:', error);
       

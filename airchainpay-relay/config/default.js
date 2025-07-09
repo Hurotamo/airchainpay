@@ -28,11 +28,18 @@ const SUPPORTED_CHAINS = {
     contractAddress: process.env.BASE_SEPOLIA_CONTRACT_ADDRESS || '0x7B79117445C57eea1CEAb4733020A55e1D503934',
     explorer: 'https://sepolia.basescan.org'
   },
-  11155420: { // Core Testnet
+  11155420: { // Core Testnet (old)
     name: 'Core Testnet',
     rpcUrl: 'https://rpc.test.btcs.network',
     contractAddress: process.env.CORE_TESTNET_CONTRACT_ADDRESS || '0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB',
     explorer: 'https://scan.test2.btcs.network'
+  },
+  1114: { // Core Testnet 2
+    name: 'Core Testnet 2',
+    rpcUrl: process.env.RPC_URL || 'https://rpc.test2.btcs.network',
+    contractAddress: process.env.CONTRACT_ADDRESS,
+    explorer: process.env.BLOCK_EXPLORER || 'https://scan.test2.btcs.network',
+    currencySymbol: process.env.CURRENCY_SYMBOL || 'TCORE2'
   },
   // Production chains (when ready)
   8453: { // Base Mainnet

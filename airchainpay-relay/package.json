@@ -10,6 +10,8 @@
     "test:unit": "mocha test/unit/**/*.test.js --exit",
     "test:integration": "mocha test/integration.test.js --exit",
     "test:coverage": "nyc npm run test",
+    "test:new-features": "node test/scripts/test-new-features.js",
+    "test:all": "node test-runner.js",
     "lint": "eslint src/**/*.js",
     "lint:fix": "eslint src/**/*.js --fix",
     "generate-secrets": "node scripts/generate-secrets.js",
@@ -24,15 +26,22 @@
     "security:check": "npm audit --audit-level=moderate"
   },
   "dependencies": {
-    "@abandonware/noble": "^1.9.2-15",
     "@abandonware/bleno": "^0.6.2",
+    "@abandonware/noble": "^1.9.2-15",
+    "compression": "^1.8.0",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
     "ethers": "^6.8.0",
     "express": "^4.18.2",
     "express-rate-limit": "^7.5.1",
+    "express-validator": "^7.2.1",
+    "helmet": "^7.2.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
+    "node-cron": "^3.0.3",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
+    "uuid": "^9.0.1",
     "winston": "^3.17.0"
   },
   "devDependencies": {
@@ -42,8 +51,8 @@
     "eslint": "^8.52.0",
     "mocha": "^10.8.2",
     "nodemon": "^3.0.1",
-    "sinon": "^17.0.1",
     "nyc": "^15.1.0",
+    "sinon": "^17.0.1",
     "winston": "^3.17.0"
   },
   "engines": {
