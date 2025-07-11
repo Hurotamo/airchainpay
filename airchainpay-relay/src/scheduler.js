@@ -80,7 +80,7 @@ class Scheduler {
         }
       }, {
         scheduled: false,
-        timezone: 'UTC'
+        timezone: 'UTC',
       });
 
       task.start();

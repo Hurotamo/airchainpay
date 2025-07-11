@@ -1,3 +1,4 @@
+require('dotenv').config();
 // AirChainPay Relay Server
 // Handles receiving signed transactions, broadcasting to blockchain, and fetching contract events
 
@@ -16,6 +17,7 @@ const { BLEManager } = require('./bluetooth/BLEManager');
 const { processTransaction } = require('./processors/TransactionProcessor');
 const { validateTransaction } = require('./validators/TransactionValidator');
 const { getProvider, getContract } = require('./utils/blockchain');
+const noble = require('@abandonware/noble');
 
 // Database integration
 const database = require('./utils/database');
@@ -69,7 +71,7 @@ const metrics = {
     this.authFailures = 0;
     this.rateLimitHits = 0;
     this.blockedDevices = 0;
-  }
+  },
 };
 
 // Update system metrics periodically
@@ -84,7 +86,7 @@ const sanitizeInput = {
   // Sanitize string inputs
   string: (input, maxLength = 1000) => {
     if (typeof input !== 'string') return null;
-    return input.trim().substring(0, maxLength).replace(/[<>\"'&]/g, '');
+    return input.trim().substring(0, maxLength).replace(/[<>"'&]/g, '');
   },
 
   // Sanitize Ethereum addresses
@@ -143,10 +145,10 @@ const sanitizeInput = {
     if (typeof input === 'string') {
       const lower = input.toLowerCase();
       return lower === 'true' || lower === '1' ? true : 
-             lower === 'false' || lower === '0' ? false : null;
+        lower === 'false' || lower === '0' ? false : null;
     }
     return null;
-  }
+  },
 };
 
 // Input validation middleware
@@ -157,7 +159,7 @@ const validateInput = {
       if (!req.body[field] && !req.params[field] && !req.query[field]) {
         return res.status(400).json({ 
           error: `Missing required field: ${field}`,
-          field: field
+          field: field,
         });
       }
     }
@@ -174,7 +176,7 @@ const validateInput = {
           return res.status(400).json({ 
             error: `Invalid type for field: ${field}`,
             field: field,
-            expectedType: type
+            expectedType: type,
           });
         }
         // Update the request with sanitized value
@@ -194,7 +196,7 @@ const validateInput = {
         return res.status(400).json({ 
           error: `Field too long: ${field}`,
           field: field,
-          maxLength: maxLength
+          maxLength: maxLength,
         });
       }
     }
@@ -208,7 +210,7 @@ const validateInput = {
       if (value && !sanitizeInput.address(value)) {
         return res.status(400).json({ 
           error: `Invalid Ethereum address: ${field}`,
-          field: field
+          field: field,
         });
       }
     }
@@ -222,19 +224,19 @@ const validateInput = {
       if (value && !sanitizeInput.hash(value)) {
         return res.status(400).json({ 
           error: `Invalid transaction hash: ${field}`,
-          field: field
+          field: field,
         });
       }
     }
     next();
-  }
+  },
 };
 
 // SQL injection prevention
 const preventSQLInjection = (req, res, next) => {
   const sqlKeywords = [
     'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 'ALTER',
-    'UNION', 'EXEC', 'EXECUTE', 'SCRIPT', '--', '/*', '*/', ';'
+    'UNION', 'EXEC', 'EXECUTE', 'SCRIPT', '--', '/*', '*/', ';',
   ];
   
   const checkValue = (value) => {
@@ -254,7 +256,7 @@ const preventSQLInjection = (req, res, next) => {
     if (!checkValue(value)) {
       return res.status(400).json({ 
         error: 'Invalid input detected',
-        field: key
+        field: key,
       });
     }
   }
@@ -264,7 +266,7 @@ const preventSQLInjection = (req, res, next) => {
     if (!checkValue(value)) {
       return res.status(400).json({ 
         error: 'Invalid input detected',
-        field: key
+        field: key,
       });
     }
   }
@@ -274,7 +276,7 @@ const preventSQLInjection = (req, res, next) => {
     if (!checkValue(value)) {
       return res.status(400).json({ 
         error: 'Invalid input detected',
-        field: key
+        field: key,
       });
     }
   }
@@ -290,7 +292,7 @@ const preventXSS = (req, res, next) => {
     /on\w+\s*=/gi,
     /<iframe/gi,
     /<object/gi,
-    /<embed/gi
+    /<embed/gi,
   ];
 
   const checkValue = (value) => {
@@ -309,7 +311,7 @@ const preventXSS = (req, res, next) => {
     if (!checkValue(value)) {
       return res.status(400).json({ 
         error: 'XSS attempt detected',
-        field: key
+        field: key,
       });
     }
   }
@@ -336,7 +338,7 @@ app.use(morgan('dev')); // Console logging for development
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // limit each IP to 100 requests per windowMs
-  message: { error: 'Too many requests, please try again later' }
+  message: { error: 'Too many requests, please try again later' },
 });
 app.use(limiter);
 
@@ -372,8 +374,8 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
     docExpansion: 'list',
     filter: true,
     showRequestHeaders: true,
-    showCommonExtensions: true
-  }
+    showCommonExtensions: true,
+  },
 }));
 
 /**
@@ -411,20 +413,20 @@ app.get('/health', (req, res) => {
         received: metrics.transactionsReceived,
         processed: metrics.transactionsProcessed,
         failed: metrics.transactionsFailed,
-        broadcasted: metrics.transactionsBroadcasted
+        broadcasted: metrics.transactionsBroadcasted,
       },
       ble: {
         connections: metrics.bleConnections,
         disconnections: metrics.bleDisconnections,
         authentications: metrics.bleAuthentications,
-        keyExchanges: metrics.bleKeyExchanges
+        keyExchanges: metrics.bleKeyExchanges,
       },
       system: {
         uptime: metrics.uptime,
         memoryUsage: metrics.memoryUsage,
-        cpuUsage: metrics.cpuUsage
-      }
-    }
+        cpuUsage: metrics.cpuUsage,
+      },
+    },
   });
 });
 
@@ -513,7 +515,7 @@ app.get('/metrics', (req, res) => {
     '',
     '# HELP airchainpay_cpu_usage_microseconds CPU usage in microseconds',
     '# TYPE airchainpay_cpu_usage_microseconds gauge',
-    `airchainpay_cpu_usage_microseconds ${metrics.cpuUsage}`
+    `airchainpay_cpu_usage_microseconds ${metrics.cpuUsage}`,
   ].join('\n');
   
   res.set('Content-Type', 'text/plain');
@@ -528,7 +530,7 @@ function getBLEStatus() {
     return {
       enabled: false,
       initialized: false,
-      error: 'BLE Manager not initialized'
+      error: 'BLE Manager not initialized',
     };
   }
 
@@ -548,13 +550,13 @@ function getBLEStatus() {
       blockedDevices,
       blacklistedDevices,
       transactionQueue: bleManager.transactionQueue ? bleManager.transactionQueue.size : 0,
-      uptime: process.uptime()
+      uptime: process.uptime(),
     };
   } catch (error) {
     return {
       enabled: true,
       initialized: false,
-      error: error.message
+      error: error.message,
     };
   }
 }
@@ -566,14 +568,14 @@ app.get('/ble/status', (req, res) => {
     res.json({
       success: true,
       data: status,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   } catch (error) {
     logger.error('Error getting BLE status:', error);
     res.status(500).json({
       success: false,
       error: error.message,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
 });
@@ -587,9 +589,9 @@ app.get('/ble/devices', (req, res) => {
         data: {
           connected: [],
           authenticated: [],
-          blocked: []
+          blocked: [],
         },
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       });
     }
 
@@ -597,19 +599,19 @@ app.get('/ble/devices', (req, res) => {
       id,
       name: device.name,
       rssi: device.rssi,
-      connectedAt: device.connectedAt || Date.now()
+      connectedAt: device.connectedAt || Date.now(),
     }));
 
     const authenticated = Array.from(bleManager.authenticatedDevices.entries()).map(([id, auth]) => ({
       id,
       authenticatedAt: auth.authenticatedAt || Date.now(),
-      publicKey: auth.publicKey ? '***' : null
+      publicKey: auth.publicKey ? '***' : null,
     }));
 
     const blocked = Array.from(bleManager.blockedDevices.entries()).map(([id, block]) => ({
       id,
       blockedAt: block.blockedAt || Date.now(),
-      reason: block.reason || 'Authentication failures'
+      reason: block.reason || 'Authentication failures',
     }));
 
     res.json({
@@ -617,16 +619,16 @@ app.get('/ble/devices', (req, res) => {
       data: {
         connected,
         authenticated,
-        blocked
+        blocked,
       },
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   } catch (error) {
     logger.error('Error getting BLE devices:', error);
     res.status(500).json({
       success: false,
       error: error.message,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
 });
@@ -663,7 +665,7 @@ async function receiveTxViaBLE(deviceId, transactionData) {
       deviceId,
       txId: transactionData?.id,
       hasSignedTx: !!transactionData?.signedTransaction,
-      chainId: transactionData?.chainId
+      chainId: transactionData?.chainId,
     });
     
     // Security: Validate device authentication
@@ -672,7 +674,7 @@ async function receiveTxViaBLE(deviceId, transactionData) {
       return { 
         success: false, 
         error: 'Device not authenticated',
-        requiresAuth: true
+        requiresAuth: true,
       };
     }
 
@@ -682,7 +684,7 @@ async function receiveTxViaBLE(deviceId, transactionData) {
       return { 
         success: false, 
         error: 'Device is blocked',
-        deviceBlocked: true
+        deviceBlocked: true,
       };
     }
 
@@ -734,7 +736,7 @@ async function receiveTxViaBLE(deviceId, transactionData) {
     const { validateTransaction } = require('./validators/TransactionValidator');
     const validationResult = await validateTransaction({
       ...transactionData,
-      chainId: targetChainId
+      chainId: targetChainId,
     });
     
     if (!validationResult.isValid) {
@@ -748,7 +750,7 @@ async function receiveTxViaBLE(deviceId, transactionData) {
       return { 
         success: false, 
         error: 'Transaction rate limit exceeded',
-        rateLimited: true
+        rateLimited: true,
       };
     }
 
@@ -762,8 +764,8 @@ async function receiveTxViaBLE(deviceId, transactionData) {
         deviceId,
         source: 'ble',
         network: networkInfo[targetChainId],
-        timestamp: Date.now()
-      }
+        timestamp: Date.now(),
+      },
     });
 
     // Save transaction to database
@@ -781,8 +783,8 @@ async function receiveTxViaBLE(deviceId, transactionData) {
       metadata: {
         amount: transactionData.amount,
         to: transactionData.to,
-        from: transactionData.from
-      }
+        from: transactionData.from,
+      },
     };
     
     database.saveTransaction(transactionRecord);
@@ -793,7 +795,7 @@ async function receiveTxViaBLE(deviceId, transactionData) {
       lastTransaction: transactionRecord.id,
       lastTransactionTime: transactionRecord.timestamp,
       status: 'active',
-      capabilities: ['ble', 'transactions']
+      capabilities: ['ble', 'transactions'],
     });
 
     logger.info(`[BLE] Transaction processed successfully on ${networkInfo[targetChainId]}`, {
@@ -803,7 +805,7 @@ async function receiveTxViaBLE(deviceId, transactionData) {
       network: networkInfo[targetChainId],
       hash: result.hash,
       blockNumber: result.blockNumber,
-      gasUsed: result.gasUsed
+      gasUsed: result.gasUsed,
     });
     
     // Send success status back to device
@@ -816,7 +818,7 @@ async function receiveTxViaBLE(deviceId, transactionData) {
         hash: result.hash,
         blockNumber: result.blockNumber,
         gasUsed: result.gasUsed,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
     }
 
@@ -828,7 +830,7 @@ async function receiveTxViaBLE(deviceId, transactionData) {
       chainId: targetChainId,
       network: networkInfo[targetChainId],
       amount: transactionData.amount,
-      to: transactionData.to
+      to: transactionData.to,
     });
 
     return { 
@@ -838,7 +840,7 @@ async function receiveTxViaBLE(deviceId, transactionData) {
       hash: result.hash,
       blockNumber: result.blockNumber,
       gasUsed: result.gasUsed,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
 
   } catch (error) {
@@ -847,7 +849,7 @@ async function receiveTxViaBLE(deviceId, transactionData) {
       txId: transactionData?.id,
       chainId: transactionData?.chainId,
       error: error.message,
-      stack: error.stack
+      stack: error.stack,
     });
     
     // Send error status back to device
@@ -857,7 +859,7 @@ async function receiveTxViaBLE(deviceId, transactionData) {
           txId: transactionData.id,
           status: 'failed',
           error: error.message,
-          timestamp: Date.now()
+          timestamp: Date.now(),
         });
       } catch (sendError) {
         logger.error(`[BLE] Failed to send error status to device ${deviceId}:`, sendError);
@@ -869,13 +871,13 @@ async function receiveTxViaBLE(deviceId, transactionData) {
       deviceId,
       txId: transactionData?.id,
       error: error.message,
-      chainId: transactionData?.chainId
+      chainId: transactionData?.chainId,
     });
 
     return { 
       success: false, 
       error: error.message,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
   }
 }
@@ -959,12 +961,12 @@ async function initializeBLE() {
         deviceId: device.id,
         name: device.name,
         rssi: device.rssi,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
       logger.audit('BLE Device Connected', { 
         deviceId: device.id, 
         name: device.name,
-        timestamp: Date.now() 
+        timestamp: Date.now(), 
       });
     });
 
@@ -1015,21 +1017,21 @@ async function processQueuedTransactions(deviceId) {
         await bleManager.sendTransactionStatus(deviceId, {
           txId: transaction.id,
           status: 'success',
-          hash: result.hash
+          hash: result.hash,
         });
       }
 
       // Remove processed transaction
       deviceQueue.shift();
     } catch (error) {
-      logger.error(`Failed to process transaction:`, error);
+      logger.error('Failed to process transaction:', error);
       
       // Notify device of failure
       if (bleManager) {
         await bleManager.sendTransactionStatus(deviceId, {
           txId: transaction.id,
           status: 'failed',
-          error: error.message
+          error: error.message,
         });
       }
 
@@ -1071,20 +1073,20 @@ app.post('/transaction/submit',
       
       const result = await processTransaction({
         signedTransaction: signedTransaction,
-        chainId: validatedChainId
+        chainId: validatedChainId,
       });
 
       res.json({
         success: true,
         hash: result.hash,
         blockNumber: result.blockNumber,
-        gasUsed: result.gasUsed
+        gasUsed: result.gasUsed,
       });
     } catch (error) {
       logger.error('Transaction processing error:', error);
       res.status(500).json({ error: error.message });
     }
-  }
+  },
 );
 
 // Legacy endpoint for backward compatibility
@@ -1105,20 +1107,20 @@ app.post('/api/v1/submit-transaction',
       
       const result = await processTransaction({
         signedTransaction: signedTransaction,
-        chainId: chainId
+        chainId: chainId,
       });
 
       res.json({
         success: true,
         hash: result.hash,
         blockNumber: result.blockNumber,
-        gasUsed: result.gasUsed
+        gasUsed: result.gasUsed,
       });
     } catch (error) {
       logger.error('Legacy transaction processing error:', error);
       res.status(500).json({ error: error.message });
     }
-  }
+  },
 );
 
 // Fetch recent Payment events from the contract
@@ -1134,9 +1136,9 @@ app.get('/contract/payments', async (req, res) => {
             amount: '1000000000000000000',
             paymentReference: 'test-payment',
             txHash: '0xtxhash',
-            blockNumber: 12345
-          }
-        ] 
+            blockNumber: 12345,
+          },
+        ], 
       });
     }
     
@@ -1151,7 +1153,7 @@ app.get('/contract/payments', async (req, res) => {
       amount: e.args.amount.toString(),
       paymentReference: e.args.paymentReference,
       txHash: e.transactionHash,
-      blockNumber: e.blockNumber
+      blockNumber: e.blockNumber,
     }));
     res.json({ payments: formatted });
   } catch (err) {
@@ -1175,11 +1177,11 @@ app.post('/auth/token',
     const token = jwt.sign(
       { id: 'api-client', type: 'relay' },
       config.jwtSecret || process.env.JWT_SECRET || 'dev_jwt_secret_placeholder',
-      { expiresIn: '24h' }
+      { expiresIn: '24h' },
     );
     
     res.json({ token });
-  }
+  },
 );
 
 // BLE transaction processing endpoint (for testing and manual processing)
@@ -1211,7 +1213,7 @@ app.post('/ble/process-transaction',
       // Process the transaction via BLE
       const result = await receiveTxViaBLE(deviceId, {
         ...transactionData,
-        id: sanitizedTxId
+        id: sanitizedTxId,
       });
 
       res.json(result);
@@ -1219,7 +1221,7 @@ app.post('/ble/process-transaction',
       logger.error('BLE transaction processing error:', error);
       res.status(500).json({ error: error.message });
     }
-  }
+  },
 );
 
 // BLE status endpoint
@@ -1229,7 +1231,7 @@ app.get('/ble/status', (req, res) => {
     isAdvertising: bleManager && bleManager.isAdvertising,
     connectedDevices: connectedDevices ? connectedDevices.size : 0,
     queuedTransactions: transactionQueue ? Array.from(transactionQueue.values())
-      .reduce((total, queue) => total + queue.length, 0) : 0
+      .reduce((total, queue) => total + queue.length, 0) : 0,
   });
 });
 
@@ -1238,7 +1240,7 @@ app.get('/ble/status', (req, res) => {
   const authStats = {
     authenticatedDevices: bleManager ? bleManager.authenticatedDevices.size : 0,
     blockedDevices: bleManager ? bleManager.blockedDevices.size : 0,
-    pendingAuth: bleManager ? bleManager.authChallenges.size : 0
+    pendingAuth: bleManager ? bleManager.authChallenges.size : 0,
   };
 
   const keyExchangeStats = {
@@ -1246,7 +1248,7 @@ app.get('/ble/status', (req, res) => {
       .filter(state => state.status === 'COMPLETED').length : 0,
     pendingKeyExchange: bleManager ? Array.from(bleManager.keyExchangeState.values())
       .filter(state => state.status === 'PENDING').length : 0,
-    blockedKeyExchange: bleManager ? bleManager.keyExchangeBlocked.size : 0
+    blockedKeyExchange: bleManager ? bleManager.keyExchangeBlocked.size : 0,
   };
 
   res.json({
@@ -1256,7 +1258,7 @@ app.get('/ble/status', (req, res) => {
     queuedTransactions: transactionQueue ? Array.from(transactionQueue.values())
       .reduce((total, queue) => total + queue.length, 0) : 0,
     authentication: authStats,
-    keyExchange: keyExchangeStats
+    keyExchange: keyExchangeStats,
   });
 });
 
@@ -1280,9 +1282,9 @@ app.get('/ble/auth/device/:deviceId',
       authStatus,
       isAuthenticated,
       isBlocked,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     });
-  }
+  },
 );
 
 // Authentication management endpoints
@@ -1302,12 +1304,12 @@ app.post('/ble/auth/block/:deviceId',
 
     bleManager.blockedDevices.set(deviceId, {
       timestamp: Date.now(),
-      reason: reason || 'Manually blocked'
+      reason: reason || 'Manually blocked',
     });
 
     logger.info(`[BLE] Device manually blocked: ${deviceId}, reason: ${reason}`);
     res.json({ success: true, message: 'Device blocked successfully' });
-  }
+  },
 );
 
 app.post('/ble/auth/unblock/:deviceId', 
@@ -1326,7 +1328,7 @@ app.post('/ble/auth/unblock/:deviceId',
 
     logger.info(`[BLE] Device manually unblocked: ${deviceId}`);
     res.json({ success: true, message: 'Device unblocked successfully' });
-  }
+  },
 );
 
 app.get('/ble/auth/devices', authenticateToken, (req, res) => {
@@ -1343,7 +1345,7 @@ app.get('/ble/auth/devices', authenticateToken, (req, res) => {
       status: 'authenticated',
       authenticatedAt: authInfo.timestamp,
       publicKey: authInfo.publicKey ? 'present' : 'missing',
-      sessionKey: authInfo.sessionKey ? 'present' : 'missing'
+      sessionKey: authInfo.sessionKey ? 'present' : 'missing',
     });
   }
 
@@ -1353,7 +1355,7 @@ app.get('/ble/auth/devices', authenticateToken, (req, res) => {
       deviceId,
       status: 'blocked',
       blockedAt: blockInfo.timestamp,
-      reason: blockInfo.reason
+      reason: blockInfo.reason,
     });
   }
 
@@ -1362,7 +1364,7 @@ app.get('/ble/auth/devices', authenticateToken, (req, res) => {
     devices.push({
       deviceId,
       status: 'pending',
-      challengeSentAt: challengeInfo.timestamp
+      challengeSentAt: challengeInfo.timestamp,
     });
   }
 
@@ -1389,9 +1391,9 @@ app.get('/ble/key-exchange/device/:deviceId',
       keyExchangeStatus,
       isCompleted,
       isBlocked,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     });
-  }
+  },
 );
 
 // Key exchange management endpoints
@@ -1413,7 +1415,7 @@ app.post('/ble/key-exchange/initiate/:deviceId',
       logger.error(`[BLE] Key exchange initiation failed for device ${deviceId}:`, error);
       res.status(400).json({ error: error.message });
     }
-  }
+  },
 );
 
 app.post('/ble/key-exchange/rotate/:deviceId', 
@@ -1434,7 +1436,7 @@ app.post('/ble/key-exchange/rotate/:deviceId',
       logger.error(`[BLE] Key rotation failed for device ${deviceId}:`, error);
       res.status(400).json({ error: error.message });
     }
-  }
+  },
 );
 
 app.post('/ble/key-exchange/block/:deviceId', 
@@ -1453,12 +1455,12 @@ app.post('/ble/key-exchange/block/:deviceId',
 
     bleManager.keyExchangeBlocked.set(deviceId, {
       timestamp: Date.now(),
-      reason: reason || 'Manually blocked from key exchange'
+      reason: reason || 'Manually blocked from key exchange',
     });
 
     logger.info(`[BLE] Device blocked from key exchange: ${deviceId}, reason: ${reason}`);
     res.json({ success: true, message: 'Device blocked from key exchange successfully' });
-  }
+  },
 );
 
 app.post('/ble/key-exchange/unblock/:deviceId', 
@@ -1477,7 +1479,7 @@ app.post('/ble/key-exchange/unblock/:deviceId',
 
     logger.info(`[BLE] Device unblocked from key exchange: ${deviceId}`);
     res.json({ success: true, message: 'Device unblocked from key exchange successfully' });
-  }
+  },
 );
 
 app.get('/ble/key-exchange/devices', authenticateToken, (req, res) => {
@@ -1494,7 +1496,7 @@ app.get('/ble/key-exchange/devices', authenticateToken, (req, res) => {
         deviceId,
         status: 'completed',
         completedAt: keyState.timestamp,
-        sessionKey: 'present'
+        sessionKey: 'present',
       });
     }
   }
@@ -1505,7 +1507,7 @@ app.get('/ble/key-exchange/devices', authenticateToken, (req, res) => {
       devices.push({
         deviceId,
         status: 'pending',
-        initiatedAt: keyState.timestamp
+        initiatedAt: keyState.timestamp,
       });
     }
   }
@@ -1516,7 +1518,7 @@ app.get('/ble/key-exchange/devices', authenticateToken, (req, res) => {
       deviceId,
       status: 'blocked',
       blockedAt: blockInfo.timestamp,
-      reason: blockInfo.reason
+      reason: blockInfo.reason,
     });
   }
 
@@ -1547,15 +1549,15 @@ app.get('/api/database/transactions',
             limit,
             offset,
             total,
-            hasMore: offset + limit < total
-          }
-        }
+            hasMore: offset + limit < total,
+          },
+        },
       });
     } catch (error) {
       logger.error('Error fetching transactions:', error);
       res.status(500).json({ error: error.message });
     }
-  }
+  },
 );
 
 // Get transaction by ID
@@ -1573,13 +1575,13 @@ app.get('/api/database/transactions/:id',
       
       res.json({
         success: true,
-        data: transaction
+        data: transaction,
       });
     } catch (error) {
       logger.error('Error fetching transaction:', error);
       res.status(500).json({ error: error.message });
     }
-  }
+  },
 );
 
 // Get transactions by device
@@ -1599,14 +1601,14 @@ app.get('/api/database/transactions/device/:deviceId',
         data: {
           deviceId,
           transactions,
-          count: transactions.length
-        }
+          count: transactions.length,
+        },
       });
     } catch (error) {
       logger.error('Error fetching device transactions:', error);
       res.status(500).json({ error: error.message });
     }
-  }
+  },
 );
 
 // Get all devices
@@ -1620,14 +1622,14 @@ app.get('/api/database/devices',
         success: true,
         data: {
           devices,
-          count: Object.keys(devices).length
-        }
+          count: Object.keys(devices).length,
+        },
       });
     } catch (error) {
       logger.error('Error fetching devices:', error);
       res.status(500).json({ error: error.message });
     }
-  }
+  },
 );
 
 // Get device by ID
@@ -1645,13 +1647,13 @@ app.get('/api/database/devices/:deviceId',
       
       res.json({
         success: true,
-        data: device
+        data: device,
       });
     } catch (error) {
       logger.error('Error fetching device:', error);
       res.status(500).json({ error: error.message });
     }
-  }
+  },
 );
 
 // Update device status
@@ -1672,13 +1674,13 @@ app.put('/api/database/devices/:deviceId/status',
       
       res.json({
         success: true,
-        message: 'Device status updated successfully'
+        message: 'Device status updated successfully',
       });
     } catch (error) {
       logger.error('Error updating device status:', error);
       res.status(500).json({ error: error.message });
     }
-  }
+  },
 );
 
 // Get metrics with time range
@@ -1695,14 +1697,14 @@ app.get('/api/database/metrics',
         data: {
           timeRange,
           metrics,
-          count: metrics.length
-        }
+          count: metrics.length,
+        },
       });
     } catch (error) {
       logger.error('Error fetching metrics:', error);
       res.status(500).json({ error: error.message });
     }
-  }
+  },
 );
 
 // Create database backup
@@ -1716,14 +1718,14 @@ app.post('/api/database/backup',
         success: true,
         data: {
           backupPath,
-          message: 'Backup created successfully'
-        }
+          message: 'Backup created successfully',
+        },
       });
     } catch (error) {
       logger.error('Error creating backup:', error);
       res.status(500).json({ error: error.message });
     }
-  }
+  },
 );
 
 // Get database statistics
@@ -1743,32 +1745,32 @@ app.get('/api/database/stats',
             const chain = tx.chainId || 'unknown';
             acc[chain] = (acc[chain] || 0) + 1;
             return acc;
-          }, {})
+          }, {}),
         },
         devices: {
           total: Object.keys(devices).length,
           active: Object.values(devices).filter(d => d.status === 'active').length,
-          inactive: Object.values(devices).filter(d => d.status === 'inactive').length
+          inactive: Object.values(devices).filter(d => d.status === 'inactive').length,
         },
         metrics: {
           total: metrics.length,
-          timeRange: '24h'
+          timeRange: '24h',
         },
         storage: {
           dataDirectory: database.dataDir,
-          backupDirectory: path.join(database.dataDir, 'backups')
-        }
+          backupDirectory: path.join(database.dataDir, 'backups'),
+        },
       };
       
       res.json({
         success: true,
-        data: stats
+        data: stats,
       });
     } catch (error) {
       logger.error('Error fetching database stats:', error);
       res.status(500).json({ error: error.message });
     }
-  }
+  },
 );
 
 // Get database security status
@@ -1784,14 +1786,14 @@ app.get('/api/database/security',
         data: {
           securityStatus,
           recentAuditLogs,
-          timestamp: new Date().toISOString()
-        }
+          timestamp: new Date().toISOString(),
+        },
       });
     } catch (error) {
       logger.error('Error fetching security status:', error);
       res.status(500).json({ error: error.message });
     }
-  }
+  },
 );
 
 // Legacy /tx endpoint (for backward compatibility with tests)
@@ -1805,9 +1807,15 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error', message: err.message });
 });
 
-// Start the relay server
-app.listen(PORT, () => {
-  console.log(`AirChainPay Relay Node listening on port ${PORT}`);
+const https = require('https');
+
+const options = {
+  key: fs.readFileSync('server.key'),
+  cert: fs.readFileSync('server.cert'),
+};
+
+https.createServer(options, app).listen(443, () => {
+  console.log('AirChainPay Relay Node (HTTPS) listening on port 443');
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });
 
@@ -1823,7 +1831,7 @@ module.exports = {
   KEY_EXCHANGE_TIMEOUT: require('./bluetooth/BLEManager').KEY_EXCHANGE_TIMEOUT,
   AUTH_RESPONSE_TIMEOUT: require('./bluetooth/BLEManager').AUTH_RESPONSE_TIMEOUT,
   MAX_AUTH_ATTEMPTS: require('./bluetooth/BLEManager').MAX_AUTH_ATTEMPTS,
-  AUTH_BLOCK_DURATION: require('./bluetooth/BLEManager').AUTH_BLOCK_DURATION
+  AUTH_BLOCK_DURATION: require('./bluetooth/BLEManager').AUTH_BLOCK_DURATION,
 };
 
 // Graceful shutdown

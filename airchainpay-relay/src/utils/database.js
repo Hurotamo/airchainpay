@@ -52,7 +52,7 @@ class Database {
       integrity[path.basename(filePath)] = {
         hash,
         lastModified: new Date().toISOString(),
-        size: JSON.stringify(data).length
+        size: JSON.stringify(data).length,
       };
       
       fs.writeFileSync(this.integrityFile, JSON.stringify(integrity, null, 2));
@@ -85,7 +85,7 @@ class Database {
             file: fileName,
             expectedHash: storedHash,
             currentHash: currentHash,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
           });
           
           // In production, you might want to:
@@ -110,8 +110,8 @@ class Database {
       serverInfo: {
         uptime: process.uptime(),
         memoryUsage: process.memoryUsage(),
-        pid: process.pid
-      }
+        pid: process.pid,
+      },
     };
     
     const auditLine = JSON.stringify(auditEntry) + '\n';
@@ -127,7 +127,7 @@ class Database {
       file,
       details,
       timestamp: new Date().toISOString(),
-      user: process.env.USER || 'system'
+      user: process.env.USER || 'system',
     };
     
     const auditLine = JSON.stringify(auditEntry) + '\n';
@@ -163,7 +163,7 @@ class Database {
       // Log write access
       this.logDataAccess('WRITE', path.basename(filePath), {
         dataSize: jsonData.length,
-        recordCount: Array.isArray(data) ? data.length : Object.keys(data).length
+        recordCount: Array.isArray(data) ? data.length : Object.keys(data).length,
       });
       
       return true;
@@ -189,7 +189,7 @@ class Database {
     transaction.security = {
       hash: this.calculateHash(transaction),
       createdAt: new Date().toISOString(),
-      serverId: process.env.SERVER_ID || 'unknown'
+      serverId: process.env.SERVER_ID || 'unknown',
     };
     
     transactions.push(transaction);
@@ -265,8 +265,8 @@ class Database {
       security: {
         hash: this.calculateHash(deviceData),
         lastModified: new Date().toISOString(),
-        serverId: process.env.SERVER_ID || 'unknown'
-      }
+        serverId: process.env.SERVER_ID || 'unknown',
+      },
     };
     
     const success = this.writeFile(this.devicesFile, devices);
@@ -311,7 +311,7 @@ class Database {
         ...devices[deviceId],
         status,
         lastSeen: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
       };
       return this.writeFile(this.devicesFile, devices);
     }
@@ -334,8 +334,8 @@ class Database {
       timestamp,
       security: {
         hash: this.calculateHash(metrics),
-        serverId: process.env.SERVER_ID || 'unknown'
-      }
+        serverId: process.env.SERVER_ID || 'unknown',
+      },
     };
     
     // Keep only last 24 hours of metrics
@@ -371,7 +371,7 @@ class Database {
       '1h': 60 * 60 * 1000,
       '6h': 6 * 60 * 60 * 1000,
       '24h': 24 * 60 * 60 * 1000,
-      '7d': 7 * 24 * 60 * 60 * 1000
+      '7d': 7 * 24 * 60 * 60 * 1000,
     };
     
     const cutoff = new Date(now.getTime() - (timeRanges[timeRange] || timeRanges['24h']));
@@ -419,8 +419,8 @@ class Database {
       serverInfo: {
         uptime: process.uptime(),
         memoryUsage: process.memoryUsage(),
-        pid: process.pid
-      }
+        pid: process.pid,
+      },
     };
     
     fs.writeFileSync(path.join(backupPath, 'backup-info.json'), JSON.stringify(backupIntegrity, null, 2));
@@ -441,7 +441,7 @@ class Database {
         .map(dir => ({
           name: dir,
           path: path.join(backupDir, dir),
-          time: fs.statSync(path.join(backupDir, dir)).mtime
+          time: fs.statSync(path.join(backupDir, dir)).mtime,
         }))
         .sort((a, b) => b.time - a.time);
       
@@ -468,11 +468,11 @@ class Database {
       dataIntegrity: {
         verified: Object.keys(integrity).length > 0,
         files: Object.keys(integrity),
-        lastCheck: new Date().toISOString()
+        lastCheck: new Date().toISOString(),
       },
       securityIncidents: auditLog.filter(log => log.type === 'SECURITY_INCIDENT').length,
       recentAccess: auditLog.filter(log => log.type === 'DATA_ACCESS').length,
-      auditLogSize: fs.existsSync(this.auditFile) ? fs.statSync(this.auditFile).size : 0
+      auditLogSize: fs.existsSync(this.auditFile) ? fs.statSync(this.auditFile).size : 0,
     };
   }
 
