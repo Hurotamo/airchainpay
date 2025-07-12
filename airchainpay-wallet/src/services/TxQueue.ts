@@ -1,0 +1,64 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Transaction } from '../types/transaction';
+
+const TX_QUEUE_KEY = 'tx_queue';
+
+export class TxQueue {
+  static async getPendingTransactions(): Promise<Transaction[]> {
+    try {
+      const queueStr = await AsyncStorage.getItem(TX_QUEUE_KEY);
+      if (!queueStr) return [];
+      const queue = JSON.parse(queueStr);
+      return queue.filter((tx: Transaction) => tx.status === 'pending');
+    } catch (error) {
+      console.error('Error getting pending transactions:', error);
+      return [];
+    }
+  }
+
+  static async addTransaction(tx: Transaction): Promise<void> {
+    try {
+      const queueStr = await AsyncStorage.getItem(TX_QUEUE_KEY);
+      const queue = queueStr ? JSON.parse(queueStr) : [];
+      queue.push(tx);
+      await AsyncStorage.setItem(TX_QUEUE_KEY, JSON.stringify(queue));
+    } catch (error) {
+      console.error('Error adding transaction to queue:', error);
+    }
+  }
+
+  static async updateTransaction(txId: string, updates: Partial<Transaction>): Promise<void> {
+    try {
+      const queueStr = await AsyncStorage.getItem(TX_QUEUE_KEY);
+      if (!queueStr) return;
+      const queue = JSON.parse(queueStr);
+      const index = queue.findIndex((tx: Transaction) => tx.id === txId);
+      if (index === -1) return;
+      queue[index] = { ...queue[index], ...updates };
+      await AsyncStorage.setItem(TX_QUEUE_KEY, JSON.stringify(queue));
+    } catch (error) {
+      console.error('Error updating transaction:', error);
+    }
+  }
+
+  static async clearQueue(): Promise<void> {
+    try {
+      await AsyncStorage.setItem(TX_QUEUE_KEY, JSON.stringify([]));
+    } catch (error) {
+      console.error('Error clearing transaction queue:', error);
+    }
+  }
+}
+
+export type TxRow = Transaction;
+
+export async function getAllTransactions(): Promise<Transaction[]> {
+  try {
+    const queueStr = await AsyncStorage.getItem(TX_QUEUE_KEY);
+    if (!queueStr) return [];
+    return JSON.parse(queueStr);
+  } catch (error) {
+    console.error('Error getting all transactions:', error);
+    return [];
+  }
+} 
