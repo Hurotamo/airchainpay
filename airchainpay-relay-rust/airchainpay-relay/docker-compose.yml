@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  airchainpay-relay-rust:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: airchainpay-relay-rust
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./data:/usr/local/bin/data
+      - ./logs:/usr/local/bin/logs
+    environment:
+      - RUST_LOG=info
+      - JWT_SECRET=${JWT_SECRET:-your-secret-key-change-in-production}
+      - SERVER_ID=${SERVER_ID:-rust-relay-01}
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - relay-network
+
+networks:
+  relay-network:
+    driver: bridge 
