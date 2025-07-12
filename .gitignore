@@ -10,6 +10,8 @@ yarn-error.log
 .env.development
 .env.test
 .env.production
+.env.staging
+.env.dev
 
 # Build files
 build/
@@ -84,15 +86,50 @@ airchainpay-relay/env.dev
 airchainpay-relay/logs/
 airchainpay-relay/data/
 airchainpay-relay/server.log
+airchainpay-relay/server.cert
+airchainpay-relay/server.key
+airchainpay-relay/.env
+airchainpay-relay/.env.dev
+airchainpay-relay/.env.prod
 
 # Wallet specific
 airchainpay-wallet/android/app/debug.keystore
 airchainpay-wallet/android/app/release.keystore
 airchainpay-wallet/android/app/upload-keystore.jks
 airchainpay-wallet/android/key.properties
+airchainpay-wallet/.env
+airchainpay-wallet/.env.local
 
 # Contract specific
 airchainpay-contracts/.env
 airchainpay-contracts/.env.local
 airchainpay-contracts/.env.production
-airchainpay-relay/.env.prod
+
+# SSL/TLS Certificates and Keys
+*.crt
+*.cert
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+*.mobileprovision
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Backup files
+*.backup
+*.bak
+*.tmp
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
