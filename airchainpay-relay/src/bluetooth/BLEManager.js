@@ -3,6 +3,7 @@ const bleno = require('@abandonware/bleno');
 const logger = require('../utils/logger');
 const crypto = require('crypto');
 const EventEmitter = require('events');
+const payloadCompressor = require('../utils/payloadCompressor');
 
 // Constants
 const AIRCHAINPAY_SERVICE_UUID = '0000abcd-0000-1000-8000-00805f9b34fb';
@@ -340,8 +341,26 @@ class BLEManager extends EventEmitter {
         return;
       }
 
+      // Try to decompress transaction data if it's compressed
+      let processedTxData = txData;
+      let compressionUsed = false;
+      
+      try {
+        // Check if data is base64 encoded (compressed)
+        if (typeof txData === 'string' && txData.match(/^[A-Za-z0-9+/]*={0,2}$/)) {
+          logger.info(`[BLE] Detected compressed transaction data from device ${deviceId}`);
+          const decompressedData = await payloadCompressor.autoDecompress(txData);
+          processedTxData = decompressedData;
+          compressionUsed = true;
+          logger.info(`[BLE] Successfully decompressed transaction data from device ${deviceId}`);
+        }
+      } catch (decompressError) {
+        logger.warn(`[BLE] Failed to decompress transaction data from device ${deviceId}, using as-is:`, decompressError.message);
+        // Continue with original data if decompression fails
+      }
+
       // Multi-chain support: Validate chain ID
-      let targetChainId = txData.chainId;
+      let targetChainId = processedTxData.chainId;
       
       // If no chainId provided, use default (Base Sepolia)
       if (!targetChainId) {
@@ -366,12 +385,12 @@ class BLEManager extends EventEmitter {
         1114: 'Core Testnet 2',
       };
       
-      logger.info(`[BLE] Processing transaction for ${networkInfo[targetChainId]} (${targetChainId}) from device ${deviceId}`);
+      logger.info(`[BLE] Processing transaction for ${networkInfo[targetChainId]} (${targetChainId}) from device ${deviceId}${compressionUsed ? ' (compressed)' : ''}`);
 
       // Validate transaction format and data with chain ID
       const { validateTransaction } = require('../utils/blockchain');
       const validationResult = await validateTransaction({
-        ...txData,
+        ...processedTxData,
         chainId: targetChainId,
       });
       
@@ -381,9 +400,10 @@ class BLEManager extends EventEmitter {
 
       // Add chain ID to transaction data
       const enrichedTxData = {
-        ...txData,
+        ...processedTxData,
         chainId: targetChainId,
         network: networkInfo[targetChainId],
+        compressionUsed: compressionUsed,
       };
 
       // Add to transaction queue
@@ -398,13 +418,14 @@ class BLEManager extends EventEmitter {
       // Send acknowledgment back to device
       await this.sendData(deviceId, {
         type: 'ack',
-        txId: txData.id,
+        txId: processedTxData.id,
         status: 'received',
         chainId: targetChainId,
         network: networkInfo[targetChainId],
+        compressionUsed: compressionUsed,
       });
 
-      logger.info(`[BLE] Transaction processed successfully for ${networkInfo[targetChainId]}:`, txData.id);
+      logger.info(`[BLE] Transaction processed successfully for ${networkInfo[targetChainId]}:`, processedTxData.id);
     } catch (error) {
       logger.error('[BLE] Failed to process transaction:', error);
       
