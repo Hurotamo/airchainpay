@@ -36,7 +36,7 @@ pub enum TaskPriority {
     Critical = 4,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, Hash, PartialEq)]
 pub enum TaskType {
     Backup,
     Cleanup,
@@ -173,8 +173,12 @@ impl Scheduler {
     }
 
     pub async fn add_task(&self, task: ScheduledTask) -> Result<(), Box<dyn std::error::Error>> {
+        let task_id = task.id.clone();
+        let task_name = task.name.clone();
+        
+        // Store the task
         let mut tasks = self.tasks.write().await;
-        tasks.insert(task.id.clone(), task.clone());
+        tasks.insert(task_id.clone(), task.clone());
         
         // Add to queue if enabled
         if task.enabled {
@@ -182,7 +186,7 @@ impl Scheduler {
             queue.add_task(task);
         }
 
-        Logger::info(&format!("Added task: {} ({})", task.name, task.id));
+        Logger::info(&format!("Added task: {} ({})", task_name, task_id));
         Ok(())
     }
 
@@ -277,14 +281,14 @@ impl Scheduler {
                 if let Some(handler) = handlers.get(&task.task_type) {
                     let task_id = task.id.clone();
                     let task_name = task.name.clone();
+                    let task_clone = task.clone();
                     
                     // Mark task as running
                     queue.mark_task_running(&task_id);
 
-                    // Execute task in a separate task
-                    let scheduler_clone = self.clone();
-                    let task_clone = task.clone();
+                    // Clone the handler before spawning
                     let handler_clone = handler.clone();
+                    let scheduler_clone = self.clone();
                     
                     tokio::spawn(async move {
                         let start_time = Instant::now();

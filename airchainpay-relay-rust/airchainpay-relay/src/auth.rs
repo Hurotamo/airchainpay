@@ -26,7 +26,7 @@ pub struct Claims {
     pub typ: String, // Token type
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct AuthManager {
     jwt_secret: String,
     device_tokens: HashMap<String, String>,
@@ -45,7 +45,7 @@ impl AuthManager {
     /// Generate a secure JWT secret
     pub fn generate_jwt_secret() -> String {
         let mut rng = rand::thread_rng();
-        let bytes: [u8; 64] = rng.gen(); // 512-bit secret
+        let bytes: [u8; 64] = rng.random(); // 512-bit secret
         hex::encode(bytes)
     }
 
@@ -134,7 +134,7 @@ impl AuthManager {
     /// Generate API key
     pub fn generate_api_key() -> String {
         let mut rng = rand::thread_rng();
-        let bytes: [u8; 32] = rng.gen(); // 256-bit API key
+        let bytes: [u8; 32] = rng.random(); // 256-bit API key
         hex::encode(bytes)
     }
 
@@ -175,7 +175,7 @@ impl AuthManager {
         let chars: Vec<char> = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".chars().collect();
         
         (0..length)
-            .map(|_| chars[rng.gen_range(0..chars.len())])
+            .map(|_| chars[rng.random_range(0..chars.len())])
             .collect()
     }
 

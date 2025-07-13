@@ -3,6 +3,7 @@ use std::fs;
 use std::path::Path;
 use serde::{Deserialize, Serialize};
 use crate::logger::Logger;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeploymentConfig {
@@ -118,7 +119,7 @@ impl DeploymentScripts {
         let manifests = self.generate_kubernetes_manifests(config)?;
         
         // Apply manifests
-        for manifest in manifests {
+        for _manifest in manifests {
             let output = Command::new("kubectl")
                 .args(&["apply", "-f", "-"])
                 .stdin(std::process::Stdio::piped())
@@ -348,7 +349,7 @@ impl UtilityScripts {
         let chars: Vec<char> = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".chars().collect();
         
         let result: String = (0..length)
-            .map(|_| chars[rng.gen_range(0..chars.len())])
+            .map(|_| chars[rng.random_range(0..chars.len())])
             .collect();
         
         Ok(result)
@@ -432,7 +433,7 @@ impl UtilityScripts {
                 let entry = entry?;
                 let metadata = entry.metadata()?;
                 let modified = metadata.modified()?;
-                let modified_time = chrono::DateTime::from(modified);
+                let modified_time: chrono::DateTime<chrono::Utc> = chrono::DateTime::from(modified);
                 
                 if modified_time < cutoff_date {
                     fs::remove_file(entry.path())?;
@@ -448,7 +449,7 @@ impl UtilityScripts {
                 let entry = entry?;
                 let metadata = entry.metadata()?;
                 let modified = metadata.modified()?;
-                let modified_time = chrono::DateTime::from(modified);
+                let modified_time: chrono::DateTime<chrono::Utc> = chrono::DateTime::from(modified);
                 
                 if modified_time < cutoff_date {
                     fs::remove_file(entry.path())?;
@@ -495,7 +496,7 @@ pub async fn run_utility_script(script_name: &str) -> Result<(), Box<dyn std::er
         "backup-database" => utility_scripts.backup_database().await,
         "restore-database" => {
             let backup_file = std::env::var("BACKUP_FILE")
-                .ok_or("BACKUP_FILE environment variable is required")?;
+                .unwrap_or_else(|_| "backup.json".to_string());
             utility_scripts.restore_database(&backup_file).await
         }
         "cleanup-data" => {

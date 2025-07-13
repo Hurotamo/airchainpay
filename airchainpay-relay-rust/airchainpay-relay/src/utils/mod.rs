@@ -7,4 +7,6 @@ pub mod cache;
 pub mod audit;
 pub mod backup;
 pub mod cleanup;
-pub mod prometheus; 
+pub mod prometheus;
+pub mod error_handler;
+pub mod critical_error_handler; 

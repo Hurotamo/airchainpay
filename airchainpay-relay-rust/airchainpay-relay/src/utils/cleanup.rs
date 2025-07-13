@@ -101,37 +101,35 @@ impl CleanupManager {
 
     async fn cleanup_data_type(&self, cleanup_type: &CleanupType, retention_days: u32) -> Result<u64, Box<dyn std::error::Error>> {
         let cutoff_date = Utc::now() - Duration::days(retention_days as i64);
-        let mut cleaned_count = 0;
-
-        match cleanup_type {
+        let cleaned_count = match cleanup_type {
             CleanupType::Transactions => {
-                cleaned_count = self.cleanup_transactions(cutoff_date).await?;
+                self.cleanup_transactions(cutoff_date).await?
             }
             CleanupType::AuditLogs => {
-                cleaned_count = self.cleanup_audit_logs(cutoff_date).await?;
+                self.cleanup_audit_logs(cutoff_date).await?
             }
             CleanupType::Metrics => {
-                cleaned_count = self.cleanup_metrics(cutoff_date).await?;
+                self.cleanup_metrics(cutoff_date).await?
             }
             CleanupType::TempFiles => {
-                cleaned_count = self.cleanup_temp_files().await?;
+                self.cleanup_temp_files().await?
             }
             CleanupType::LogFiles => {
-                cleaned_count = self.cleanup_log_files(cutoff_date).await?;
+                self.cleanup_log_files(cutoff_date).await?
             }
             CleanupType::Cache => {
-                cleaned_count = self.cleanup_cache(cutoff_date).await?;
+                self.cleanup_cache(cutoff_date).await?
             }
             CleanupType::Backups => {
-                cleaned_count = self.cleanup_backups(cutoff_date).await?;
+                self.cleanup_backups(cutoff_date).await?
             }
             CleanupType::DeviceData => {
-                cleaned_count = self.cleanup_device_data(cutoff_date).await?;
+                self.cleanup_device_data(cutoff_date).await?
             }
             CleanupType::SessionData => {
-                cleaned_count = self.cleanup_session_data(cutoff_date).await?;
+                self.cleanup_session_data(cutoff_date).await?
             }
-        }
+        };
 
         if self.config.log_cleanup_actions {
             Logger::info(&format!("Cleaned up {} {:?} items", cleaned_count, cleanup_type));

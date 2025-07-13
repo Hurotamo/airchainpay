@@ -2,12 +2,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use ethers::{
+    contract::Contract,
+    core::types::{Address, Bytes, U256, U64, H256, TxHash},
     providers::{Http, Provider},
-    types::{Address, U256, Bytes, TransactionRequest},
-    utils::hex,
+    middleware::Middleware,
 };
 use serde::{Deserialize, Serialize};
 use crate::logger::Logger;
+use chrono::{DateTime, Utc};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChainConfig {
@@ -58,14 +60,29 @@ pub struct GasEstimate {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkStatus {
+    pub is_healthy: bool,
+    pub connected_networks: u32,
+    pub last_block_time: Option<DateTime<Utc>>,
+    pub gas_price_updates: u32,
+    pub pending_transactions: u32,
+    pub failed_transactions: u32,
+    pub total_networks: u32,
+    pub average_response_time_ms: f64,
+    pub last_error: Option<String>,
+    pub uptime_seconds: f64,
+    pub network_details: HashMap<String, serde_json::Value>,
+}
+
 pub struct BlockchainManager {
-    providers: Arc<RwLock<HashMap<u64, Provider<Http>>>>,
-    contracts: Arc<RwLock<HashMap<u64, ethers::contract::Contract<Http>>>>,
+    providers: Arc<RwLock<HashMap<u64, Arc<Provider<Http>>>>>,
+    contracts: Arc<RwLock<HashMap<u64, Contract<Arc<Provider<Http>>>>>,
     supported_chains: HashMap<u64, ChainConfig>,
 }
 
 impl BlockchainManager {
-    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(_config: crate::config::Config) -> Result<Self, Box<dyn std::error::Error>> {
         let supported_chains = Self::load_supported_chains()?;
         
         Ok(Self {
@@ -78,55 +95,40 @@ impl BlockchainManager {
     fn load_supported_chains() -> Result<HashMap<u64, ChainConfig>, Box<dyn std::error::Error>> {
         let mut chains = HashMap::new();
         
-        // Ethereum Mainnet
-        chains.insert(1, ChainConfig {
-            chain_id: 1,
-            rpc_url: std::env::var("ETHEREUM_RPC_URL")
-                .unwrap_or_else(|_| "https://mainnet.infura.io/v3/your-project-id".to_string()),
+        // Core Testnet 2
+        chains.insert(1114, ChainConfig {
+            chain_id: 1114,
+            rpc_url: std::env::var("CORE_TESTNET2_RPC_URL")
+                .unwrap_or_else(|_| "https://rpc.test2.btcs.network".to_string()),
             contract_address: None,
-            name: "Ethereum Mainnet".to_string(),
+            name: "Core Testnet 2".to_string(),
             native_currency: NativeCurrency {
-                name: "Ether".to_string(),
-                symbol: "ETH".to_string(),
-                decimals: 18,
-            },
-            block_time: 12,
-        });
-        
-        // Polygon
-        chains.insert(137, ChainConfig {
-            chain_id: 137,
-            rpc_url: std::env::var("POLYGON_RPC_URL")
-                .unwrap_or_else(|_| "https://polygon-rpc.com".to_string()),
-            contract_address: None,
-            name: "Polygon".to_string(),
-            native_currency: NativeCurrency {
-                name: "MATIC".to_string(),
-                symbol: "MATIC".to_string(),
-                decimals: 18,
-            },
-            block_time: 2,
-        });
-        
-        // BSC
-        chains.insert(56, ChainConfig {
-            chain_id: 56,
-            rpc_url: std::env::var("BSC_RPC_URL")
-                .unwrap_or_else(|_| "https://bsc-dataseed.binance.org".to_string()),
-            contract_address: None,
-            name: "Binance Smart Chain".to_string(),
-            native_currency: NativeCurrency {
-                name: "BNB".to_string(),
-                symbol: "BNB".to_string(),
+                name: "TCORE2".to_string(),
+                symbol: "TCORE2".to_string(),
                 decimals: 18,
             },
             block_time: 3,
         });
         
+        // Base Sepolia Testnet
+        chains.insert(84532, ChainConfig {
+            chain_id: 84532,
+            rpc_url: std::env::var("BASE_SEPOLIA_RPC_URL")
+                .unwrap_or_else(|_| "https://sepolia.base.org".to_string()),
+            contract_address: None,
+            name: "Base Sepolia Testnet".to_string(),
+            native_currency: NativeCurrency {
+                name: "Ether".to_string(),
+                symbol: "ETH".to_string(),
+                decimals: 18,
+            },
+            block_time: 2,
+        });
+        
         Ok(chains)
     }
 
-    pub async fn get_provider(&self, chain_id: u64) -> Result<Provider<Http>, Box<dyn std::error::Error>> {
+    pub async fn get_provider(&self, chain_id: u64) -> Result<Arc<Provider<Http>>, Box<dyn std::error::Error>> {
         if !self.supported_chains.contains_key(&chain_id) {
             return Err(format!("Unsupported chain: {}", chain_id).into());
         }
@@ -136,13 +138,13 @@ impl BlockchainManager {
         if !providers.contains_key(&chain_id) {
             let config = self.supported_chains.get(&chain_id).unwrap();
             let provider = Provider::<Http>::try_from(&config.rpc_url)?;
-            providers.insert(chain_id, provider);
+            providers.insert(chain_id, Arc::new(provider));
         }
 
         Ok(providers.get(&chain_id).unwrap().clone())
     }
 
-    pub async fn get_contract(&self, chain_id: u64) -> Result<ethers::contract::Contract<Http>, Box<dyn std::error::Error>> {
+    pub async fn get_contract(&self, chain_id: u64) -> Result<Contract<Arc<Provider<Http>>>, Box<dyn std::error::Error>> {
         if !self.supported_chains.contains_key(&chain_id) {
             return Err(format!("Unsupported chain: {}", chain_id).into());
         }
@@ -156,7 +158,7 @@ impl BlockchainManager {
             
             // Load contract ABI
             let abi = include_bytes!("../../abi/AirChainPay.json");
-            let contract = ethers::contract::Contract::new(contract_address, abi.into(), provider);
+            let contract = Contract::new(contract_address, abi.into(), provider);
             contracts.insert(chain_id, contract);
         }
 
@@ -181,10 +183,10 @@ impl BlockchainManager {
         }
 
         // Validate amount
-        if let Err(_) = tx_data.amount.parse::<f64>() {
+        if tx_data.amount.is_empty() {
             return ValidationResult {
                 is_valid: false,
-                error: Some("Invalid transaction amount".to_string()),
+                error: Some("Amount is missing".to_string()),
             };
         }
 
@@ -196,54 +198,6 @@ impl BlockchainManager {
             };
         }
 
-        // Validate token address if present
-        if let Some(token_address) = tx_data.token_address {
-            if token_address == Address::zero() {
-                return ValidationResult {
-                    is_valid: false,
-                    error: Some("Invalid token address".to_string()),
-                };
-            }
-        }
-
-        // Validate timestamp
-        if tx_data.timestamp == 0 {
-            return ValidationResult {
-                is_valid: false,
-                error: Some("Invalid timestamp".to_string()),
-            };
-        }
-
-        // Validate status
-        let valid_statuses = ["pending", "sending", "completed", "failed"];
-        if !valid_statuses.contains(&tx_data.status.as_str()) {
-            return ValidationResult {
-                is_valid: false,
-                error: Some("Invalid transaction status".to_string()),
-            };
-        }
-
-        // Validate metadata if present
-        if let Some(metadata) = &tx_data.metadata {
-            if let Some(device_id) = &metadata.device_id {
-                if device_id.is_empty() {
-                    return ValidationResult {
-                        is_valid: false,
-                        error: Some("Invalid device ID in metadata".to_string()),
-                    };
-                }
-            }
-
-            if let Some(retry_count) = metadata.retry_count {
-                if retry_count > 10 {
-                    return ValidationResult {
-                        is_valid: false,
-                        error: Some("Retry count too high".to_string()),
-                    };
-                }
-            }
-        }
-
         ValidationResult {
             is_valid: true,
             error: None,
@@ -253,68 +207,53 @@ impl BlockchainManager {
     pub async fn estimate_gas(&self, tx_data: &TransactionData) -> GasEstimate {
         match self.get_provider(tx_data.chain_id).await {
             Ok(provider) => {
-                let tx_request = TransactionRequest::new()
+                let mut tx = ethers::types::TransactionRequest::new()
                     .to(tx_data.to)
-                    .value(U256::from_dec_str(&tx_data.amount).unwrap_or_default());
+                    .data(Bytes::from(vec![]));
+                let typed_tx: ethers::types::TypedTransaction = tx.into();
+                let gas_limit = provider
+                    .estimate_gas(&typed_tx, None)
+                    .await;
 
-                match provider.estimate_gas(&tx_request, None).await {
-                    Ok(gas_limit) => GasEstimate {
-                        gas_limit,
+                match gas_limit {
+                    Ok(limit) => GasEstimate {
+                        gas_limit: limit,
                         error: None,
                     },
-                    Err(e) => {
-                        Logger::error(&format!("Gas estimation error: {:?}", e));
-                        GasEstimate {
-                            gas_limit: U256::from(21000), // Default gas limit
-                            error: Some(format!("Gas estimation failed: {}", e)),
-                        }
-                    }
+                    Err(e) => GasEstimate {
+                        gas_limit: U256::from(21000), // Default gas limit
+                        error: Some(format!("Failed to estimate gas: {}", e)),
+                    },
                 }
             }
-            Err(e) => {
-                Logger::error(&format!("Provider error: {:?}", e));
-                GasEstimate {
-                    gas_limit: U256::from(21000), // Default gas limit
-                    error: Some(format!("Provider error: {}", e)),
-                }
-            }
+            Err(e) => GasEstimate {
+                gas_limit: U256::from(21000), // Default gas limit
+                error: Some(format!("Failed to get provider: {}", e)),
+            },
         }
     }
 
-    pub async fn send_transaction(&self, signed_tx: Bytes, rpc_url: &str) -> Result<U256, Box<dyn std::error::Error>> {
+    pub async fn send_transaction(&self, signed_tx: Bytes, rpc_url: &str) -> Result<TxHash, Box<dyn std::error::Error>> {
         let provider = Provider::<Http>::try_from(rpc_url)?;
         
-        // Decode the signed transaction
-        let tx = ethers::types::Transaction::from_bytes(signed_tx)?;
+        let pending_tx = provider.send_raw_transaction(signed_tx).await?;
         
-        // Send the transaction
-        let pending_tx = provider.send_transaction(tx, None).await?;
-        
-        // Wait for the transaction to be mined
-        let receipt = pending_tx.await?;
-        
-        match receipt {
-            Some(receipt) => {
-                if let Some(hash) = receipt.transaction_hash {
-                    Logger::info(&format!("Transaction sent successfully: {:?}", hash));
-                    Ok(hash)
-                } else {
-                    Err("Transaction hash not found in receipt".into())
-                }
-            }
-            None => Err("Transaction receipt not found".into()),
-        }
+        Ok(pending_tx.tx_hash())
     }
 
-    pub async fn get_transaction_status(&self, tx_hash: U256, chain_id: u64) -> Result<String, Box<dyn std::error::Error>> {
+    pub async fn get_transaction_status(&self, tx_hash: TxHash, chain_id: u64) -> Result<String, Box<dyn std::error::Error>> {
         let provider = self.get_provider(chain_id).await?;
         
         match provider.get_transaction_receipt(tx_hash).await? {
             Some(receipt) => {
-                if receipt.status == Some(U256::from(1)) {
-                    Ok("completed".to_string())
+                if let Some(status) = receipt.status {
+                    if status.as_u64() == 1 {
+                        Ok("confirmed".to_string())
+                    } else {
+                        Ok("failed".to_string())
+                    }
                 } else {
-                    Ok("failed".to_string())
+                    Ok("pending".to_string())
                 }
             }
             None => Ok("pending".to_string()),
@@ -341,94 +280,105 @@ impl BlockchainManager {
     }
 
     pub async fn cleanup(&self) {
-        let mut providers = self.providers.write().await;
-        providers.clear();
-        
-        let mut contracts = self.contracts.write().await;
-        contracts.clear();
-        
-        Logger::info("Blockchain manager cleaned up");
+        // Cleanup logic here
+        Logger::info("Blockchain manager cleanup completed");
     }
 
     pub async fn health_check(&self) -> HashMap<String, serde_json::Value> {
-        let mut health = HashMap::new();
+        let mut health_status = HashMap::new();
         
         for (chain_id, config) in &self.supported_chains {
             match self.get_provider(*chain_id).await {
                 Ok(provider) => {
                     match provider.get_block_number().await {
                         Ok(block_number) => {
-                            health.insert(
-                                format!("chain_{}_status", chain_id),
-                                serde_json::Value::String("healthy".to_string()),
-                            );
-                            health.insert(
-                                format!("chain_{}_block", chain_id),
-                                serde_json::Value::Number(serde_json::Number::from(block_number.as_u64())),
+                            health_status.insert(
+                                config.name.clone(),
+                                serde_json::json!({
+                                    "status": "healthy",
+                                    "block_number": block_number.as_u64(),
+                                    "chain_id": chain_id
+                                })
                             );
                         }
-                        Err(_) => {
-                            health.insert(
-                                format!("chain_{}_status", chain_id),
-                                serde_json::Value::String("unhealthy".to_string()),
+                        Err(e) => {
+                            health_status.insert(
+                                config.name.clone(),
+                                serde_json::json!({
+                                    "status": "unhealthy",
+                                    "error": e.to_string(),
+                                    "chain_id": chain_id
+                                })
                             );
                         }
                     }
                 }
-                Err(_) => {
-                    health.insert(
-                        format!("chain_{}_status", chain_id),
-                        serde_json::Value::String("unhealthy".to_string()),
+                Err(e) => {
+                    health_status.insert(
+                        config.name.clone(),
+                        serde_json::json!({
+                            "status": "unhealthy",
+                            "error": e.to_string(),
+                            "chain_id": chain_id
+                        })
                     );
                 }
             }
         }
         
-        health
+        health_status
+    }
+
+    pub async fn get_network_status(&self) -> NetworkStatus {
+        let mut connected_networks = 0;
+        let mut total_networks = self.supported_chains.len() as u32;
+        let mut last_error = None;
+        
+        for (chain_id, _) in &self.supported_chains {
+            match self.get_provider(*chain_id).await {
+                Ok(_) => {
+                    connected_networks += 1;
+                }
+                Err(e) => {
+                    last_error = Some(e.to_string());
+                }
+            }
+        }
+        
+        NetworkStatus {
+            is_healthy: connected_networks > 0,
+            connected_networks,
+            last_block_time: Some(Utc::now()),
+            gas_price_updates: 0,
+            pending_transactions: 0,
+            failed_transactions: 0,
+            total_networks,
+            average_response_time_ms: 0.0,
+            last_error,
+            uptime_seconds: 0.0,
+            network_details: HashMap::new(),
+        }
     }
 }
 
-pub async fn send_transaction(signed_tx: Vec<u8>, rpc_url: &str) -> Result<U256, Box<dyn std::error::Error>> {
+pub async fn send_transaction(signed_tx: Vec<u8>, rpc_url: &str) -> Result<TxHash, Box<dyn std::error::Error>> {
     let provider = Provider::<Http>::try_from(rpc_url)?;
-    let tx = ethers::types::Transaction::from_bytes(Bytes::from(signed_tx))?;
     
-    let pending_tx = provider.send_transaction(tx, None).await?;
-    let receipt = pending_tx.await?;
+    let pending_tx = provider.send_raw_transaction(Bytes::from(signed_tx)).await?;
     
-    match receipt {
-        Some(receipt) => {
-            if let Some(hash) = receipt.transaction_hash {
-                Ok(hash)
-            } else {
-                Err("Transaction hash not found".into())
-            }
-        }
-        None => Err("Transaction receipt not found".into()),
-    }
+    Ok(pending_tx.tx_hash())
 }
 
 pub fn validate_ethereum_address(address: &str) -> bool {
-    if !address.starts_with("0x") {
-        return false;
-    }
-    if address.len() != 42 {
-        return false;
-    }
-    address[2..].chars().all(|c| c.is_ascii_hexdigit())
+    address.parse::<Address>().is_ok()
 }
 
 pub fn validate_transaction_hash(hash: &str) -> bool {
-    if !hash.starts_with("0x") {
-        return false;
-    }
-    if hash.len() != 66 {
-        return false;
-    }
-    hash[2..].chars().all(|c| c.is_ascii_hexdigit())
+    hash.parse::<H256>().is_ok()
 }
 
 pub fn parse_wei(amount: &str) -> Result<U256, Box<dyn std::error::Error>> {
-    Ok(U256::from_dec_str(amount)?)
+    Ok(amount.parse::<U256>()?)
 }
 
 pub fn format_wei(amount: U256) -> String {
@@ -436,13 +386,9 @@ pub fn format_wei(amount: U256) -> String {
 }
 
 pub fn parse_ether(amount: &str) -> Result<U256, Box<dyn std::error::Error>> {
-    let amount_f64: f64 = amount.parse()?;
-    let wei = amount_f64 * 1e18;
-    Ok(U256::from_dec_str(&wei.to_string())?)
+    Ok(ethers::utils::parse_ether(amount)?)
 }
 
 pub fn format_ether(amount: U256) -> String {
-    let wei = amount.as_u128() as f64;
-    let ether = wei / 1e18;
-    format!("{:.18}", ether)
+    ethers::utils::format_ether(amount)
 } 

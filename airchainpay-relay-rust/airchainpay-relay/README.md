@@ -16,11 +16,8 @@ A high-performance, memory-safe implementation of the AirChainPay relay server w
 - **Storage Management**: Transaction and device data persistence
 
 ### Supported Networks
-- **Base Sepolia** (Chain ID: 84532)
-- **Core Testnet** (Chain ID: 11155420)
-- **Core Testnet 2** (Chain ID: 1114)
-- **Base Mainnet** (Chain ID: 8453)
-- **Core Mainnet** (Chain ID: 1116)
+- **Core Testnet 2** (Chain ID: 1114) - Primary network
+- **Base Sepolia Testnet** (Chain ID: 84532) - Secondary network
 
 ## Architecture
 
@@ -86,10 +83,22 @@ RUST_ENV=development  # development, staging, production
 PORT=4000
 LOG_LEVEL=info
 
-# Blockchain Configuration
-RPC_URL=https://sepolia.base.org
-CHAIN_ID=84532
-CONTRACT_ADDRESS=0x7B79117445C57eea1CEAb4733020A55e1D503934
+# Core Testnet 2 Configuration (Primary)
+RPC_URL=https://rpc.test2.btcs.network
+CHAIN_ID=1114
+CONTRACT_ADDRESS=your_contract_address_here
+
+# Core Testnet 2 Environment Variables
+CORE_TESTNET2_RPC_URL=https://rpc.test2.btcs.network
+CORE_TESTNET2_CONTRACT_ADDRESS=your_contract_address_here
+CORE_TESTNET2_BLOCK_EXPLORER=https://scan.test2.btcs.network
+CORE_TESTNET2_CURRENCY_SYMBOL=TCORE2
+
+# Base Sepolia Configuration (Secondary)
+BASE_SEPOLIA_RPC_URL=https://base-sepolia.drpc.org
+BASE_SEPOLIA_CONTRACT_ADDRESS=your_contract_address_here
+BASE_SEPOLIA_BLOCK_EXPLORER=https://sepolia.basescan.org
+BASE_SEPOLIA_CURRENCY_SYMBOL=ETH
 
 # Security
 API_KEY=your_api_key_here
@@ -281,7 +290,7 @@ cargo build --release
 ### Logs
 Logs are written to stdout with structured format:
 ```
-[2024-01-01T12:00:00Z INFO] Transaction processed: 0x1234... on chain 84532
+[2024-01-01T12:00:00Z INFO] Transaction processed: 0x1234... on chain 1114
 [2024-01-01T12:00:01Z DEBUG] BLE device connected: device_001
 ```
 

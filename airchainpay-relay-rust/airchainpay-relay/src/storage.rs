@@ -38,7 +38,7 @@ pub struct Device {
     pub blocked_until: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Metrics {
     pub transactions_received: u64,
     pub transactions_processed: u64,
@@ -135,7 +135,8 @@ impl Storage {
         
         // Keep only last 1000 transactions
         if transactions.len() > 1000 {
-            transactions.drain(0..transactions.len() - 1000);
+            let len = transactions.len();
+            transactions.drain(0..len - 1000);
         }
         
         self.save_data()?;
@@ -145,6 +146,45 @@ impl Storage {
     pub fn get_transactions(&self, limit: usize) -> Vec<Transaction> {
         let transactions = self.transactions.lock().unwrap();
         transactions.iter().rev().take(limit).cloned().collect()
+    }
+    
+    // Add missing methods
+    pub async fn save_transaction_hash(&self, transaction_id: &str, tx_hash: &str) -> Result<()> {
+        let mut transactions = self.transactions.lock().unwrap();
+        if let Some(transaction) = transactions.iter_mut().find(|t| t.id == transaction_id) {
+            transaction.tx_hash = Some(tx_hash.to_string());
+            self.save_data()?;
+        }
+        Ok(())
+    }
+    
+    pub async fn update_transaction(&self, transaction: Transaction) -> Result<()> {
+        let mut transactions = self.transactions.lock().unwrap();
+        if let Some(existing) = transactions.iter_mut().find(|t| t.id == transaction.id) {
+            *existing = transaction;
+            self.save_data()?;
+        }
+        Ok(())
+    }
+    
+    pub async fn get_pending_transactions_for_device(&self, device_id: &str) -> Result<Vec<Transaction>> {
+        let transactions = self.transactions.lock().unwrap();
+        let pending: Vec<Transaction> = transactions
+            .iter()
+            .filter(|t| t.device_id.as_deref() == Some(device_id) && t.status == "pending")
+            .cloned()
+            .collect();
+        Ok(pending)
+    }
+    
+    pub async fn get_transaction(&self, transaction_id: &str) -> Result<Option<Transaction>> {
+        let transactions = self.transactions.lock().unwrap();
+        Ok(transactions.iter().find(|t| t.id == transaction_id).cloned())
+    }
+    
+    pub async fn get_all_transactions(&self) -> Result<Vec<Transaction>> {
+        let transactions = self.transactions.lock().unwrap();
+        Ok(transactions.clone())
     }
     
     pub fn save_device(&self, device: Device) -> Result<()> {

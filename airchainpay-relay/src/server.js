@@ -334,13 +334,132 @@ const accessLogStream = fs.createWriteStream(path.join(logDir, 'access.log'), { 
 app.use(morgan('combined', { stream: accessLogStream }));
 app.use(morgan('dev')); // Console logging for development
 
-// Apply rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-  message: { error: 'Too many requests, please try again later' },
-});
-app.use(limiter);
+// Apply comprehensive rate limiting
+const rateLimiters = {
+  // Global rate limiter
+  global: rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 1000, // limit each IP to 1000 requests per windowMs
+    message: {
+      error: 'Too many requests from this IP, please try again later.',
+      retryAfter: '15 minutes',
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => {
+      metrics.rateLimitHits++;
+      res.status(429).json({
+        error: 'Too many requests from this IP, please try again later.',
+        retryAfter: '15 minutes',
+        timestamp: new Date().toISOString(),
+      });
+    },
+  }),
+
+  // Strict rate limiter for authentication endpoints
+  auth: rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 5, // limit each IP to 5 requests per windowMs
+    message: {
+      error: 'Too many authentication attempts, please try again later.',
+      retryAfter: '15 minutes',
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => {
+      metrics.rateLimitHits++;
+      metrics.authFailures++;
+      res.status(429).json({
+        error: 'Too many authentication attempts, please try again later.',
+        retryAfter: '15 minutes',
+        timestamp: new Date().toISOString(),
+      });
+    },
+  }),
+
+  // Transaction submission rate limiter
+  transactions: rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 50, // limit each IP to 50 requests per windowMs
+    message: {
+      error: 'Too many transaction submissions, please try again later.',
+      retryAfter: '1 minute',
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => {
+      metrics.rateLimitHits++;
+      res.status(429).json({
+        error: 'Too many transaction submissions, please try again later.',
+        retryAfter: '1 minute',
+        timestamp: new Date().toISOString(),
+      });
+    },
+  }),
+
+  // BLE endpoint rate limiter
+  ble: rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 100, // limit each IP to 100 requests per windowMs
+    message: {
+      error: 'Too many BLE requests, please try again later.',
+      retryAfter: '1 minute',
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => {
+      metrics.rateLimitHits++;
+      res.status(429).json({
+        error: 'Too many BLE requests, please try again later.',
+        retryAfter: '1 minute',
+        timestamp: new Date().toISOString(),
+      });
+    },
+  }),
+
+  // Health check rate limiter (more permissive)
+  health: rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 300, // limit each IP to 300 requests per windowMs
+    message: {
+      error: 'Too many health check requests, please try again later.',
+      retryAfter: '1 minute',
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => {
+      metrics.rateLimitHits++;
+      res.status(429).json({
+        error: 'Too many health check requests, please try again later.',
+        retryAfter: '1 minute',
+        timestamp: new Date().toISOString(),
+      });
+    },
+  }),
+
+  // Metrics endpoint rate limiter
+  metrics: rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 60, // limit each IP to 60 requests per windowMs
+    message: {
+      error: 'Too many metrics requests, please try again later.',
+      retryAfter: '1 minute',
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => {
+      metrics.rateLimitHits++;
+      res.status(429).json({
+        error: 'Too many metrics requests, please try again later.',
+        retryAfter: '1 minute',
+        timestamp: new Date().toISOString(),
+      });
+    },
+  }),
+};
+
+// Apply global rate limiting
+app.use(rateLimiters.global);
 
 // Middleware
 app.use(cors());
@@ -399,7 +518,7 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-app.get('/health', (req, res) => {
+app.get('/health', rateLimiters.health, (req, res) => {
   const bleStatus = getBLEStatus();
   
   res.json({
@@ -455,7 +574,7 @@ app.get('/health', (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-app.get('/metrics', (req, res) => {
+app.get('/metrics', rateLimiters.metrics, (req, res) => {
   const prometheusMetrics = [
     '# HELP airchainpay_transactions_received_total Total number of transactions received',
     '# TYPE airchainpay_transactions_received_total counter',
@@ -562,7 +681,7 @@ function getBLEStatus() {
 }
 
 // BLE status endpoint for detailed monitoring
-app.get('/ble/status', (req, res) => {
+app.get('/ble/status', rateLimiters.ble, (req, res) => {
   try {
     const status = getBLEStatus();
     res.json({
@@ -581,7 +700,7 @@ app.get('/ble/status', (req, res) => {
 });
 
 // BLE device list endpoint
-app.get('/ble/devices', (req, res) => {
+app.get('/ble/devices', rateLimiters.ble, (req, res) => {
   try {
     if (!bleManager || !bleManager.connectedDevices) {
       return res.json({
@@ -766,7 +885,7 @@ async function receiveTxViaBLE(deviceId, transactionData) {
         network: networkInfo[targetChainId],
         timestamp: Date.now(),
       },
-    });
+    }, metrics);
 
     // Save transaction to database
     const transactionRecord = {
@@ -1010,7 +1129,7 @@ async function processQueuedTransactions(deviceId) {
     const transaction = deviceQueue[0];
     try {
       // Process the transaction
-      const result = await processTransaction(transaction);
+      const result = await processTransaction(transaction, metrics);
       
       // Notify device of success
       if (bleManager) {
@@ -1050,7 +1169,7 @@ initializeBLE().catch(error => {
 });
 
 // Submit signed transaction for broadcasting
-app.post('/transaction/submit', 
+app.post('/transaction/submit', rateLimiters.transactions, 
   validateInput.required(['signedTransaction']),
   validateInput.types({ signedTransaction: 'string' }),
   validateInput.lengths({ signedTransaction: 10000 }),
@@ -1074,7 +1193,7 @@ app.post('/transaction/submit',
       const result = await processTransaction({
         signedTransaction: signedTransaction,
         chainId: validatedChainId,
-      });
+      }, metrics);
 
       res.json({
         success: true,
@@ -1090,7 +1209,7 @@ app.post('/transaction/submit',
 );
 
 // Legacy endpoint for backward compatibility
-app.post('/api/v1/submit-transaction', 
+app.post('/api/v1/submit-transaction', rateLimiters.transactions, 
   validateInput.required(['signedTransaction', 'chainId']),
   validateInput.types({ signedTransaction: 'string', chainId: 'chainId' }),
   validateInput.lengths({ signedTransaction: 10000 }),
@@ -1108,7 +1227,7 @@ app.post('/api/v1/submit-transaction',
       const result = await processTransaction({
         signedTransaction: signedTransaction,
         chainId: chainId,
-      });
+      }, metrics);
 
       res.json({
         success: true,
@@ -1163,7 +1282,7 @@ app.get('/contract/payments', async (req, res) => {
 });
 
 // Generate authentication token
-app.post('/auth/token', 
+app.post('/auth/token', rateLimiters.auth,
   validateInput.required(['apiKey']),
   validateInput.types({ apiKey: 'string' }),
   validateInput.lengths({ apiKey: 200 }),
@@ -1185,7 +1304,7 @@ app.post('/auth/token',
 );
 
 // BLE transaction processing endpoint (for testing and manual processing)
-app.post('/ble/process-transaction', 
+app.post('/ble/process-transaction', rateLimiters.ble,
   authenticateToken,
   validateInput.required(['deviceId', 'transactionData']),
   validateInput.types({ deviceId: 'deviceId' }),
@@ -1797,7 +1916,7 @@ app.get('/api/database/security',
 );
 
 // Legacy /tx endpoint (for backward compatibility with tests)
-app.post('/tx', (req, res) => {
+app.post('/tx', rateLimiters.transactions, (req, res) => {
   res.status(400).json({ error: 'Legacy endpoint not supported' });
 });
 

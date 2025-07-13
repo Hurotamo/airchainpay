@@ -2,6 +2,9 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const logger = require('./logger');
+const { promisify } = require('util');
+const { exec } = require('child_process');
+const execAsync = promisify(exec);
 
 class Database {
   constructor() {
@@ -11,14 +14,33 @@ class Database {
     this.metricsFile = path.join(this.dataDir, 'metrics.json');
     this.auditFile = path.join(this.dataDir, 'audit.log');
     this.integrityFile = path.join(this.dataDir, 'integrity.json');
+    this.backupDir = path.join(this.dataDir, 'backups');
+    
+    // Backup configuration
+    this.backupConfig = {
+      autoBackup: true,
+      backupInterval: 24 * 60 * 60 * 1000, // 24 hours
+      retentionDays: 30,
+      compression: true,
+      encryption: false,
+      encryptionKey: process.env.BACKUP_ENCRYPTION_KEY || null,
+      maxBackups: 100,
+      backupTypes: ['full', 'transaction', 'audit', 'metrics'],
+    };
     
     this.initialize();
+    this.initializeBackupSystem();
   }
 
   initialize() {
     // Create data directory if it doesn't exist
     if (!fs.existsSync(this.dataDir)) {
       fs.mkdirSync(this.dataDir, { recursive: true });
+    }
+
+    // Create backup directory if it doesn't exist
+    if (!fs.existsSync(this.backupDir)) {
+      fs.mkdirSync(this.backupDir, { recursive: true });
     }
 
     // Initialize files if they don't exist
@@ -36,6 +58,458 @@ class Database {
       fs.writeFileSync(filePath, JSON.stringify(defaultValue, null, 2));
       this.updateIntegrityHash(filePath);
     }
+  }
+
+  initializeBackupSystem() {
+    // Start automatic backup if enabled
+    if (this.backupConfig.autoBackup) {
+      this.startAutoBackup();
+    }
+
+    // Cleanup old backups on startup
+    this.cleanup();
+  }
+
+  startAutoBackup() {
+    setInterval(() => {
+      this.createBackup('auto', 'Automatic backup')
+        .then(backupPath => {
+          logger.info(`Automatic backup created: ${backupPath}`);
+        })
+        .catch(error => {
+          logger.error('Automatic backup failed:', error);
+        });
+    }, this.backupConfig.backupInterval);
+  }
+
+  // Enhanced backup with encryption and compression
+  async createBackup(type = 'full', description = 'Manual backup') {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupId = `backup-${type}-${timestamp}`;
+    const backupPath = path.join(this.backupDir, backupId);
+    
+    if (!fs.existsSync(backupPath)) {
+      fs.mkdirSync(backupPath, { recursive: true });
+    }
+    
+    try {
+      // Create backup based on type
+      const files = await this.getBackupFiles(type);
+      const backupFiles = [];
+      
+      for (const file of files) {
+        if (fs.existsSync(file)) {
+          const fileName = path.basename(file);
+          const backupFile = path.join(backupPath, fileName);
+          
+          // Copy file
+          fs.copyFileSync(file, backupFile);
+          backupFiles.push(fileName);
+          
+          // Verify copy
+          const originalHash = this.calculateHash(this.readFile(file));
+          const backupHash = this.calculateHash(this.readFile(backupFile));
+          
+          if (originalHash !== backupHash) {
+            throw new Error(`Backup verification failed for ${fileName}`);
+          }
+        }
+      }
+      
+      // Create backup metadata
+      const backupMetadata = {
+        id: backupId,
+        type: type,
+        description: description,
+        timestamp: new Date().toISOString(),
+        files: backupFiles,
+        fileCount: backupFiles.length,
+        totalSize: this.calculateBackupSize(backupPath),
+        checksum: this.calculateBackupChecksum(backupPath),
+        compression: this.backupConfig.compression,
+        encryption: this.backupConfig.encryption,
+        serverInfo: {
+          uptime: process.uptime(),
+          memoryUsage: process.memoryUsage(),
+          pid: process.pid,
+          version: process.env.npm_package_version || '1.0.0',
+        },
+      };
+      
+      // Save metadata
+      const metadataFile = path.join(backupPath, 'backup-metadata.json');
+      fs.writeFileSync(metadataFile, JSON.stringify(backupMetadata, null, 2));
+      
+      // Compress backup if enabled
+      if (this.backupConfig.compression) {
+        await this.compressBackup(backupPath);
+      }
+      
+      // Encrypt backup if enabled
+      if (this.backupConfig.encryption && this.backupConfig.encryptionKey) {
+        await this.encryptBackup(backupPath);
+      }
+      
+      // Log backup creation
+      this.logDataAccess('BACKUP_CREATED', 'backup', {
+        backupId,
+        type,
+        description,
+        fileCount: backupFiles.length,
+        totalSize: backupMetadata.totalSize,
+      });
+      
+      logger.info(`Backup created successfully: ${backupId} (${backupFiles.length} files, ${backupMetadata.totalSize} bytes)`);
+      
+      return backupId;
+      
+    } catch (error) {
+      logger.error(`Backup creation failed: ${error.message}`);
+      this.logSecurityIncident('BACKUP_CREATION_FAILED', {
+        backupId,
+        type,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+      throw error;
+    }
+  }
+
+  async getBackupFiles(type) {
+    const baseFiles = [this.transactionsFile, this.devicesFile, this.metricsFile, this.integrityFile];
+    
+    switch (type) {
+      case 'full':
+        return baseFiles;
+      case 'transaction':
+        return [this.transactionsFile];
+      case 'audit':
+        return [this.auditFile];
+      case 'metrics':
+        return [this.metricsFile];
+      case 'devices':
+        return [this.devicesFile];
+      default:
+        return baseFiles;
+    }
+  }
+
+  calculateBackupSize(backupPath) {
+    let totalSize = 0;
+    const files = fs.readdirSync(backupPath);
+    
+    for (const file of files) {
+      const filePath = path.join(backupPath, file);
+      const stats = fs.statSync(filePath);
+      if (stats.isFile()) {
+        totalSize += stats.size;
+      }
+    }
+    
+    return totalSize;
+  }
+
+  calculateBackupChecksum(backupPath) {
+    const files = fs.readdirSync(backupPath).sort();
+    let combinedData = '';
+    
+    for (const file of files) {
+      const filePath = path.join(backupPath, file);
+      const stats = fs.statSync(filePath);
+      if (stats.isFile()) {
+        const data = fs.readFileSync(filePath, 'utf8');
+        combinedData += data;
+      }
+    }
+    
+    return crypto.createHash('sha256').update(combinedData).digest('hex');
+  }
+
+  async compressBackup(backupPath) {
+    try {
+      const tarPath = backupPath + '.tar.gz';
+      await execAsync(`tar -czf "${tarPath}" -C "${path.dirname(backupPath)}" "${path.basename(backupPath)}"`);
+      
+      // Remove original directory after compression
+      fs.rmSync(backupPath, { recursive: true, force: true });
+      
+      logger.info(`Backup compressed: ${tarPath}`);
+    } catch (error) {
+      logger.error('Backup compression failed:', error);
+      throw error;
+    }
+  }
+
+  async encryptBackup(backupPath) {
+    try {
+      const key = crypto.scryptSync(this.backupConfig.encryptionKey, 'salt', 32);
+      const iv = crypto.randomBytes(16);
+      
+      const input = fs.readFileSync(backupPath);
+      const cipher = crypto.createCipher('aes-256-cbc', key);
+      let encrypted = cipher.update(input, 'utf8', 'hex');
+      encrypted += cipher.final('hex');
+      
+      const encryptedData = iv.toString('hex') + ':' + encrypted;
+      fs.writeFileSync(backupPath + '.enc', encryptedData);
+      
+      // Remove original file
+      fs.unlinkSync(backupPath);
+      
+      logger.info(`Backup encrypted: ${backupPath}.enc`);
+    } catch (error) {
+      logger.error('Backup encryption failed:', error);
+      throw error;
+    }
+  }
+
+  // Enhanced recovery system
+  async restoreBackup(backupId, options = {}) {
+    const {
+      verifyIntegrity = true,
+      restorePath = this.dataDir,
+      backupType = 'full'
+    } = options;
+    
+    try {
+      // Find backup
+      const backupPath = await this.findBackup(backupId);
+      if (!backupPath) {
+        throw new Error(`Backup not found: ${backupId}`);
+      }
+      
+      // Verify backup integrity
+      if (verifyIntegrity) {
+        const isValid = await this.verifyBackupIntegrity(backupPath);
+        if (!isValid) {
+          throw new Error(`Backup integrity verification failed: ${backupId}`);
+        }
+      }
+      
+      // Create restore directory
+      if (!fs.existsSync(restorePath)) {
+        fs.mkdirSync(restorePath, { recursive: true });
+      }
+      
+      // Decrypt if necessary
+      let extractedPath = backupPath;
+      if (backupPath.endsWith('.enc')) {
+        extractedPath = await this.decryptBackup(backupPath);
+      }
+      
+      // Extract if compressed
+      if (extractedPath.endsWith('.tar.gz')) {
+        extractedPath = await this.extractBackup(extractedPath);
+      }
+      
+      // Restore files
+      const restoredFiles = await this.restoreBackupFiles(extractedPath, restorePath, backupType);
+      
+      // Verify restored data integrity
+      if (verifyIntegrity) {
+        this.verifyDataIntegrity();
+      }
+      
+      // Log restoration
+      this.logDataAccess('BACKUP_RESTORED', 'backup', {
+        backupId,
+        restorePath,
+        restoredFiles,
+        timestamp: new Date().toISOString(),
+      });
+      
+      logger.info(`Backup restored successfully: ${backupId} (${restoredFiles.length} files)`);
+      
+      return {
+        backupId,
+        restoredFiles,
+        restorePath,
+        timestamp: new Date().toISOString(),
+      };
+      
+    } catch (error) {
+      logger.error(`Backup restoration failed: ${error.message}`);
+      this.logSecurityIncident('BACKUP_RESTORATION_FAILED', {
+        backupId,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+      throw error;
+    }
+  }
+
+  async findBackup(backupId) {
+    const files = fs.readdirSync(this.backupDir);
+    
+    for (const file of files) {
+      if (file.startsWith(backupId)) {
+        return path.join(this.backupDir, file);
+      }
+    }
+    
+    return null;
+  }
+
+  async verifyBackupIntegrity(backupPath) {
+    try {
+      // Read metadata
+      const metadataPath = backupPath.replace('.tar.gz', '').replace('.enc', '') + '/backup-metadata.json';
+      if (fs.existsSync(metadataPath)) {
+        const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+        const currentChecksum = this.calculateBackupChecksum(path.dirname(metadataPath));
+        return currentChecksum === metadata.checksum;
+      }
+      return true; // No metadata, assume valid
+    } catch (error) {
+      logger.error('Backup integrity verification failed:', error);
+      return false;
+    }
+  }
+
+  async decryptBackup(backupPath) {
+    try {
+      const key = crypto.scryptSync(this.backupConfig.encryptionKey, 'salt', 32);
+      const encryptedData = fs.readFileSync(backupPath, 'utf8');
+      const [ivHex, encrypted] = encryptedData.split(':');
+      const iv = Buffer.from(ivHex, 'hex');
+      
+      const decipher = crypto.createDecipher('aes-256-cbc', key);
+      let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+      decrypted += decipher.final('utf8');
+      
+      const decryptedPath = backupPath.replace('.enc', '');
+      fs.writeFileSync(decryptedPath, decrypted);
+      
+      return decryptedPath;
+    } catch (error) {
+      logger.error('Backup decryption failed:', error);
+      throw error;
+    }
+  }
+
+  async extractBackup(backupPath) {
+    try {
+      const extractPath = backupPath.replace('.tar.gz', '');
+      await execAsync(`tar -xzf "${backupPath}" -C "${path.dirname(extractPath)}"`);
+      return extractPath;
+    } catch (error) {
+      logger.error('Backup extraction failed:', error);
+      throw error;
+    }
+  }
+
+  async restoreBackupFiles(backupPath, restorePath, backupType) {
+    const files = fs.readdirSync(backupPath);
+    const restoredFiles = [];
+    
+    for (const file of files) {
+      if (file === 'backup-metadata.json') continue;
+      
+      const sourcePath = path.join(backupPath, file);
+      const destPath = path.join(restorePath, file);
+      
+      // Only restore files based on backup type
+      if (this.shouldRestoreFile(file, backupType)) {
+        fs.copyFileSync(sourcePath, destPath);
+        restoredFiles.push(file);
+      }
+    }
+    
+    return restoredFiles;
+  }
+
+  shouldRestoreFile(fileName, backupType) {
+    switch (backupType) {
+      case 'full':
+        return true;
+      case 'transaction':
+        return fileName === 'transactions.json';
+      case 'audit':
+        return fileName === 'audit.log';
+      case 'metrics':
+        return fileName === 'metrics.json';
+      case 'devices':
+        return fileName === 'devices.json';
+      default:
+        return true;
+    }
+  }
+
+  // List available backups
+  listBackups() {
+    try {
+      const files = fs.readdirSync(this.backupDir);
+      const backups = [];
+      
+      for (const file of files) {
+        if (file.startsWith('backup-')) {
+          const backupPath = path.join(this.backupDir, file);
+          const stats = fs.statSync(backupPath);
+          
+          const backup = {
+            id: file,
+            path: backupPath,
+            size: stats.size,
+            created: stats.birthtime,
+            modified: stats.mtime,
+          };
+          
+          // Try to read metadata
+          try {
+            const metadataPath = backupPath.replace('.tar.gz', '').replace('.enc', '') + '/backup-metadata.json';
+            if (fs.existsSync(metadataPath)) {
+              const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+              backup.metadata = metadata;
+            }
+          } catch (error) {
+            // Metadata not available
+          }
+          
+          backups.push(backup);
+        }
+      }
+      
+      return backups.sort((a, b) => b.created - a.created);
+    } catch (error) {
+      logger.error('Error listing backups:', error);
+      return [];
+    }
+  }
+
+  // Delete backup
+  deleteBackup(backupId) {
+    try {
+      const backupPath = this.findBackup(backupId);
+      if (backupPath && fs.existsSync(backupPath)) {
+        if (fs.statSync(backupPath).isDirectory()) {
+          fs.rmSync(backupPath, { recursive: true, force: true });
+        } else {
+          fs.unlinkSync(backupPath);
+        }
+        
+        logger.info(`Backup deleted: ${backupId}`);
+        this.logDataAccess('BACKUP_DELETED', 'backup', { backupId });
+        return true;
+      }
+      return false;
+    } catch (error) {
+      logger.error(`Failed to delete backup ${backupId}:`, error);
+      return false;
+    }
+  }
+
+  // Get backup statistics
+  getBackupStats() {
+    const backups = this.listBackups();
+    const totalSize = backups.reduce((sum, backup) => sum + backup.size, 0);
+    
+    return {
+      totalBackups: backups.length,
+      totalSize,
+      oldestBackup: backups.length > 0 ? backups[backups.length - 1].created : null,
+      newestBackup: backups.length > 0 ? backups[0].created : null,
+      averageSize: backups.length > 0 ? totalSize / backups.length : 0,
+    };
   }
 
   // Data integrity protection
@@ -384,51 +858,6 @@ class Database {
   // Utility methods
   generateId() {
     return Date.now().toString(36) + Math.random().toString(36).substr(2);
-  }
-
-  // Enhanced backup with integrity verification
-  createBackup() {
-    const backupDir = path.join(this.dataDir, 'backups');
-    if (!fs.existsSync(backupDir)) {
-      fs.mkdirSync(backupDir, { recursive: true });
-    }
-    
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const backupPath = path.join(backupDir, `backup-${timestamp}`);
-    
-    if (!fs.existsSync(backupPath)) {
-      fs.mkdirSync(backupPath, { recursive: true });
-    }
-    
-    const files = [this.transactionsFile, this.devicesFile, this.metricsFile, this.integrityFile];
-    const backupFiles = [];
-    
-    files.forEach(file => {
-      if (fs.existsSync(file)) {
-        const fileName = path.basename(file);
-        const backupFile = path.join(backupPath, fileName);
-        fs.copyFileSync(file, backupFile);
-        backupFiles.push(fileName);
-      }
-    });
-    
-    // Create backup integrity file
-    const backupIntegrity = {
-      timestamp: new Date().toISOString(),
-      files: backupFiles,
-      serverInfo: {
-        uptime: process.uptime(),
-        memoryUsage: process.memoryUsage(),
-        pid: process.pid,
-      },
-    };
-    
-    fs.writeFileSync(path.join(backupPath, 'backup-info.json'), JSON.stringify(backupIntegrity, null, 2));
-    
-    logger.info(`Backup created at ${backupPath} with ${backupFiles.length} files`);
-    this.logDataAccess('BACKUP_CREATED', 'backup', { backupPath, files: backupFiles });
-    
-    return backupPath;
   }
 
   // Cleanup old data with security logging

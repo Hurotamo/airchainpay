@@ -34,6 +34,7 @@ pub struct ValidationResult {
     pub sanitized_data: Option<serde_json::Value>,
 }
 
+#[derive(Clone)]
 pub struct InputSanitizer {
     max_string_length: usize,
     max_array_length: usize,
@@ -62,22 +63,18 @@ impl InputSanitizer {
             };
         }
 
-        let mut sanitized = input.trim().to_string();
-        
-        // Remove HTML/XML tags and dangerous characters
-        sanitized = sanitized.replace(&['<', '>', '"', '\'', '&'][..], "");
-        
-        // Truncate if too long
-        if sanitized.len() > max_len {
-            sanitized = sanitized[..max_len].to_string();
-        }
+        // Remove null bytes and control characters
+        let sanitized_string: String = input.chars()
+            .filter(|&c| c != '\0' && !c.is_control())
+            .take(max_len)
+            .collect();
 
-        let sanitized = sanitized != input;
+        let was_sanitized = sanitized_string != input;
         
         SanitizationResult {
-            data: Some(sanitized),
-            sanitized,
-            warnings: if sanitized { vec!["String was sanitized".to_string()] } else { vec![] },
+            data: Some(sanitized_string),
+            sanitized: was_sanitized,
+            warnings: if was_sanitized { vec!["String was sanitized".to_string()] } else { vec![] },
             errors: vec![],
         }
     }
@@ -158,18 +155,18 @@ impl InputSanitizer {
         }
 
         // Remove invalid characters and limit length
-        let sanitized: String = clean
+        let sanitized_string: String = clean
             .chars()
             .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
             .take(100)
             .collect();
 
-        let sanitized = sanitized != clean;
+        let was_sanitized = sanitized_string != clean;
         
         SanitizationResult {
-            data: Some(sanitized),
-            sanitized,
-            warnings: if sanitized { vec!["Device ID was sanitized".to_string()] } else { vec![] },
+            data: Some(sanitized_string),
+            sanitized: was_sanitized,
+            warnings: if was_sanitized { vec!["Device ID was sanitized".to_string()] } else { vec![] },
             errors: vec![],
         }
     }
@@ -346,7 +343,7 @@ impl InputSanitizer {
                 let mut sanitized_obj = serde_json::Map::new();
                 
                 for (key, value) in obj {
-                    let sanitized_key = self.sanitize_string(key, Some(50))?;
+                    let sanitized_key = self.sanitize_string(key, Some(50)).data.unwrap_or_default();
                     let sanitized_value = self.sanitize_request_data(value)?;
                     sanitized_obj.insert(sanitized_key, sanitized_value);
                 }

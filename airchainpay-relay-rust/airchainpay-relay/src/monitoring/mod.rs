@@ -4,6 +4,8 @@ use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use crate::logger::Logger;
+use std::time::{Duration, Instant};
+use tokio::time::interval;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrometheusMetrics {
@@ -24,6 +26,38 @@ pub struct PrometheusMetrics {
     pub uptime_seconds: f64,
     pub memory_usage_bytes: u64,
     pub cpu_usage_percent: f64,
+    // Additional metrics for comprehensive monitoring
+    pub requests_total: u64,
+    pub requests_successful: u64,
+    pub requests_failed: u64,
+    pub response_time_avg_ms: f64,
+    pub active_connections: u64,
+    pub database_operations: u64,
+    pub database_errors: u64,
+    pub compression_operations: u64,
+    pub compression_ratio_avg: f64,
+    pub security_events: u64,
+    pub validation_failures: u64,
+    pub cache_hits: u64,
+    pub cache_misses: u64,
+    pub network_errors: u64,
+    pub blockchain_confirmations: u64,
+    pub blockchain_timeouts: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemMetrics {
+    pub memory_usage_bytes: u64,
+    pub cpu_usage_percent: f64,
+    pub disk_usage_percent: f64,
+    pub network_bytes_in: u64,
+    pub network_bytes_out: u64,
+    pub open_file_descriptors: u64,
+    pub thread_count: u64,
+    pub heap_size_bytes: u64,
+    pub heap_used_bytes: u64,
+    pub gc_collections: u64,
+    pub gc_time_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,19 +89,62 @@ pub struct AlertRule {
 
 pub struct MonitoringManager {
     metrics: Arc<RwLock<PrometheusMetrics>>,
+    system_metrics: Arc<RwLock<SystemMetrics>>,
     alerts: Arc<RwLock<Vec<Alert>>>,
     alert_rules: Arc<RwLock<Vec<AlertRule>>>,
     start_time: DateTime<Utc>,
+    response_times: Arc<RwLock<Vec<f64>>>,
 }
 
 impl MonitoringManager {
     pub fn new() -> Self {
-        Self {
+        let manager = Self {
             metrics: Arc::new(RwLock::new(PrometheusMetrics::default())),
+            system_metrics: Arc::new(RwLock::new(SystemMetrics::default())),
             alerts: Arc::new(RwLock::new(Vec::new())),
             alert_rules: Arc::new(RwLock::new(Self::default_alert_rules())),
             start_time: Utc::now(),
+            response_times: Arc::new(RwLock::new(Vec::new())),
+        };
+
+        // Start system metrics collection
+        let system_metrics = Arc::clone(&manager.system_metrics);
+        tokio::spawn(async move {
+            let mut interval = interval(Duration::from_secs(5));
+            loop {
+                interval.tick().await;
+                Self::update_system_metrics_internal(&system_metrics).await;
+            }
+        });
+
+        manager
+    }
+
+    async fn update_system_metrics_internal(system_metrics: &Arc<RwLock<SystemMetrics>>) {
+        let mut metrics = system_metrics.write().await;
+        
+        // Update memory usage
+        if let Ok(memory_info) = sysinfo::System::new_all() {
+            metrics.memory_usage_bytes = memory_info.used_memory() * 1024; // Convert KB to bytes
+            metrics.cpu_usage_percent = memory_info.cpu_usage() as f64;
+            metrics.thread_count = memory_info.total_threads() as u64;
         }
+
+        // Update disk usage (simplified)
+        metrics.disk_usage_percent = 0.0; // Would need more complex implementation
+
+        // Update network stats (simplified)
+        metrics.network_bytes_in = 0; // Would need network interface monitoring
+        metrics.network_bytes_out = 0;
+
+        // Update file descriptors (simplified)
+        metrics.open_file_descriptors = 0; // Would need OS-specific implementation
+
+        // Update heap stats (simplified for Rust)
+        metrics.heap_size_bytes = 0;
+        metrics.heap_used_bytes = 0;
+        metrics.gc_collections = 0;
+        metrics.gc_time_ms = 0;
     }
 
     fn default_alert_rules() -> Vec<AlertRule> {
@@ -107,6 +184,27 @@ impl MonitoringManager {
                 severity: AlertSeverity::Warning,
                 enabled: true,
             },
+            AlertRule {
+                name: "high_response_time".to_string(),
+                condition: "response_time_avg_ms > 5000".to_string(), // 5 seconds
+                threshold: 5000.0,
+                severity: AlertSeverity::Warning,
+                enabled: true,
+            },
+            AlertRule {
+                name: "high_rate_limit_hits".to_string(),
+                condition: "rate_limit_hits > 1000".to_string(),
+                threshold: 1000.0,
+                severity: AlertSeverity::Warning,
+                enabled: true,
+            },
+            AlertRule {
+                name: "high_database_errors".to_string(),
+                condition: "database_errors > 50".to_string(),
+                threshold: 50.0,
+                severity: AlertSeverity::Critical,
+                enabled: true,
+            },
         ]
     }
 
@@ -128,6 +226,20 @@ impl MonitoringManager {
             "auth_failures" => metrics.auth_failures = value,
             "rate_limit_hits" => metrics.rate_limit_hits = value,
             "blocked_devices" => metrics.blocked_devices = value,
+            "requests_total" => metrics.requests_total = value,
+            "requests_successful" => metrics.requests_successful = value,
+            "requests_failed" => metrics.requests_failed = value,
+            "active_connections" => metrics.active_connections = value,
+            "database_operations" => metrics.database_operations = value,
+            "database_errors" => metrics.database_errors = value,
+            "compression_operations" => metrics.compression_operations = value,
+            "security_events" => metrics.security_events = value,
+            "validation_failures" => metrics.validation_failures = value,
+            "cache_hits" => metrics.cache_hits = value,
+            "cache_misses" => metrics.cache_misses = value,
+            "network_errors" => metrics.network_errors = value,
+            "blockchain_confirmations" => metrics.blockchain_confirmations = value,
+            "blockchain_timeouts" => metrics.blockchain_timeouts = value,
             _ => Logger::warn(&format!("Unknown metric: {}", metric_name)),
         }
         
@@ -156,6 +268,20 @@ impl MonitoringManager {
             "auth_failures" => metrics.auth_failures += 1,
             "rate_limit_hits" => metrics.rate_limit_hits += 1,
             "blocked_devices" => metrics.blocked_devices += 1,
+            "requests_total" => metrics.requests_total += 1,
+            "requests_successful" => metrics.requests_successful += 1,
+            "requests_failed" => metrics.requests_failed += 1,
+            "active_connections" => metrics.active_connections += 1,
+            "database_operations" => metrics.database_operations += 1,
+            "database_errors" => metrics.database_errors += 1,
+            "compression_operations" => metrics.compression_operations += 1,
+            "security_events" => metrics.security_events += 1,
+            "validation_failures" => metrics.validation_failures += 1,
+            "cache_hits" => metrics.cache_hits += 1,
+            "cache_misses" => metrics.cache_misses += 1,
+            "network_errors" => metrics.network_errors += 1,
+            "blockchain_confirmations" => metrics.blockchain_confirmations += 1,
+            "blockchain_timeouts" => metrics.blockchain_timeouts += 1,
             _ => Logger::warn(&format!("Unknown metric: {}", metric_name)),
         }
         
@@ -166,11 +292,29 @@ impl MonitoringManager {
         self.check_alert_rules().await;
     }
 
+    pub async fn record_response_time(&self, response_time_ms: f64) {
+        let mut response_times = self.response_times.write().await;
+        response_times.push(response_time_ms);
+        
+        // Keep only last 1000 response times to prevent memory bloat
+        if response_times.len() > 1000 {
+            response_times.remove(0);
+        }
+        
+        // Update average response time
+        let mut metrics = self.metrics.write().await;
+        metrics.response_time_avg_ms = response_times.iter().sum::<f64>() / response_times.len() as f64;
+    }
+
     pub async fn update_system_metrics(&self, memory_usage: u64, cpu_usage: f64) {
         let mut metrics = self.metrics.write().await;
         metrics.memory_usage_bytes = memory_usage;
         metrics.cpu_usage_percent = cpu_usage;
         metrics.uptime_seconds = (Utc::now() - self.start_time).num_seconds() as f64;
+    }
+
+    pub async fn get_system_metrics(&self) -> SystemMetrics {
+        self.system_metrics.read().await.clone()
     }
 
     async fn check_alert_rules(&self) {
@@ -192,8 +336,11 @@ impl MonitoringManager {
                 }
                 "rpc_errors > 100" => metrics.rpc_errors as f64 > rule.threshold,
                 "auth_failures > 50" => metrics.auth_failures as f64 > rule.threshold,
-                "ble_connections < 1" => metrics.ble_connections as f64 < rule.threshold,
+                "ble_connections < 1" => (metrics.ble_connections as f64) < rule.threshold,
                 "memory_usage_bytes > 1073741824" => metrics.memory_usage_bytes as f64 > rule.threshold,
+                "response_time_avg_ms > 5000" => metrics.response_time_avg_ms > rule.threshold,
+                "rate_limit_hits > 1000" => metrics.rate_limit_hits as f64 > rule.threshold,
+                "database_errors > 50" => metrics.database_errors as f64 > rule.threshold,
                 _ => false,
             };
             
@@ -318,7 +465,7 @@ impl MonitoringManager {
         tx_metrics.insert("processed".to_string(), serde_json::Value::Number(serde_json::Number::from(metrics.transactions_processed)));
         tx_metrics.insert("failed".to_string(), serde_json::Value::Number(serde_json::Number::from(metrics.transactions_failed)));
         tx_metrics.insert("broadcasted".to_string(), serde_json::Value::Number(serde_json::Number::from(metrics.transactions_broadcasted)));
-        health.insert("transactions".to_string(), serde_json::Value::Object(tx_metrics));
+        health.insert("transactions".to_string(), serde_json::Value::Object(tx_metrics.into_iter().collect::<serde_json::Map<String, serde_json::Value>>()));
         
         // BLE metrics
         let mut ble_metrics = HashMap::new();
@@ -326,7 +473,7 @@ impl MonitoringManager {
         ble_metrics.insert("disconnections".to_string(), serde_json::Value::Number(serde_json::Number::from(metrics.ble_disconnections)));
         ble_metrics.insert("authentications".to_string(), serde_json::Value::Number(serde_json::Number::from(metrics.ble_authentications)));
         ble_metrics.insert("key_exchanges".to_string(), serde_json::Value::Number(serde_json::Number::from(metrics.ble_key_exchanges)));
-        health.insert("ble".to_string(), serde_json::Value::Object(ble_metrics));
+        health.insert("ble".to_string(), serde_json::Value::Object(ble_metrics.into_iter().collect::<serde_json::Map<String, serde_json::Value>>()));
         
         health
     }
@@ -352,6 +499,40 @@ impl Default for PrometheusMetrics {
             uptime_seconds: 0.0,
             memory_usage_bytes: 0,
             cpu_usage_percent: 0.0,
+            requests_total: 0,
+            requests_successful: 0,
+            requests_failed: 0,
+            response_time_avg_ms: 0.0,
+            active_connections: 0,
+            database_operations: 0,
+            database_errors: 0,
+            compression_operations: 0,
+            compression_ratio_avg: 0.0,
+            security_events: 0,
+            validation_failures: 0,
+            cache_hits: 0,
+            cache_misses: 0,
+            network_errors: 0,
+            blockchain_confirmations: 0,
+            blockchain_timeouts: 0,
+        }
+    }
+}
+
+impl Default for SystemMetrics {
+    fn default() -> Self {
+        Self {
+            memory_usage_bytes: 0,
+            cpu_usage_percent: 0.0,
+            disk_usage_percent: 0.0,
+            network_bytes_in: 0,
+            network_bytes_out: 0,
+            open_file_descriptors: 0,
+            thread_count: 0,
+            heap_size_bytes: 0,
+            heap_used_bytes: 0,
+            gc_collections: 0,
+            gc_time_ms: 0,
         }
     }
 }

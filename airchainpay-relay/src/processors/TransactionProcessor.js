@@ -5,14 +5,20 @@ const { getProvider } = require('../utils/blockchain');
 /**
  * Process a signed transaction and broadcast it to the blockchain
  * @param {Object} transactionData - The transaction data
+ * @param {Object} metrics - Metrics object to update
  * @returns {Promise<{hash: string, status: string}>}
  */
-async function processTransaction(transactionData) {
+async function processTransaction(transactionData, metrics = null) {
   try {
     logger.info('Processing transaction:', { 
       id: transactionData.id,
       chainId: transactionData.chainId, 
     });
+
+    // Increment received metric if metrics object is provided
+    if (metrics) {
+      metrics.transactionsReceived++;
+    }
 
     // Validate transaction data
     if (!transactionData.signedTransaction) {
@@ -32,12 +38,18 @@ async function processTransaction(transactionData) {
       parsedTx = ethers.Transaction.from(transactionData.signedTransaction);
     } catch (error) {
       logger.error('Failed to parse signed transaction:', error);
+      if (metrics) {
+        metrics.transactionsFailed++;
+      }
       throw new Error('Invalid signed transaction format');
     }
 
     // Validate transaction before broadcasting
     const validationResult = await validateTransactionBeforeBroadcast(parsedTx, provider);
     if (!validationResult.isValid) {
+      if (metrics) {
+        metrics.transactionsFailed++;
+      }
       throw new Error(`Transaction validation failed: ${validationResult.error}`);
     }
 
@@ -54,6 +66,12 @@ async function processTransaction(transactionData) {
       gasUsed: receipt.gasUsed.toString(),
     });
 
+    // Increment success metrics
+    if (metrics) {
+      metrics.transactionsProcessed++;
+      metrics.transactionsBroadcasted++;
+    }
+
     return {
       hash: txResponse.hash,
       status: 'success',
@@ -63,6 +81,9 @@ async function processTransaction(transactionData) {
 
   } catch (error) {
     logger.error('Transaction processing failed:', error);
+    if (metrics) {
+      metrics.transactionsFailed++;
+    }
     throw error;
   }
 }

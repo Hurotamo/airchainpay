@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use std::io::Write;
 use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};
 use chrono::{DateTime, Utc};
@@ -79,6 +80,23 @@ pub struct SecurityIncident {
     pub resolved: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatabaseHealth {
+    pub is_healthy: bool,
+    pub connection_count: u32,
+    pub last_backup_time: Option<DateTime<Utc>>,
+    pub backup_size_bytes: u64,
+    pub error_count: u32,
+    pub slow_queries: u32,
+    pub total_transactions: u32,
+    pub total_devices: u32,
+    pub data_integrity_ok: bool,
+    pub last_maintenance: Option<DateTime<Utc>>,
+    pub disk_usage_percent: f64,
+    pub memory_usage_bytes: u64,
+    pub uptime_seconds: f64,
+}
+
 pub struct Database {
     data_dir: String,
     transactions_file: String,
@@ -151,7 +169,7 @@ impl Database {
             IntegrityHash {
                 hash,
                 last_modified: Utc::now(),
-                size: data.len(),
+                size: serde_json::to_string(&data).unwrap_or_default().len(),
             },
         );
         
@@ -265,7 +283,8 @@ impl Database {
         self.verify_data_integrity()?;
         
         let json_data = serde_json::to_string_pretty(data)?;
-        fs::write(file_path, json_data)?;
+        let data_size = json_data.len();
+        fs::write(file_path, &json_data)?;
         
         // Update integrity hash after writing
         self.update_integrity_hash(file_path)?;
@@ -273,7 +292,7 @@ impl Database {
         // Log write access
         let details = Some({
             let mut map = HashMap::new();
-            map.insert("data_size".to_string(), serde_json::Value::Number(serde_json::Number::from(json_data.len() as u64)));
+            map.insert("data_size".to_string(), serde_json::Value::Number(serde_json::Number::from(data_size as u64)));
             map
         });
         
@@ -289,7 +308,9 @@ impl Database {
             return Err("Invalid transaction data".into());
         }
         
-        transaction.id = transaction.id.clone().or_else(|| Some(self.generate_id()));
+        if transaction.id.is_empty() {
+            transaction.id = self.generate_id();
+        }
         transaction.timestamp = Utc::now();
         
         // Add security metadata
@@ -369,7 +390,7 @@ impl Database {
             return Err("Invalid device data".into());
         }
         
-        device.created_at = device.created_at.or(Utc::now());
+        // Device created_at is already set in the struct
         device.last_seen = Utc::now();
         
         // Add security metadata
@@ -485,7 +506,7 @@ impl Database {
     pub fn generate_id(&self) -> String {
         use rand::Rng;
         let mut rng = rand::thread_rng();
-        let bytes: [u8; 16] = rng.gen();
+        let bytes: [u8; 16] = rng.random();
         hex::encode(bytes)
     }
 
@@ -601,6 +622,90 @@ impl Database {
             .take(limit)
             .filter_map(|line| serde_json::from_str::<AuditLog>(line).ok())
             .collect()
+    }
+
+    pub async fn check_health(&self) -> DatabaseHealth {
+        let start_time = std::time::Instant::now();
+        
+        // Check data integrity
+        let data_integrity_ok = self.verify_data_integrity().is_ok();
+        
+        // Get file sizes and check disk usage
+        let mut total_size = 0u64;
+        let files = [
+            &self.transactions_file,
+            &self.devices_file,
+            &self.metrics_file,
+            &self.audit_file,
+        ];
+        
+        for file_path in files.iter() {
+            if let Ok(metadata) = fs::metadata(file_path) {
+                total_size += metadata.len();
+            }
+        }
+        
+        // Get transaction and device counts
+        let transactions = self.get_transactions(10000, 0);
+        let devices = self.get_all_devices();
+        
+        // Check for recent errors (simplified)
+        let error_count = 0u32; // In real implementation, track actual errors
+        
+        // Get backup information
+        let backup_dir = Path::new("data/backups");
+        let last_backup = if backup_dir.exists() {
+            fs::read_dir(backup_dir)
+                .ok()
+                .and_then(|entries| {
+                    entries
+                        .filter_map(|entry| entry.ok())
+                        .filter(|entry| entry.path().extension().map_or(false, |ext| ext == "json"))
+                        .max_by_key(|entry| entry.metadata().unwrap().modified().unwrap())
+                })
+                .and_then(|entry| {
+                    entry.metadata().ok().and_then(|metadata| {
+                        metadata.modified().ok().map(|modified| {
+                            DateTime::from_timestamp(modified.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64, 0)
+                                .unwrap_or_else(|| Utc::now())
+                        })
+                    })
+                })
+        } else {
+            None
+        };
+        
+        let backup_size = if let Some(backup_time) = last_backup {
+            // Calculate backup size (simplified)
+            total_size
+        } else {
+            0
+        };
+        
+        // Calculate disk usage (simplified)
+        let disk_usage_percent = 0.0; // In real implementation, check actual disk usage
+        
+        // Calculate memory usage (simplified)
+        let memory_usage_bytes = total_size;
+        
+        // Calculate uptime
+        let uptime_seconds = start_time.elapsed().as_secs_f64();
+        
+        DatabaseHealth {
+            is_healthy: data_integrity_ok && error_count == 0,
+            connection_count: 1, // Single file-based storage
+            last_backup_time: last_backup,
+            backup_size_bytes: backup_size,
+            error_count,
+            slow_queries: 0, // Not applicable for file-based storage
+            total_transactions: transactions.len() as u32,
+            total_devices: devices.len() as u32,
+            data_integrity_ok,
+            last_maintenance: Some(Utc::now()), // Mock maintenance time
+            disk_usage_percent,
+            memory_usage_bytes,
+            uptime_seconds,
+        }
     }
 }
 

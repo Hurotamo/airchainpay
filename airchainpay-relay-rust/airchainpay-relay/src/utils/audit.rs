@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 use crate::logger::Logger;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditEvent {
@@ -24,9 +25,20 @@ pub struct AuditEvent {
     pub request_id: Option<String>,
     pub severity: AuditSeverity,
     pub metadata: HashMap<String, serde_json::Value>,
+    pub server_info: ServerInfo,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerInfo {
+    pub uptime: f64,
+    pub memory_usage: u64,
+    pub pid: u32,
+    pub version: String,
+    pub hostname: String,
+    pub timestamp: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum AuditEventType {
     Authentication,
     Authorization,
@@ -38,9 +50,19 @@ pub enum AuditEventType {
     DataAccess,
     Error,
     Performance,
+    Backup,
+    Recovery,
+    Integrity,
+    RateLimit,
+    Compression,
+    Monitoring,
+    Database,
+    Network,
+    BLE,
+    API,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum AuditSeverity {
     Low,
     Medium,
@@ -59,6 +81,8 @@ pub struct AuditFilter {
     pub start_time: Option<DateTime<Utc>>,
     pub end_time: Option<DateTime<Utc>>,
     pub limit: Option<usize>,
+    pub resource: Option<String>,
+    pub action: Option<String>,
 }
 
 pub struct AuditLogger {
@@ -66,6 +90,7 @@ pub struct AuditLogger {
     max_events: usize,
     file_path: String,
     enabled: bool,
+    monitoring_manager: Option<Arc<crate::monitoring::MonitoringManager>>,
 }
 
 impl AuditLogger {
@@ -75,6 +100,29 @@ impl AuditLogger {
             max_events,
             file_path,
             enabled: true,
+            monitoring_manager: None,
+        }
+    }
+
+    pub fn with_monitoring(mut self, monitoring_manager: Arc<crate::monitoring::MonitoringManager>) -> Self {
+        self.monitoring_manager = Some(monitoring_manager);
+        self
+    }
+
+    fn get_server_info() -> ServerInfo {
+        ServerInfo {
+            uptime: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as f64,
+            memory_usage: 0, // Would need system monitoring
+            pid: std::process::id(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            hostname: hostname::get()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string(),
+            timestamp: Utc::now(),
         }
     }
 
@@ -96,15 +144,300 @@ impl AuditLogger {
         // Write to file
         self.write_to_file(&event).await?;
 
+        // Record in monitoring
+        if let Some(ref monitoring) = self.monitoring_manager {
+            monitoring.increment_metric("audit_events").await;
+            match event.severity {
+                AuditSeverity::Critical => monitoring.increment_metric("audit_critical").await,
+                AuditSeverity::High => monitoring.increment_metric("audit_high").await,
+                AuditSeverity::Medium => monitoring.increment_metric("audit_medium").await,
+                AuditSeverity::Low => monitoring.increment_metric("audit_low").await,
+            }
+        }
+
         // Log to console based on severity
         match event.severity {
-            AuditSeverity::Critical => Logger::error(&format!("AUDIT CRITICAL: {:?}", event)),
-            AuditSeverity::High => Logger::warn(&format!("AUDIT HIGH: {:?}", event)),
-            AuditSeverity::Medium => Logger::info(&format!("AUDIT MEDIUM: {:?}", event)),
-            AuditSeverity::Low => Logger::debug(&format!("AUDIT LOW: {:?}", event)),
+            AuditSeverity::Critical => Logger::error(&format!("🚨 AUDIT CRITICAL: {} - {}", event.action, event.resource)),
+            AuditSeverity::High => Logger::warn(&format!("⚠️ AUDIT HIGH: {} - {}", event.action, event.resource)),
+            AuditSeverity::Medium => Logger::info(&format!("ℹ️ AUDIT MEDIUM: {} - {}", event.action, event.resource)),
+            AuditSeverity::Low => Logger::debug(&format!("🔍 AUDIT LOW: {} - {}", event.action, event.resource)),
         }
 
         Ok(())
+    }
+
+    pub async fn log_security_incident(
+        &self,
+        incident_type: &str,
+        details: HashMap<String, serde_json::Value>,
+        user_id: Option<String>,
+        device_id: Option<String>,
+        ip_address: Option<String>,
+        request_id: Option<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let event = AuditEvent {
+            id: Uuid::new_v4().to_string(),
+            timestamp: Utc::now(),
+            event_type: AuditEventType::Security,
+            user_id,
+            device_id,
+            ip_address,
+            user_agent: None,
+            resource: "security".to_string(),
+            action: incident_type.to_string(),
+            details,
+            success: false,
+            error_message: None,
+            session_id: None,
+            request_id,
+            severity: AuditSeverity::Critical,
+            metadata: HashMap::new(),
+            server_info: Self::get_server_info(),
+        };
+
+        self.log_event(event).await
+    }
+
+    pub async fn log_data_access(
+        &self,
+        operation: &str,
+        file: &str,
+        details: HashMap<String, serde_json::Value>,
+        user_id: Option<String>,
+        ip_address: Option<String>,
+        request_id: Option<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let event = AuditEvent {
+            id: Uuid::new_v4().to_string(),
+            timestamp: Utc::now(),
+            event_type: AuditEventType::DataAccess,
+            user_id,
+            device_id: None,
+            ip_address,
+            user_agent: None,
+            resource: file.to_string(),
+            action: operation.to_string(),
+            details,
+            success: true,
+            error_message: None,
+            session_id: None,
+            request_id,
+            severity: AuditSeverity::Low,
+            metadata: HashMap::new(),
+            server_info: Self::get_server_info(),
+        };
+
+        self.log_event(event).await
+    }
+
+    pub async fn log_backup_operation(
+        &self,
+        operation: &str,
+        backup_id: Option<String>,
+        success: bool,
+        error_message: Option<String>,
+        details: HashMap<String, serde_json::Value>,
+        request_id: Option<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let event = AuditEvent {
+            id: Uuid::new_v4().to_string(),
+            timestamp: Utc::now(),
+            event_type: AuditEventType::Backup,
+            user_id: None,
+            device_id: None,
+            ip_address: None,
+            user_agent: None,
+            resource: "backup".to_string(),
+            action: operation.to_string(),
+            details,
+            success,
+            error_message,
+            session_id: None,
+            request_id,
+            severity: if success { AuditSeverity::Medium } else { AuditSeverity::High },
+            metadata: HashMap::new(),
+            server_info: Self::get_server_info(),
+        };
+
+        self.log_event(event).await
+    }
+
+    pub async fn log_integrity_check(
+        &self,
+        check_type: &str,
+        success: bool,
+        details: HashMap<String, serde_json::Value>,
+        error_message: Option<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let event = AuditEvent {
+            id: Uuid::new_v4().to_string(),
+            timestamp: Utc::now(),
+            event_type: AuditEventType::Integrity,
+            user_id: None,
+            device_id: None,
+            ip_address: None,
+            user_agent: None,
+            resource: "integrity".to_string(),
+            action: check_type.to_string(),
+            details,
+            success,
+            error_message,
+            session_id: None,
+            request_id: None,
+            severity: if success { AuditSeverity::Low } else { AuditSeverity::Critical },
+            metadata: HashMap::new(),
+            server_info: Self::get_server_info(),
+        };
+
+        self.log_event(event).await
+    }
+
+    pub async fn log_rate_limit(
+        &self,
+        endpoint: &str,
+        ip_address: Option<String>,
+        user_id: Option<String>,
+        device_id: Option<String>,
+        request_id: Option<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut details = HashMap::new();
+        details.insert("endpoint".to_string(), serde_json::Value::String(endpoint.to_string()));
+
+        let event = AuditEvent {
+            id: Uuid::new_v4().to_string(),
+            timestamp: Utc::now(),
+            event_type: AuditEventType::RateLimit,
+            user_id,
+            device_id,
+            ip_address,
+            user_agent: None,
+            resource: "rate_limit".to_string(),
+            action: "rate_limit_exceeded".to_string(),
+            details,
+            success: false,
+            error_message: Some("Rate limit exceeded".to_string()),
+            session_id: None,
+            request_id,
+            severity: AuditSeverity::Medium,
+            metadata: HashMap::new(),
+            server_info: Self::get_server_info(),
+        };
+
+        self.log_event(event).await
+    }
+
+    pub async fn log_compression_operation(
+        &self,
+        operation: &str,
+        original_size: u64,
+        compressed_size: u64,
+        success: bool,
+        error_message: Option<String>,
+        request_id: Option<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut details = HashMap::new();
+        details.insert("original_size".to_string(), serde_json::Value::Number(serde_json::Number::from(original_size)));
+        details.insert("compressed_size".to_string(), serde_json::Value::Number(serde_json::Number::from(compressed_size)));
+        details.insert("compression_ratio".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(
+            if original_size > 0 { compressed_size as f64 / original_size as f64 } else { 0.0 }
+        ).unwrap_or(serde_json::Number::from(0))));
+
+        let event = AuditEvent {
+            id: Uuid::new_v4().to_string(),
+            timestamp: Utc::now(),
+            event_type: AuditEventType::Compression,
+            user_id: None,
+            device_id: None,
+            ip_address: None,
+            user_agent: None,
+            resource: "compression".to_string(),
+            action: operation.to_string(),
+            details,
+            success,
+            error_message,
+            session_id: None,
+            request_id,
+            severity: if success { AuditSeverity::Low } else { AuditSeverity::Medium },
+            metadata: HashMap::new(),
+            server_info: Self::get_server_info(),
+        };
+
+        self.log_event(event).await
+    }
+
+    pub async fn log_ble_operation(
+        &self,
+        operation: &str,
+        device_id: Option<String>,
+        success: bool,
+        error_message: Option<String>,
+        details: HashMap<String, serde_json::Value>,
+        request_id: Option<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let event = AuditEvent {
+            id: Uuid::new_v4().to_string(),
+            timestamp: Utc::now(),
+            event_type: AuditEventType::BLE,
+            user_id: None,
+            device_id,
+            ip_address: None,
+            user_agent: None,
+            resource: "ble".to_string(),
+            action: operation.to_string(),
+            details,
+            success,
+            error_message,
+            session_id: None,
+            request_id,
+            severity: if success { AuditSeverity::Medium } else { AuditSeverity::High },
+            metadata: HashMap::new(),
+            server_info: Self::get_server_info(),
+        };
+
+        self.log_event(event).await
+    }
+
+    pub async fn log_api_request(
+        &self,
+        endpoint: &str,
+        method: &str,
+        user_id: Option<String>,
+        device_id: Option<String>,
+        ip_address: Option<String>,
+        user_agent: Option<String>,
+        success: bool,
+        response_time: Option<u64>,
+        error_message: Option<String>,
+        request_id: Option<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut details = HashMap::new();
+        details.insert("endpoint".to_string(), serde_json::Value::String(endpoint.to_string()));
+        details.insert("method".to_string(), serde_json::Value::String(method.to_string()));
+        if let Some(time) = response_time {
+            details.insert("response_time_ms".to_string(), serde_json::Value::Number(serde_json::Number::from(time)));
+        }
+
+        let event = AuditEvent {
+            id: Uuid::new_v4().to_string(),
+            timestamp: Utc::now(),
+            event_type: AuditEventType::API,
+            user_id,
+            device_id,
+            ip_address,
+            user_agent,
+            resource: endpoint.to_string(),
+            action: method.to_string(),
+            details,
+            success,
+            error_message,
+            session_id: None,
+            request_id,
+            severity: if success { AuditSeverity::Low } else { AuditSeverity::Medium },
+            metadata: HashMap::new(),
+            server_info: Self::get_server_info(),
+        };
+
+        self.log_event(event).await
     }
 
     pub async fn log_authentication(
@@ -135,6 +468,7 @@ impl AuditLogger {
             request_id,
             severity: if success { AuditSeverity::Low } else { AuditSeverity::Medium },
             metadata: HashMap::new(),
+            server_info: Self::get_server_info(),
         };
 
         self.log_event(event).await
@@ -177,6 +511,7 @@ impl AuditLogger {
             request_id,
             severity: if success { AuditSeverity::Medium } else { AuditSeverity::High },
             metadata: HashMap::new(),
+            server_info: Self::get_server_info(),
         };
 
         self.log_event(event).await
@@ -210,6 +545,7 @@ impl AuditLogger {
             request_id,
             severity,
             metadata: HashMap::new(),
+            server_info: Self::get_server_info(),
         };
 
         self.log_event(event).await
@@ -243,6 +579,41 @@ impl AuditLogger {
             request_id,
             severity: if success { AuditSeverity::Medium } else { AuditSeverity::High },
             metadata: HashMap::new(),
+            server_info: Self::get_server_info(),
+        };
+
+        self.log_event(event).await
+    }
+
+    pub async fn log_performance_event(
+        &self,
+        operation: &str,
+        duration_ms: u64,
+        resource: &str,
+        success: bool,
+        details: HashMap<String, serde_json::Value>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut details = details;
+        details.insert("duration_ms".to_string(), serde_json::Value::Number(serde_json::Number::from(duration_ms)));
+
+        let event = AuditEvent {
+            id: Uuid::new_v4().to_string(),
+            timestamp: Utc::now(),
+            event_type: AuditEventType::Performance,
+            user_id: None,
+            device_id: None,
+            ip_address: None,
+            user_agent: None,
+            resource: resource.to_string(),
+            action: operation.to_string(),
+            details,
+            success,
+            error_message: None,
+            session_id: None,
+            request_id: None,
+            severity: if success { AuditSeverity::Low } else { AuditSeverity::Medium },
+            metadata: HashMap::new(),
+            server_info: Self::get_server_info(),
         };
 
         self.log_event(event).await
@@ -292,6 +663,20 @@ impl AuditLogger {
                     // Filter by severity
                     if let Some(ref severity) = filter.severity {
                         if event.severity != *severity {
+                            return false;
+                        }
+                    }
+
+                    // Filter by resource
+                    if let Some(ref resource) = filter.resource {
+                        if event.resource != *resource {
+                            return false;
+                        }
+                    }
+
+                    // Filter by action
+                    if let Some(ref action) = filter.action {
+                        if event.action != *action {
                             return false;
                         }
                     }
@@ -378,6 +763,50 @@ impl AuditLogger {
         }
     }
 
+    pub async fn get_critical_events(&self, limit: Option<usize>) -> Vec<AuditEvent> {
+        let events = self.events.read().await;
+        let filtered: Vec<AuditEvent> = events.iter()
+            .filter(|event| event.severity == AuditSeverity::Critical)
+            .cloned()
+            .collect();
+
+        if let Some(limit) = limit {
+            filtered.into_iter().rev().take(limit).collect()
+        } else {
+            filtered.into_iter().rev().collect()
+        }
+    }
+
+    pub async fn get_audit_stats(&self) -> AuditStats {
+        let events = self.events.read().await;
+        
+        let total_events = events.len();
+        let critical_events = events.iter().filter(|e| e.severity == AuditSeverity::Critical).count();
+        let high_events = events.iter().filter(|e| e.severity == AuditSeverity::High).count();
+        let medium_events = events.iter().filter(|e| e.severity == AuditSeverity::Medium).count();
+        let low_events = events.iter().filter(|e| e.severity == AuditSeverity::Low).count();
+        let failed_events = events.iter().filter(|e| !e.success).count();
+        let security_events = events.iter().filter(|e| e.event_type == AuditEventType::Security).count();
+
+        let mut event_type_counts = HashMap::new();
+        for event in events.iter() {
+            *event_type_counts.entry(format!("{:?}", event.event_type)).or_insert(0) += 1;
+        }
+
+        AuditStats {
+            total_events,
+            critical_events,
+            high_events,
+            medium_events,
+            low_events,
+            failed_events,
+            security_events,
+            event_type_counts,
+            oldest_event: events.first().map(|e| e.timestamp),
+            newest_event: events.last().map(|e| e.timestamp),
+        }
+    }
+
     pub async fn clear_events(&self) {
         let mut events = self.events.write().await;
         events.clear();
@@ -418,6 +847,20 @@ impl AuditLogger {
     pub fn is_enabled(&self) -> bool {
         self.enabled
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditStats {
+    pub total_events: usize,
+    pub critical_events: usize,
+    pub high_events: usize,
+    pub medium_events: usize,
+    pub low_events: usize,
+    pub failed_events: usize,
+    pub security_events: usize,
+    pub event_type_counts: HashMap<String, usize>,
+    pub oldest_event: Option<DateTime<Utc>>,
+    pub newest_event: Option<DateTime<Utc>>,
 }
 
 impl Default for AuditLogger {

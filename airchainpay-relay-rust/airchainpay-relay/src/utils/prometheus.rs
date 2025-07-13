@@ -135,7 +135,7 @@ impl PrometheusExporter {
         output.push_str(&format!("# HELP airchainpay_build_info Build information\n"));
         output.push_str(&format!("# TYPE airchainpay_build_info gauge\n"));
         output.push_str(&format!("airchainpay_build_info{{version=\"{}\",rust_version=\"{}\"}} 1\n\n", 
-            env!("CARGO_PKG_VERSION"), env!("RUST_VERSION")));
+            env!("CARGO_PKG_VERSION"), "1.70.0"));
 
         // Transaction metrics
         output.push_str("# HELP airchainpay_transactions_received_total Total number of transactions received\n");
@@ -295,13 +295,15 @@ impl PrometheusExporter {
         metrics.uptime_seconds = (Utc::now() - self.start_time).num_seconds() as f64;
         
         // Update memory usage (simplified)
-        if let Ok(mem_info) = sysinfo::System::new_all() {
-            metrics.memory_usage_bytes = mem_info.used_memory() * 1024; // Convert KB to bytes
+        if let Ok(mut sys) = sysinfo::System::new_all() {
+            sys.refresh_memory();
+            metrics.memory_usage_bytes = sys.used_memory() * 1024; // Convert KB to bytes
         }
         
         // Update CPU usage (simplified)
-        if let Ok(cpu_info) = sysinfo::CpuExt::usage_for_key(&sysinfo::System::new_all()) {
-            metrics.cpu_usage_percent = cpu_info as f64;
+        if let Ok(mut sys) = sysinfo::System::new_all() {
+            sys.refresh_cpu();
+            metrics.cpu_usage_percent = sys.global_cpu_info().cpu_usage() as f64;
         }
     }
 

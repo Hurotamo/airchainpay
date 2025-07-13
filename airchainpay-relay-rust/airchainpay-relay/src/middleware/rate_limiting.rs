@@ -1,161 +1,148 @@
 use actix_web::{
-    dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
-    Error, HttpMessage, HttpResponse,
+    dev::{Service, ServiceRequest, ServiceResponse, Transform},
+    Error, HttpResponse,
 };
-use futures_util::future::{ready, LocalBoxFuture, Ready};
+use futures::future::{ready, Ready};
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use serde::{Deserialize, Serialize};
+use actix_web::dev::EitherBody;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RateLimitConfig {
-    pub window_ms: u64,
-    pub max_requests: u32,
-    pub burst_size: u32,
-    pub enabled: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct RateLimitEntry {
     pub count: u32,
     pub reset_time: Instant,
     pub burst_count: u32,
 }
 
+#[derive(Debug, Clone)]
 pub struct RateLimitingMiddleware {
-    config: RateLimitConfig,
-    limits: Arc<RwLock<HashMap<String, RateLimitEntry>>>,
+    rate_limit: u32,
+    burst_limit: u32,
+    window_size: Duration,
 }
 
 impl RateLimitingMiddleware {
-    pub fn new(config: RateLimitConfig) -> Self {
+    pub fn new(rate_limit: u32, burst_limit: u32, window_size: Duration) -> Self {
         Self {
-            config,
-            limits: Arc::new(RwLock::new(HashMap::new())),
+            rate_limit,
+            burst_limit,
+            window_size,
         }
-    }
-
-    pub fn with_window(mut self, window_ms: u64) -> Self {
-        self.config.window_ms = window_ms;
-        self
-    }
-
-    pub fn with_max_requests(mut self, max_requests: u32) -> Self {
-        self.config.max_requests = max_requests;
-        self
-    }
-
-    pub fn with_burst_size(mut self, burst_size: u32) -> Self {
-        self.config.burst_size = burst_size;
-        self
     }
 }
 
 impl<S, B> Transform<S, ServiceRequest> for RateLimitingMiddleware
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + Clone,
     S::Future: 'static,
     B: 'static,
 {
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<EitherBody<B, actix_web::body::BoxBody>>;
     type Error = Error;
-    type InitError = ();
     type Transform = RateLimitingService<S>;
+    type InitError = ();
     type Future = Ready<Result<Self::Transform, Self::InitError>>;
 
     fn new_transform(&self, service: S) -> Self::Future {
         ready(Ok(RateLimitingService {
-            service,
-            config: self.config.clone(),
-            limits: self.limits.clone(),
+            service: Arc::new(service),
+            rate_limit: self.rate_limit,
+            burst_limit: self.burst_limit,
+            window_size: self.window_size,
+            limits: Arc::new(RwLock::new(HashMap::new())),
         }))
     }
 }
 
 pub struct RateLimitingService<S> {
-    service: S,
-    config: RateLimitConfig,
+    service: Arc<S>,
+    rate_limit: u32,
+    burst_limit: u32,
+    window_size: Duration,
     limits: Arc<RwLock<HashMap<String, RateLimitEntry>>>,
 }
 
 impl<S, B> Service<ServiceRequest> for RateLimitingService<S>
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static + Clone,
     S::Future: 'static,
     B: 'static,
 {
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<EitherBody<B, actix_web::body::BoxBody>>;
     type Error = Error;
-    type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
 
-    forward_ready!(service);
+    fn poll_ready(&self, cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+        self.service.poll_ready(cx)
+    }
 
     fn call(&self, req: ServiceRequest) -> Self::Future {
-        let service = self.service.clone();
-        let config = self.config.clone();
-        let limits = self.limits.clone();
+        let service = Arc::clone(&self.service);
+        let rate_limit = self.rate_limit;
+        let burst_limit = self.burst_limit;
+        let window_size = self.window_size;
+        let limits = Arc::clone(&self.limits);
 
         Box::pin(async move {
-            if !config.enabled {
-                return service.call(req).await;
-            }
+            let client_ip = req.connection_info().peer_addr()
+                .unwrap_or("unknown")
+                .to_string();
 
-            let client_ip = req.connection_info().peer_addr().unwrap_or("unknown");
+            let mut limits_guard = limits.write().await;
             let now = Instant::now();
 
-            // Check rate limit
-            let mut limits_guard = limits.write().await;
-            
             if let Some(entry) = limits_guard.get_mut(&client_ip) {
-                // Check if window has reset
                 if now >= entry.reset_time {
-                    entry.count = 0;
-                    entry.burst_count = 0;
-                    entry.reset_time = now + Duration::from_millis(config.window_ms);
-                }
+                    // Reset window
+                    *entry = RateLimitEntry {
+                        count: 1,
+                        reset_time: now + window_size,
+                        burst_count: 1,
+                    };
+                } else {
+                    // Check burst limit first
+                    if entry.burst_count >= burst_limit {
+                        return Ok(req.into_response(
+                            HttpResponse::TooManyRequests()
+                                .json(serde_json::json!({
+                                    "error": "Rate limit exceeded (burst)",
+                                    "retry_after": entry.reset_time.duration_since(now).as_secs()
+                                }))
+                                .map_into_left_body()
+                        ));
+                    }
 
-                // Check burst limit
-                if entry.burst_count >= config.burst_size {
-                    return Ok(req.into_response(
-                        HttpResponse::TooManyRequests()
-                            .json(serde_json::json!({
-                                "error": "Rate limit exceeded (burst)",
-                                "retry_after": format!("{}ms", config.window_ms)
-                            }))
-                            .map_into_right_body()
-                    ));
-                }
+                    // Check regular rate limit
+                    if entry.count >= rate_limit {
+                        return Ok(req.into_response(
+                            HttpResponse::TooManyRequests()
+                                .json(serde_json::json!({
+                                    "error": "Rate limit exceeded",
+                                    "retry_after": entry.reset_time.duration_since(now).as_secs()
+                                }))
+                                .map_into_left_body()
+                        ));
+                    }
 
-                // Check regular rate limit
-                if entry.count >= config.max_requests {
-                    return Ok(req.into_response(
-                        HttpResponse::TooManyRequests()
-                            .json(serde_json::json!({
-                                "error": "Rate limit exceeded",
-                                "retry_after": format!("{}ms", config.window_ms)
-                            }))
-                            .map_into_right_body()
-                    ));
+                    entry.count += 1;
+                    entry.burst_count += 1;
                 }
-
-                entry.count += 1;
-                entry.burst_count += 1;
             } else {
-                // First request from this IP
-                let reset_time = now + Duration::from_millis(config.window_ms);
-                limits_guard.insert(client_ip.clone(), RateLimitEntry {
+                limits_guard.insert(client_ip.to_string(), RateLimitEntry {
                     count: 1,
-                    reset_time,
+                    reset_time: now + window_size,
                     burst_count: 1,
                 });
             }
 
-            drop(limits_guard);
-
-            // Call the next service
-            service.call(req).await
+            // Call the inner service
+            let fut = service.call(req);
+            let res = fut.await?;
+            Ok(res.map_into_right_body())
         })
     }
 }
@@ -164,47 +151,194 @@ where
 pub struct TransactionRateLimiter;
 impl TransactionRateLimiter {
     pub fn new() -> RateLimitingMiddleware {
-        RateLimitingMiddleware::new(RateLimitConfig {
-            window_ms: 60 * 1000, // 1 minute
-            max_requests: 50,
-            burst_size: 10,
-            enabled: true,
-        })
+        RateLimitingMiddleware::new(50, 10, Duration::from_secs(60))
     }
 }
 
 pub struct AuthRateLimiter;
 impl AuthRateLimiter {
     pub fn new() -> RateLimitingMiddleware {
-        RateLimitingMiddleware::new(RateLimitConfig {
-            window_ms: 15 * 60 * 1000, // 15 minutes
-            max_requests: 5,
-            burst_size: 2,
-            enabled: true,
-        })
+        RateLimitingMiddleware::new(5, 2, Duration::from_secs(900))
     }
 }
 
 pub struct BLERateLimiter;
 impl BLERateLimiter {
     pub fn new() -> RateLimitingMiddleware {
-        RateLimitingMiddleware::new(RateLimitConfig {
-            window_ms: 60 * 1000, // 1 minute
-            max_requests: 100,
-            burst_size: 20,
-            enabled: true,
-        })
+        RateLimitingMiddleware::new(100, 20, Duration::from_secs(60))
     }
 }
 
 pub struct GlobalRateLimiter;
 impl GlobalRateLimiter {
     pub fn new() -> RateLimitingMiddleware {
-        RateLimitingMiddleware::new(RateLimitConfig {
-            window_ms: 15 * 60 * 1000, // 15 minutes
-            max_requests: 1000,
-            burst_size: 100,
-            enabled: true,
-        })
+        RateLimitingMiddleware::new(1000, 100, Duration::from_secs(900))
+    }
+}
+
+// Additional specialized rate limiters
+pub struct HealthRateLimiter;
+impl HealthRateLimiter {
+    pub fn new() -> RateLimitingMiddleware {
+        RateLimitingMiddleware::new(300, 50, Duration::from_secs(60))
+    }
+}
+
+pub struct MetricsRateLimiter;
+impl MetricsRateLimiter {
+    pub fn new() -> RateLimitingMiddleware {
+        RateLimitingMiddleware::new(60, 10, Duration::from_secs(60))
+    }
+}
+
+pub struct DatabaseRateLimiter;
+impl DatabaseRateLimiter {
+    pub fn new() -> RateLimitingMiddleware {
+        RateLimitingMiddleware::new(30, 5, Duration::from_secs(60))
+    }
+}
+
+pub struct CompressRateLimiter;
+impl CompressRateLimiter {
+    pub fn new() -> RateLimitingMiddleware {
+        RateLimitingMiddleware::new(200, 30, Duration::from_secs(60))
+    }
+}
+
+// Rate limiting configuration
+#[derive(Debug, Clone)]
+pub struct RateLimitConfig {
+    pub global: RateLimitingMiddleware,
+    pub auth: RateLimitingMiddleware,
+    pub transactions: RateLimitingMiddleware,
+    pub ble: RateLimitingMiddleware,
+    pub health: RateLimitingMiddleware,
+    pub metrics: RateLimitingMiddleware,
+    pub database: RateLimitingMiddleware,
+    pub compress: RateLimitingMiddleware,
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            global: GlobalRateLimiter::new(),
+            auth: AuthRateLimiter::new(),
+            transactions: TransactionRateLimiter::new(),
+            ble: BLERateLimiter::new(),
+            health: HealthRateLimiter::new(),
+            metrics: MetricsRateLimiter::new(),
+            database: DatabaseRateLimiter::new(),
+            compress: CompressRateLimiter::new(),
+        }
+    }
+}
+
+// Rate limiting utilities
+pub mod utils {
+    use super::*;
+    use actix_web::HttpRequest;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+
+    #[derive(Debug)]
+    pub struct RateLimitStats {
+        pub total_requests: u64,
+        pub rate_limited_requests: u64,
+        pub current_active_ips: usize,
+    }
+
+    pub struct RateLimitManager {
+        stats: Arc<RwLock<RateLimitStats>>,
+        limits: Arc<RwLock<HashMap<String, RateLimitEntry>>>,
+    }
+
+    impl RateLimitManager {
+        pub fn new() -> Self {
+            Self {
+                stats: Arc::new(RwLock::new(RateLimitStats {
+                    total_requests: 0,
+                    rate_limited_requests: 0,
+                    current_active_ips: 0,
+                })),
+                limits: Arc::new(RwLock::new(HashMap::new())),
+            }
+        }
+
+        pub async fn get_stats(&self) -> RateLimitStats {
+            let stats = self.stats.read().await;
+            let limits = self.limits.read().await;
+            RateLimitStats {
+                total_requests: stats.total_requests,
+                rate_limited_requests: stats.rate_limited_requests,
+                current_active_ips: limits.len(),
+            }
+        }
+
+        pub async fn increment_total_requests(&self) {
+            let mut stats = self.stats.write().await;
+            stats.total_requests += 1;
+        }
+
+        pub async fn increment_rate_limited_requests(&self) {
+            let mut stats = self.stats.write().await;
+            stats.rate_limited_requests += 1;
+        }
+
+        pub async fn cleanup_expired_entries(&self) {
+            let mut limits = self.limits.write().await;
+            let now = Instant::now();
+            limits.retain(|_, entry| now < entry.reset_time);
+        }
+    }
+
+    pub fn get_client_ip(req: &HttpRequest) -> String {
+        req.connection_info()
+            .peer_addr()
+            .unwrap_or("unknown")
+            .to_string()
+    }
+
+    pub fn is_rate_limited(
+        client_ip: &str,
+        limits: &mut HashMap<String, RateLimitEntry>,
+        rate_limit: u32,
+        burst_limit: u32,
+        window_size: Duration,
+    ) -> bool {
+        let now = Instant::now();
+
+        if let Some(entry) = limits.get_mut(client_ip) {
+            if now >= entry.reset_time {
+                // Reset window
+                *entry = RateLimitEntry {
+                    count: 1,
+                    reset_time: now + window_size,
+                    burst_count: 1,
+                };
+                false
+            } else {
+                // Check burst limit first
+                if entry.burst_count >= burst_limit {
+                    return true;
+                }
+
+                // Check regular rate limit
+                if entry.count >= rate_limit {
+                    return true;
+                }
+
+                entry.count += 1;
+                entry.burst_count += 1;
+                false
+            }
+        } else {
+            limits.insert(client_ip.to_string(), RateLimitEntry {
+                count: 1,
+                reset_time: now + window_size,
+                burst_count: 1,
+            });
+            false
+        }
     }
 } 

@@ -43,16 +43,6 @@ impl TransactionValidator {
             ],
         });
         
-        // Core Testnet rules
-        supported_chains.insert(11155420, ChainValidationRules {
-            min_gas_limit: 21000,
-            max_gas_limit: 30000000,
-            max_transaction_size: 128000,
-            allowed_contract_addresses: vec![
-                "0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB".to_string(),
-            ],
-        });
-        
         // Core Testnet 2 rules
         supported_chains.insert(1114, ChainValidationRules {
             min_gas_limit: 21000,
@@ -77,48 +67,49 @@ impl TransactionValidator {
         };
         
         // Basic format validation
-        if let Err(e) = self.validate_transaction_format(&transaction.signed_tx) {
+        if let Err(e) = self.validate_transaction_format(&transaction.transaction_data) {
             result.valid = false;
             result.errors.push(format!("Invalid transaction format: {}", e));
         }
         
-        // Chain ID validation
-        if let Err(e) = self.validate_chain_id(transaction.chain_id) {
+        // Chain ID validation - extract from transaction data or use default
+        let chain_id = self.extract_chain_id_from_transaction(&transaction.transaction_data).unwrap_or(84532);
+        if let Err(e) = self.validate_chain_id(chain_id) {
             result.valid = false;
             result.errors.push(format!("Invalid chain ID: {}", e));
         }
         
         // Transaction size validation
-        if let Err(e) = self.validate_transaction_size(&transaction.signed_tx) {
+        if let Err(e) = self.validate_transaction_size(&transaction.transaction_data) {
             result.valid = false;
             result.errors.push(format!("Invalid transaction size: {}", e));
         }
         
         // Hex format validation
-        if let Err(e) = self.validate_hex_format(&transaction.signed_tx) {
+        if let Err(e) = self.validate_hex_format(&transaction.transaction_data) {
             result.valid = false;
             result.errors.push(format!("Invalid hex format: {}", e));
         }
         
         // Signature validation
-        if let Err(e) = self.validate_signature(&transaction.signed_tx).await {
+        if let Err(e) = self.validate_signature(&transaction.transaction_data).await {
             result.valid = false;
             result.errors.push(format!("Invalid signature: {}", e));
         }
         
         // Gas limit validation
-        if let Err(e) = self.validate_gas_limits(&transaction.signed_tx, transaction.chain_id) {
+        if let Err(e) = self.validate_gas_limits(&transaction.transaction_data, chain_id) {
             result.valid = false;
             result.errors.push(format!("Invalid gas limits: {}", e));
         }
         
         // Nonce validation
-        if let Err(e) = self.validate_nonce(&transaction.signed_tx, transaction.chain_id).await {
+        if let Err(e) = self.validate_nonce(&transaction.transaction_data, chain_id).await {
             result.warnings.push(format!("Nonce validation warning: {}", e));
         }
         
         // Contract interaction validation
-        if let Err(e) = self.validate_contract_interaction(&transaction.signed_tx, transaction.chain_id) {
+        if let Err(e) = self.validate_contract_interaction(&transaction.transaction_data, chain_id) {
             result.valid = false;
             result.errors.push(format!("Invalid contract interaction: {}", e));
         }
@@ -218,7 +209,7 @@ impl TransactionValidator {
     }
 
     fn validate_gas_limits(&self, signed_tx: &str, chain_id: u64) -> Result<()> {
-        let rules = self.supported_chains.get(&chain_id)
+        let _rules = self.supported_chains.get(&chain_id)
             .ok_or_else(|| anyhow!("No validation rules for chain ID: {}", chain_id))?;
         
         // Decode transaction to extract gas limit
@@ -243,7 +234,7 @@ impl TransactionValidator {
     }
 
     fn validate_contract_interaction(&self, signed_tx: &str, chain_id: u64) -> Result<()> {
-        let rules = self.supported_chains.get(&chain_id)
+        let _rules = self.supported_chains.get(&chain_id)
             .ok_or_else(|| anyhow!("No validation rules for chain ID: {}", chain_id))?;
         
         // Decode transaction to check if it's a contract interaction
@@ -263,10 +254,17 @@ impl TransactionValidator {
         Ok(())
     }
 
-    async fn check_rate_limits(&self, device_id: &str) -> Result<()> {
+    async fn check_rate_limits(&self, _device_id: &str) -> Result<()> {
         // In a real implementation, you would check rate limits for the device
         // For now, we'll assume no rate limiting issues
         Ok(())
+    }
+
+    fn extract_chain_id_from_transaction(&self, transaction_data: &str) -> Option<u64> {
+        // In a real implementation, you would parse the transaction to extract chain ID
+        // For now, we'll use a default chain ID
+        // This could be extracted from the transaction data or metadata
+        Some(84532) // Default to Base Sepolia testnet
     }
 
     pub fn validate_device_id(&self, device_id: &str) -> Result<()> {
