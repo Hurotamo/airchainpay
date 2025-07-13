@@ -7,13 +7,7 @@ edition = "2021"
 name = "generate_secrets"
 path = "src/bin/generate_secrets.rs"
 
-[[bin]]
-name = "test_ble"
-path = "src/bin/test_ble.rs"
 
-[[bin]]
-name = "test_logger"
-path = "src/bin/test_logger.rs"
 
 [dependencies]
 actix-web = "4.11.0"

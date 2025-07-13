@@ -36,7 +36,7 @@ impl TransactionValidator {
         // Base Sepolia rules
         supported_chains.insert(84532, ChainValidationRules {
             min_gas_limit: 21000,
-            max_gas_limit: 30000000,
+            max_gas_limit: 1000000,
             max_transaction_size: 128000,
             allowed_contract_addresses: vec![
                 "0x7B79117445C57eea1CEAb4733020A55e1D503934".to_string(),
@@ -46,7 +46,7 @@ impl TransactionValidator {
         // Core Testnet 2 rules
         supported_chains.insert(1114, ChainValidationRules {
             min_gas_limit: 21000,
-            max_gas_limit: 30000000,
+            max_gas_limit: 10000000,
             max_transaction_size: 128000,
             allowed_contract_addresses: vec![
                 "0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB".to_string(),
