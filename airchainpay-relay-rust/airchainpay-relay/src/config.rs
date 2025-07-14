@@ -161,6 +161,7 @@ impl Default for ConfigStatus {
     }
 }
 
+#[allow(dead_code)]
 pub struct DynamicConfigManager {
     config: Arc<RwLock<Config>>,
     config_watcher: Option<notify::FsEventWatcher>,

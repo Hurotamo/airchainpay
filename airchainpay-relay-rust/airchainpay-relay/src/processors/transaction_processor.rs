@@ -196,6 +196,7 @@ pub struct TransactionResult {
     pub block_number: Option<u64>,
 }
 
+#[allow(dead_code)]
 pub struct TransactionProcessor {
     blockchain_manager: Arc<BlockchainManager>,
     validator: TransactionValidator,
@@ -281,6 +282,7 @@ impl TransactionProcessor {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub async fn stop(&self) -> Result<()> {
         let mut running = self.running.write().await;
         *running = false;

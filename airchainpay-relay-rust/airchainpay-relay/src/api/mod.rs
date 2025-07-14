@@ -744,6 +744,7 @@ async fn generate_token(
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct BLEProcessRequest {
     device_id: String,
     transaction_data: serde_json::Value,
@@ -1044,7 +1045,7 @@ async fn get_networks_status(
             "chain_id": 1114,
             "name": "Core Testnet 2",
             "rpc_url": "https://rpc.test2.btcs.network",
-            "contract_address": "0x7B79117445C57eea1CEAb4733020A55e1D503934",
+            "contract_address": "0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB",
             "explorer": "https://scan.test2.btcs.network",
             "currency": "TCORE2",
         }),
@@ -2182,6 +2183,7 @@ async fn test_error_handling(
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 pub struct ErrorSummaryRequest {
     pub include_details: Option<bool>,
     pub error_types: Option<Vec<String>>,
@@ -2804,6 +2806,7 @@ async fn health_metrics(
     }))
 }
 
+#[allow(dead_code)]
 pub async fn run_api_server() -> std::io::Result<()> {
     // Initialize shared components
     let config = crate::config::Config::development_config().unwrap_or_default();

@@ -136,6 +136,7 @@ where
 
 // Metrics collection utilities
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct MetricsCollector {
     monitoring_manager: Arc<MonitoringManager>,
 }

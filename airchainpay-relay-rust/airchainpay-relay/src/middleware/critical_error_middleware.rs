@@ -178,6 +178,7 @@ where
 }
 
 /// Determine critical path based on request path and method
+#[allow(dead_code)]
 fn determine_critical_path(path: &str, method: &str) -> CriticalPath {
     if path.starts_with("/transaction") || path.starts_with("/send") {
         CriticalPath::TransactionProcessing

@@ -1,10 +1,12 @@
 pub mod manager;
 
+#[allow(dead_code)]
 pub async fn start_ble_scan() -> anyhow::Result<()> {
     // Implementation would go here
     Ok(())
 }
 
+#[allow(dead_code)]
 pub async fn stop_ble_scan() -> anyhow::Result<()> {
     // Implementation would go here
     Ok(())

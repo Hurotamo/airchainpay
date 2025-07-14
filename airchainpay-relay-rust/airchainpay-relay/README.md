@@ -1,3 +1,12 @@
+# Recent Improvements
+
+- **Refactored Middleware Structure:** Improved modularity and maintainability of security, rate limiting, and input validation middleware. Unused code and dead code warnings have been addressed for a cleaner codebase.
+- **Enhanced Transaction Processor:** Introduced a more robust transaction processor with multi-worker support for better performance and reliability.
+- **Improved Error Handling:** Centralized and extended error handling for BLE, storage, validation, authentication, and rate limiting, making the system more resilient and easier to debug.
+- **Security & Monitoring:** Continued focus on security best practices, including JWT authentication, per-device/IP rate limiting, and comprehensive metrics collection.
+
+---
+
 # AirChainPay Relay Server (Rust)
 
 A high-performance, memory-safe implementation of the AirChainPay relay server written in Rust. This server handles BLE device communication, transaction processing, and blockchain broadcasting for the AirChainPay ecosystem.

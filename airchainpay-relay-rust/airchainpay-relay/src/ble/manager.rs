@@ -1,19 +1,33 @@
 use serde::{Deserialize, Serialize};
+#[allow(unused_imports)]
 use anyhow::{Result, anyhow};
+#[allow(unused_imports)]
 use std::sync::Arc;
+#[allow(unused_imports)]
 use tokio::sync::RwLock;
+#[allow(unused_imports)]
 use chrono::{DateTime, Utc};
+#[allow(unused_imports)]
 use btleplug::api::{
     Central, Manager as _, Peripheral as _, ScanFilter,
 };
+#[allow(unused_imports)]
 use btleplug::platform::{Adapter, Manager};
+#[allow(unused_imports)]
 use std::collections::HashMap;
+#[allow(unused_imports)]
 use std::time::{Duration, Instant};
+#[allow(unused_imports)]
 use rand::Rng;
+#[allow(unused_imports)]
 use sha2::Digest;
+#[allow(unused_imports)]
 use hex;
+#[allow(unused_imports)]
 use uuid::Uuid;
+#[allow(unused_imports)]
 use std::collections::VecDeque;
+#[allow(unused_imports)]
 use crate::utils::error_handler::EnhancedErrorHandler;
 
 // Constants
@@ -126,7 +140,7 @@ pub struct BLEStatus {
     pub key_exchange_failed: u32,
 }
 
-#[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct DeviceConnection {
     pub device_id: String,
     pub peripheral_id: String,
@@ -136,6 +150,7 @@ pub struct DeviceConnection {
     pub session_key: Option<String>,
 }
 
+#[allow(dead_code)]
 pub struct BLEManager {
     devices: Arc<RwLock<HashMap<String, BLEDevice>>>,
     transactions: Arc<RwLock<HashMap<String, BLETransaction>>>,
@@ -153,6 +168,7 @@ pub struct BLEManager {
     critical_error_handler: Option<Arc<EnhancedErrorHandler>>,
 }
 
+#[allow(dead_code)]
 impl BLEManager {
     pub async fn new() -> Result<Self> {
         let manager = Manager::new().await?;
