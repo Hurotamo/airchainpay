@@ -3,6 +3,7 @@ use anyhow::{Result, anyhow};
 use prost::Message;
 use serde::{Deserialize, Serialize};
 use base64::{engine::general_purpose, Engine as _};
+use std::io::Write;
 
 // Include the generated protobuf code
 pub mod airchainpay {
@@ -95,14 +96,44 @@ impl ProtobufCompressor {
     /// Decompress transaction payload using Protobuf and CBOR
     pub async fn decompress_transaction_payload(&mut self, compressed_data: &[u8]) -> Result<DecompressionResult> {
         self.initialize()?;
-
-        match self.try_decompress_protobuf_cbor(compressed_data, "transaction") {
-            Ok(result) => Ok(result),
+        
+        // Try to decompress using LZ4 first
+        let mut decompressed = Vec::new();
+        let mut decoder = lz4::Decoder::new(compressed_data)
+            .map_err(|e| anyhow::anyhow!("LZ4 decompression failed: {}", e))?;
+        
+        std::io::copy(&mut decoder, &mut decompressed)
+            .map_err(|e| anyhow::anyhow!("Failed to read decompressed data: {}", e))?;
+        
+        // Try to deserialize as CBOR
+        match cbor4ii::serde::from_slice::<serde_json::Value>(&decompressed) {
+            Ok(data) => {
+                Ok(DecompressionResult {
+                    data,
+                    format: "protobuf_cbor".to_string(),
+                    success: true,
+                    error: None,
+                })
+            }
             Err(e) => {
-                // Fallback to JSON parsing
-                match self.try_json_fallback(compressed_data) {
-                    Ok(json_result) => Ok(json_result),
-                    Err(_) => Err(anyhow!("Failed to decompress transaction payload: {}", e)),
+                // Fallback to JSON
+                match serde_json::from_slice::<serde_json::Value>(compressed_data) {
+                    Ok(data) => {
+                        Ok(DecompressionResult {
+                            data,
+                            format: "json".to_string(),
+                            success: true,
+                            error: None,
+                        })
+                    }
+                    Err(_) => {
+                        Ok(DecompressionResult {
+                            data: serde_json::Value::Null,
+                            format: "unknown".to_string(),
+                            success: false,
+                            error: Some(format!("Failed to decompress: {}", e)),
+                        })
+                    }
                 }
             }
         }
@@ -111,14 +142,44 @@ impl ProtobufCompressor {
     /// Decompress BLE payment data using Protobuf and CBOR
     pub async fn decompress_ble_payment_data(&mut self, compressed_data: &[u8]) -> Result<DecompressionResult> {
         self.initialize()?;
-
-        match self.try_decompress_protobuf_cbor(compressed_data, "ble") {
-            Ok(result) => Ok(result),
+        
+        // Try to decompress using LZ4 first
+        let mut decompressed = Vec::new();
+        let mut decoder = lz4::Decoder::new(compressed_data)
+            .map_err(|e| anyhow::anyhow!("LZ4 decompression failed: {}", e))?;
+        
+        std::io::copy(&mut decoder, &mut decompressed)
+            .map_err(|e| anyhow::anyhow!("Failed to read decompressed data: {}", e))?;
+        
+        // Try to deserialize as CBOR
+        match cbor4ii::serde::from_slice::<serde_json::Value>(&decompressed) {
+            Ok(data) => {
+                Ok(DecompressionResult {
+                    data,
+                    format: "protobuf_cbor".to_string(),
+                    success: true,
+                    error: None,
+                })
+            }
             Err(e) => {
-                // Fallback to JSON parsing
-                match self.try_json_fallback(compressed_data) {
-                    Ok(json_result) => Ok(json_result),
-                    Err(_) => Err(anyhow!("Failed to decompress BLE payment data: {}", e)),
+                // Fallback to JSON
+                match serde_json::from_slice::<serde_json::Value>(compressed_data) {
+                    Ok(data) => {
+                        Ok(DecompressionResult {
+                            data,
+                            format: "json".to_string(),
+                            success: true,
+                            error: None,
+                        })
+                    }
+                    Err(_) => {
+                        Ok(DecompressionResult {
+                            data: serde_json::Value::Null,
+                            format: "unknown".to_string(),
+                            success: false,
+                            error: Some(format!("Failed to decompress: {}", e)),
+                        })
+                    }
                 }
             }
         }
@@ -174,45 +235,48 @@ impl ProtobufCompressor {
     }
 
     /// Compress transaction payload using Protobuf and CBOR
-    pub async fn compress_transaction_payload(&mut self, _transaction_data: &serde_json::Value) -> Result<Vec<u8>> {
+    pub async fn compress_transaction_payload(&mut self, transaction_data: &serde_json::Value) -> Result<Vec<u8>> {
         self.initialize()?;
-
-        // Convert JSON to protobuf message
-        // let payload = self.json_to_transaction_payload(transaction_data)?;
-        // For now, use a stub
-        let payload = TransactionPayload { data: "stub".to_string() };
         
-        // Encode as protobuf
-        let mut protobuf_data = Vec::new();
-        payload.encode(&mut protobuf_data)?;
-
-        // Compress with CBOR
-        // let cbor_value = CborValue::Bytes(protobuf_data);
-        let compressed_data = Vec::new();
-        // cbor_value.encode(&mut compressed_data)?;
-
-        Ok(compressed_data)
+        // Convert JSON to CBOR for compression
+        let cbor_data = cbor4ii::serde::to_vec(Vec::new(), transaction_data)
+            .map_err(|e| anyhow::anyhow!("CBOR serialization failed: {}", e))?;
+        
+        // Use LZ4 compression on the CBOR data
+        let mut compressed = Vec::new();
+        let mut encoder = lz4::EncoderBuilder::new()
+            .level(1) // Fast compression
+            .build(&mut compressed)
+            .map_err(|e| anyhow::anyhow!("LZ4 compression failed: {}", e))?;
+        
+        encoder.write_all(&cbor_data)
+            .map_err(|e| anyhow::anyhow!("Failed to write data for compression: {}", e))?;
+        
+        let (compressed, result) = encoder.finish();
+        result.map_err(|e| anyhow::anyhow!("Failed to finish compression: {}", e))?;
+        Ok(compressed.to_vec())
     }
 
-    /// Compress BLE payment data using Protobuf and CBOR
-    pub async fn compress_ble_payment_data(&mut self, _ble_data: &serde_json::Value) -> Result<Vec<u8>> {
+    pub async fn compress_ble_payment_data(&mut self, ble_data: &serde_json::Value) -> Result<Vec<u8>> {
         self.initialize()?;
-
-        // Convert JSON to protobuf message
-        // let payload = self.json_to_ble_payment_data(ble_data)?;
-        // For now, use a stub
-        let payload = BlePaymentData { data: "stub".to_string() };
         
-        // Encode as protobuf
-        let mut protobuf_data = Vec::new();
-        payload.encode(&mut protobuf_data)?;
-
-        // Compress with CBOR
-        // let cbor_value = CborValue::Bytes(protobuf_data);
-        let compressed_data = Vec::new();
-        // cbor_value.encode(&mut compressed_data)?;
-
-        Ok(compressed_data)
+        // Convert JSON to CBOR for compression
+        let cbor_data = cbor4ii::serde::to_vec(Vec::new(), ble_data)
+            .map_err(|e| anyhow::anyhow!("CBOR serialization failed: {}", e))?;
+        
+        // Use LZ4 compression on the CBOR data
+        let mut compressed = Vec::new();
+        let mut encoder = lz4::EncoderBuilder::new()
+            .level(1) // Fast compression
+            .build(&mut compressed)
+            .map_err(|e| anyhow::anyhow!("LZ4 compression failed: {}", e))?;
+        
+        encoder.write_all(&cbor_data)
+            .map_err(|e| anyhow::anyhow!("Failed to write data for compression: {}", e))?;
+        
+        let (compressed, result) = encoder.finish();
+        result.map_err(|e| anyhow::anyhow!("Failed to finish compression: {}", e))?;
+        Ok(compressed.to_vec())
     }
 
     /// Compress QR payment request using Protobuf and CBOR

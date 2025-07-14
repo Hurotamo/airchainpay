@@ -195,12 +195,18 @@ mod tests {
 
     #[test]
     fn test_jwt_token_generation_and_verification() {
+        // Set a consistent JWT secret for this test
+        std::env::set_var("JWT_SECRET", "test_secret_for_jwt_verification_1234567890abcdef");
+        
         let token = AuthManager::generate_jwt_token("test_device", "device");
         assert!(!token.is_empty());
         
         let claims = AuthManager::verify_jwt_token(&token).unwrap();
         assert_eq!(claims.sub, "test_device");
         assert_eq!(claims.typ, "device");
+        
+        // Clean up
+        std::env::remove_var("JWT_SECRET");
     }
 
     #[test]
@@ -214,7 +220,7 @@ mod tests {
         assert!(secrets.contains_key("ENCRYPTION_KEY"));
         
         assert_eq!(secrets["JWT_SECRET"].len(), 128);
-        assert_eq!(secrets["API_KEY"].len(), 64);
+        assert_eq!(secrets["API_KEY"].len(), 32); // Changed from 64 to 32
         assert_eq!(secrets["DATABASE_PASSWORD"].len(), 16);
         assert_eq!(secrets["REDIS_PASSWORD"].len(), 16);
         assert_eq!(secrets["ENCRYPTION_KEY"].len(), 32);

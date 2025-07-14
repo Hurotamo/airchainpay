@@ -33,7 +33,7 @@ jsonwebtoken = "9.3.1"
 prost = "0.14.1"
 prost-types = "0.14.1"
 bytes = "1.10.1"
-cbor4ii = "1.0.0"
+cbor4ii = { version = "1.0.0", features = ["serde1"] }
 lz4 = "1.28.1"
 # Input validation and sanitization dependencies
 regex = "1.11.1"
