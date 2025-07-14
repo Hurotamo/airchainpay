@@ -5,9 +5,6 @@ use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use anyhow::Error;
 use std::time::{Duration, Instant};
-use tokio::time::sleep;
-use std::panic::catch_unwind;
-use std::panic::UnwindSafe;
 use crate::error::RelayError;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -156,6 +153,12 @@ pub struct EnhancedErrorHandler {
     circuit_breakers: Arc<RwLock<HashMap<CriticalPath, CircuitBreakerState>>>,
     alert_thresholds: HashMap<ErrorSeverity, u32>,
     max_errors: usize,
+}
+
+impl Default for EnhancedErrorHandler {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl EnhancedErrorHandler {
@@ -344,7 +347,7 @@ impl EnhancedErrorHandler {
                     transaction_id: None,
                     chain_id: None,
                     ip_address: None,
-                    component: format!("{:?}", path),
+                    component: format!("{path:?}"),
                 };
                 let _ = self.record_error(success_record).await;
                 Ok(value)
@@ -363,13 +366,13 @@ impl EnhancedErrorHandler {
                     max_retries: config.max_retries,
                     resolved: false,
                     resolution_time: None,
-                    stack_trace: Some(format!("{:?}", error)),
+                    stack_trace: Some(format!("{error:?}")),
                     user_id: None,
                     device_id: None,
                     transaction_id: None,
                     chain_id: None,
                     ip_address: None,
-                    component: format!("{:?}", path),
+                    component: format!("{path:?}"),
                 };
                 let _ = self.record_error(error_record.clone()).await;
                 Err(error_record)
@@ -410,13 +413,13 @@ impl EnhancedErrorHandler {
                     max_retries: 0,
                     resolved: false,
                     resolution_time: None,
-                    stack_trace: Some(format!("{:?}", error)),
+                    stack_trace: Some(format!("{error:?}")),
                     user_id: None,
                     device_id: None,
                     transaction_id: None,
                     chain_id: None,
                     ip_address: None,
-                    component: format!("{:?}", path),
+                    component: format!("{path:?}"),
                 };
 
                 self.record_error(error_record.clone()).await;
@@ -494,15 +497,15 @@ impl EnhancedErrorHandler {
 
     // Add missing methods
     pub async fn log_error(&self, error: &ErrorRecord) {
-        println!("Error logged: {:?}", error);
+        println!("Error logged: {error:?}");
     }
     
     pub async fn send_alert(&self, error: &ErrorRecord) {
-        println!("Alert sent: {:?}", error);
+        println!("Alert sent: {error:?}");
     }
     
     pub async fn update_circuit_breaker_status(&self, path: &CriticalPath, open: bool) {
-        println!("Circuit breaker updated for {:?}: {}", path, open);
+        println!("Circuit breaker updated for {path:?}: {open}");
     }
     
     // Update get_error_statistics to return ErrorStatistics
@@ -583,6 +586,12 @@ pub struct CriticalErrorHandler {
     max_errors_per_path: usize,
     circuit_breaker_threshold: u32,
     circuit_breaker_timeout: Duration,
+}
+
+impl Default for CriticalErrorHandler {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CriticalErrorHandler {
@@ -678,7 +687,7 @@ impl CriticalErrorHandler {
 
     pub async fn get_all_metrics(&self) -> HashMap<String, u32> {
         let metrics = self.get_critical_metrics().await;
-        metrics.into_iter().map(|(path, count)| (format!("{:?}", path), count)).collect()
+        metrics.into_iter().map(|(path, count)| (format!("{path:?}"), count)).collect()
     }
 
 
@@ -688,7 +697,7 @@ impl CriticalErrorHandler {
         let circuit_breakers = self.circuit_breakers.read().await;
         
         for (path, status) in circuit_breakers.iter() {
-            health.insert(format!("{:?}", path), serde_json::Value::String(format!("{:?}", status)));
+            health.insert(format!("{path:?}"), serde_json::Value::String(format!("{status:?}")));
         }
         
         health
@@ -698,7 +707,7 @@ impl CriticalErrorHandler {
         &self,
         path: CriticalPath,
         operation: F,
-        context: HashMap<String, String>,
+        _context: HashMap<String, String>,
     ) -> Result<T, CriticalError>
     where
         F: FnOnce() -> Fut,

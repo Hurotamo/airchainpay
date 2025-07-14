@@ -7,11 +7,11 @@ use std::sync::Arc;
 use std::time::Instant;
 use futures_util::future::{LocalBoxFuture, Ready};
 use actix_web::body::BoxBody;
-use actix_web::dev::{ServiceRequest, ServiceResponse};
 use futures_util::future::ready;
 use crate::monitoring::MonitoringManager;
 use std::marker::PhantomData;
 
+#[derive(Clone)]
 pub struct MetricsMiddleware {
     monitoring_manager: Arc<MonitoringManager>,
 }
@@ -24,7 +24,7 @@ impl MetricsMiddleware {
 
 impl<S> Transform<S, actix_web::dev::ServiceRequest> for MetricsMiddleware
 where
-    S: Service<actix_web::dev::ServiceRequest, Response = actix_web::dev::ServiceResponse<BoxBody>, Error = Error> + Clone + 'static,
+    S: Service<actix_web::dev::ServiceRequest, Response = actix_web::dev::ServiceResponse<BoxBody>, Error = Error> + 'static,
     S::Future: 'static,
 {
     type Response = actix_web::dev::ServiceResponse<BoxBody>;
@@ -35,22 +35,23 @@ where
 
     fn new_transform(&self, service: S) -> Self::Future {
         ready(Ok(MetricsService {
-            service,
+            service: Arc::new(service),
             monitoring_manager: Arc::clone(&self.monitoring_manager),
             _phantom: PhantomData,
         }))
     }
 }
 
+#[derive(Clone)]
 pub struct MetricsService<S> {
-    service: S,
+    service: Arc<S>,
     monitoring_manager: Arc<MonitoringManager>,
     _phantom: PhantomData<BoxBody>,
 }
 
 impl<S> Service<actix_web::dev::ServiceRequest> for MetricsService<S>
 where
-    S: Service<actix_web::dev::ServiceRequest, Response = actix_web::dev::ServiceResponse<BoxBody>, Error = Error> + Clone + 'static,
+    S: Service<actix_web::dev::ServiceRequest, Response = actix_web::dev::ServiceResponse<BoxBody>, Error = Error> + 'static,
     S::Future: 'static,
 {
     type Response = actix_web::dev::ServiceResponse<BoxBody>;
@@ -62,7 +63,7 @@ where
     }
 
     fn call(&self, req: actix_web::dev::ServiceRequest) -> Self::Future {
-        let service = self.service.clone();
+        let service = Arc::clone(&self.service);
         let monitoring_manager = Arc::clone(&self.monitoring_manager);
         let start_time = Instant::now();
 
@@ -100,11 +101,10 @@ where
                     if path.contains("/ble") {
                         monitoring_manager.increment_metric("ble_connections").await;
                     }
-                    if path.contains("/auth") {
-                        if !status.is_success() {
+                    if path.contains("/auth")
+                        && !status.is_success() {
                             monitoring_manager.increment_metric("auth_failures").await;
                         }
-                    }
                     if path.contains("/compress") {
                         monitoring_manager.increment_metric("compression_operations").await;
                     }
@@ -116,8 +116,7 @@ where
                     }
                     // Log request details for monitoring
                     log::info!(
-                        "Request processed: {} {} - Status: {} - Time: {}ms - IP: {}",
-                        method, path, status, response_time_ms, client_ip
+                        "Request processed: {method} {path} - Status: {status} - Time: {response_time_ms}ms - IP: {client_ip}"
                     );
                     Ok(res)
                 }
@@ -126,8 +125,7 @@ where
                     monitoring_manager.increment_metric("requests_failed").await;
                     monitoring_manager.increment_metric("network_errors").await;
                     log::error!(
-                        "Request failed: {} {} - Error: {} - Time: {}ms - IP: {}",
-                        method, path, e, response_time_ms, client_ip
+                        "Request failed: {method} {path} - Error: {e} - Time: {response_time_ms}ms - IP: {client_ip}"
                     );
                     Err(e)
                 }
@@ -145,113 +143,5 @@ pub struct MetricsCollector {
 impl MetricsCollector {
     pub fn new(monitoring_manager: Arc<MonitoringManager>) -> Self {
         Self { monitoring_manager }
-    }
-
-    pub async fn record_transaction_processed(&self) {
-        self.monitoring_manager.increment_metric("transactions_processed").await;
-    }
-
-    pub async fn record_transaction_failed(&self) {
-        self.monitoring_manager.increment_metric("transactions_failed").await;
-    }
-
-    pub async fn record_transaction_broadcasted(&self) {
-        self.monitoring_manager.increment_metric("transactions_broadcasted").await;
-    }
-
-    pub async fn record_ble_connection(&self) {
-        self.monitoring_manager.increment_metric("ble_connections").await;
-    }
-
-    pub async fn record_ble_disconnection(&self) {
-        self.monitoring_manager.increment_metric("ble_disconnections").await;
-    }
-
-    pub async fn record_ble_authentication(&self) {
-        self.monitoring_manager.increment_metric("ble_authentications").await;
-    }
-
-    pub async fn record_ble_key_exchange(&self) {
-        self.monitoring_manager.increment_metric("ble_key_exchanges").await;
-    }
-
-    pub async fn record_rpc_error(&self) {
-        self.monitoring_manager.increment_metric("rpc_errors").await;
-    }
-
-    pub async fn record_auth_failure(&self) {
-        self.monitoring_manager.increment_metric("auth_failures").await;
-    }
-
-    pub async fn record_rate_limit_hit(&self) {
-        self.monitoring_manager.increment_metric("rate_limit_hits").await;
-    }
-
-    pub async fn record_blocked_device(&self) {
-        self.monitoring_manager.increment_metric("blocked_devices").await;
-    }
-
-    pub async fn record_security_event(&self) {
-        self.monitoring_manager.increment_metric("security_events").await;
-    }
-
-    pub async fn record_validation_failure(&self) {
-        self.monitoring_manager.increment_metric("validation_failures").await;
-    }
-
-    pub async fn record_cache_hit(&self) {
-        self.monitoring_manager.increment_metric("cache_hits").await;
-    }
-
-    pub async fn record_cache_miss(&self) {
-        self.monitoring_manager.increment_metric("cache_misses").await;
-    }
-
-    pub async fn record_blockchain_confirmation(&self) {
-        self.monitoring_manager.increment_metric("blockchain_confirmations").await;
-    }
-
-    pub async fn record_blockchain_timeout(&self) {
-        self.monitoring_manager.increment_metric("blockchain_timeouts").await;
-    }
-
-    pub async fn record_gas_price_update(&self) {
-        self.monitoring_manager.increment_metric("gas_price_updates").await;
-    }
-
-    pub async fn record_contract_event(&self) {
-        self.monitoring_manager.increment_metric("contract_events").await;
-    }
-
-    pub async fn record_compression_operation(&self, original_size: usize, compressed_size: usize) {
-        self.monitoring_manager.increment_metric("compression_operations").await;
-        
-        // Update compression ratio
-        if original_size > 0 {
-            let ratio = compressed_size as f64 / original_size as f64;
-            // Note: This would need to be implemented in the monitoring manager
-            // For now, we just log it
-            log::info!("Compression ratio: {:.2}%", ratio * 100.0);
-        }
-    }
-
-    pub async fn record_database_operation(&self) {
-        self.monitoring_manager.increment_metric("database_operations").await;
-    }
-
-    pub async fn record_database_error(&self) {
-        self.monitoring_manager.increment_metric("database_errors").await;
-    }
-
-    pub async fn record_network_error(&self) {
-        self.monitoring_manager.increment_metric("network_errors").await;
-    }
-
-    pub async fn get_metrics(&self) -> crate::monitoring::PrometheusMetrics {
-        self.monitoring_manager.get_metrics().await
-    }
-
-    pub async fn get_system_metrics(&self) -> crate::monitoring::SystemMetrics {
-        self.monitoring_manager.get_system_metrics().await
     }
 } 

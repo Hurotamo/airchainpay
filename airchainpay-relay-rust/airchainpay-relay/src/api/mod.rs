@@ -2,13 +2,13 @@ use actix_web::{get, post, delete, web, App, HttpResponse, HttpServer, Responder
 use actix_web::web::Data;
 use serde::{Deserialize, Serialize};
 use crate::auth::{AuthManager, AuthRequest};
-use crate::security::SecurityManager;
+
 use crate::storage::{Storage, Transaction, Device};
 use crate::blockchain::BlockchainManager;
 use crate::monitoring::MonitoringManager;
 use crate::processors::transaction_processor::TransactionPriority;
 use crate::processors::TransactionProcessor;
-use crate::ble::manager::{BLETransaction, BLEManager, scan_ble_devices};
+use crate::ble::manager::{BLETransaction, BLEManager};
 use crate::utils::error_handler::{EnhancedErrorHandler, CriticalErrorHandler};
 use crate::config::DynamicConfigManager;
 use crate::middleware::error_handling::{ErrorResponseBuilder, error_utils};
@@ -207,17 +207,6 @@ async fn health(
     }))
 }
 
-#[get("/ble_scan")]
-async fn ble_scan() -> impl Responder {
-    match scan_ble_devices().await {
-        Ok(_) => HttpResponse::Ok().body("Scan complete. See logs for devices."),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "error": format!("BLE scan error: {e}"),
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        })),
-    }
-}
-
 #[derive(Deserialize)]
 pub struct SendTxRequest {
     pub signed_tx: String, // hex-encoded
@@ -233,15 +222,6 @@ struct CompressedPayloadRequest {
     rpc_url: String,
     chain_id: u64,
     device_id: Option<String>,
-}
-
-#[derive(Serialize)]
-struct CompressionStatsResponse {
-    original_size: usize,
-    compressed_size: usize,
-    compression_ratio: f64,
-    space_saved_percent: f64,
-    format: String,
 }
 
 // Add this helper function before process_transaction
@@ -306,7 +286,7 @@ async fn handle_transaction_submission(
     let _ = storage.update_metrics("transactions_received", 1);
     
     // Use blockchain error handling utility
-    let tx_bytes = match hex::decode(&req.signed_tx.trim_start_matches("0x")) {
+    let tx_bytes = match hex::decode(req.signed_tx.trim_start_matches("0x")) {
         Ok(b) => b,
         Err(_) => return ErrorResponseBuilder::bad_request("Invalid hex format for signed transaction"),
     };
@@ -498,7 +478,7 @@ async fn send_compressed_tx(
     let _ = storage.update_metrics("transactions_received", 1);
     
     // Broadcast transaction
-    let tx_bytes = match hex::decode(&signed_tx.trim_start_matches("0x")) {
+    let tx_bytes = match hex::decode(signed_tx.trim_start_matches("0x")) {
         Ok(b) => b,
         Err(_) => return HttpResponse::BadRequest().json(serde_json::json!({
             "error": "Invalid hex for signed_tx",
@@ -775,24 +755,18 @@ async fn process_ble_transaction(
     _storage: Data<Arc<Storage>>,
 ) -> impl Responder {
     // Validate device ID
-    if !SecurityManager::validate_device_id(&req.device_id) {
+    if !crate::security::validate_device_id(&req.device_id) {
         return HttpResponse::BadRequest().json(serde_json::json!({
             "error": "Invalid device ID format",
             "field": "device_id",
         }));
     }
     
-    // Process BLE transaction
-    match crate::ble::manager::process_transaction(&req.device_id, &req.transaction_data.to_string()).await {
-        Ok(result) => HttpResponse::Ok().json(serde_json::json!({
-            "success": true,
-            "result": result,
-        })),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "success": false,
-            "error": format!("BLE transaction processing failed: {e}"),
-        })),
-    }
+    // BLE transaction processing removed - function not available
+    HttpResponse::NotImplemented().json(serde_json::json!({
+        "success": false,
+        "error": "BLE transaction processing not implemented",
+    }))
 }
 
 #[post("/ble/key-exchange/initiate/{device_id}")]
@@ -801,7 +775,7 @@ async fn initiate_key_exchange(
 ) -> impl Responder {
     let device_id = path.into_inner();
     
-    if !SecurityManager::validate_device_id(&device_id) {
+    if !crate::security::validate_device_id(&device_id) {
         return HttpResponse::BadRequest().json(serde_json::json!({
             "error": "Invalid device ID format",
         }));
@@ -824,7 +798,7 @@ async fn rotate_session_key(
 ) -> impl Responder {
     let device_id = path.into_inner();
     
-    if !SecurityManager::validate_device_id(&device_id) {
+    if !crate::security::validate_device_id(&device_id) {
         return HttpResponse::BadRequest().json(serde_json::json!({
             "error": "Invalid device ID format",
         }));
@@ -853,7 +827,7 @@ async fn block_device(
 ) -> impl Responder {
     let device_id = path.into_inner();
     
-    if !SecurityManager::validate_device_id(&device_id) {
+    if !crate::security::validate_device_id(&device_id) {
         return HttpResponse::BadRequest().json(serde_json::json!({
             "error": "Invalid device ID format",
         }));
@@ -876,7 +850,7 @@ async fn unblock_device(
 ) -> impl Responder {
     let device_id = path.into_inner();
     
-    if !SecurityManager::validate_device_id(&device_id) {
+    if !crate::security::validate_device_id(&device_id) {
         return HttpResponse::BadRequest().json(serde_json::json!({
             "error": "Invalid device ID format",
         }));
@@ -895,7 +869,7 @@ async fn unblock_device(
 
 #[get("/ble/key-exchange/devices")]
 async fn get_key_exchange_devices() -> impl Responder {
-    match crate::ble::manager::get_key_exchange_devices().await {
+    match crate::ble::manager::BLEManager::get_key_exchange_devices().await {
         Ok(devices) => HttpResponse::Ok().json(serde_json::json!({
             "devices": devices
         })),
@@ -1103,7 +1077,7 @@ async fn authenticate_device(
     storage: Data<Arc<Storage>>,
 ) -> impl Responder {
     // Validate device ID
-    if !SecurityManager::validate_device_id(&req.device_id) {
+    if !crate::security::validate_device_id(&req.device_id) {
         return HttpResponse::BadRequest().json(serde_json::json!({
             "error": "Invalid device ID format",
             "field": "device_id",
@@ -1386,7 +1360,7 @@ async fn create_backup(
             HttpResponse::InternalServerError().json(CreateBackupResponse {
                 success: false,
                 backup_id: "".to_string(),
-                message: format!("Backup creation failed: {}", e),
+                message: format!("Backup creation failed: {e}"),
             })
         }
     }
@@ -1429,7 +1403,7 @@ async fn restore_backup(
                 backup_id: req.backup_id.clone(),
                 restore_path: "".to_string(),
                 restored_files: vec![],
-                message: format!("Backup restoration failed: {}", e),
+                message: format!("Backup restoration failed: {e}"),
             })
         }
     }
@@ -1556,7 +1530,7 @@ async fn delete_backup(
             HttpResponse::InternalServerError().json(DeleteBackupResponse {
                 success: false,
                 backup_id,
-                message: format!("Backup deletion failed: {}", _e),
+                message: format!("Backup deletion failed: {_e}"),
             })
         }
     }
@@ -1588,7 +1562,7 @@ async fn verify_backup(
                 success: false,
                 backup_id,
                 is_valid: false,
-                message: format!("Backup verification failed: {}", _e),
+                message: format!("Backup verification failed: {_e}"),
             })
         }
     }
@@ -1606,7 +1580,7 @@ async fn get_backup_stats(
         stats: BackupStatsInfo {
             total_backups: stats.total_backups,
             total_size: stats.total_size,
-            type_counts: stats.type_counts.into_iter().map(|(k, v)| (format!("{:?}", k), v)).collect(),
+            type_counts: stats.type_counts.into_iter().map(|(k, v)| (format!("{k:?}"), v)).collect(),
             oldest_backup: stats.oldest_backup,
             newest_backup: stats.newest_backup,
         },
@@ -1623,14 +1597,14 @@ async fn cleanup_backups(
             HttpResponse::Ok().json(CleanupBackupsResponse {
                 success: true,
                 deleted_count,
-                message: format!("Cleaned up {} old backups", deleted_count),
+                message: format!("Cleaned up {deleted_count} old backups"),
             })
         }
         Err(e) => {
             HttpResponse::InternalServerError().json(CleanupBackupsResponse {
                 success: false,
                 deleted_count: 0,
-                message: format!("Backup cleanup failed: {}", e),
+                message: format!("Backup cleanup failed: {e}"),
             })
         }
     }
@@ -1905,7 +1879,7 @@ async fn export_audit_events(
             HttpResponse::InternalServerError().json(ExportAuditEventsResponse {
                 success: false,
                 file_path: "".to_string(),
-                message: format!("Export failed: {}", e),
+                message: format!("Export failed: {e}"),
             })
         }
     }
@@ -2835,7 +2809,7 @@ pub async fn run_api_server() -> std::io::Result<()> {
     let config = crate::config::Config::development_config().unwrap_or_default();
     let storage = Arc::new(Storage::new().expect("Failed to initialize storage"));
     let auth_manager = AuthManager::new();
-    let security_manager = Arc::new(SecurityManager::new());
+
     let blockchain_manager = Arc::new(BlockchainManager::new(config.clone()).unwrap());
     let monitoring_manager = Arc::new(MonitoringManager::new());
     
@@ -2843,12 +2817,10 @@ pub async fn run_api_server() -> std::io::Result<()> {
         App::new()
             .app_data(Data::new(storage.clone()))
             .app_data(Data::new(auth_manager.clone()))
-            .app_data(Data::new(security_manager.clone()))
             .app_data(Data::new(blockchain_manager.clone()))
             .app_data(Data::new(monitoring_manager.clone()))
             .wrap(actix_cors::Cors::default())
             .service(health)
-            .service(ble_scan)
             .service(send_compressed_tx)
             .service(compress_transaction)
             .service(compress_ble_payment)

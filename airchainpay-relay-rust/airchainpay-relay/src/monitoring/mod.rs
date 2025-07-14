@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::time::interval;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,6 +95,12 @@ pub struct MonitoringManager {
     alert_rules: Arc<RwLock<Vec<AlertRule>>>,
     start_time: DateTime<Utc>,
     response_times: Arc<RwLock<Vec<f64>>>,
+}
+
+impl Default for MonitoringManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MonitoringManager {
@@ -209,47 +215,7 @@ impl MonitoringManager {
         ]
     }
 
-    pub async fn update_metric(&self, metric_name: &str, value: u64) {
-        let mut metrics = self.metrics.write().await;
-        
-        match metric_name {
-            "transactions_received" => metrics.transactions_received = value,
-            "transactions_processed" => metrics.transactions_processed = value,
-            "transactions_failed" => metrics.transactions_failed = value,
-            "transactions_broadcasted" => metrics.transactions_broadcasted = value,
-            "ble_connections" => metrics.ble_connections = value,
-            "ble_disconnections" => metrics.ble_disconnections = value,
-            "ble_authentications" => metrics.ble_authentications = value,
-            "ble_key_exchanges" => metrics.ble_key_exchanges = value,
-            "rpc_errors" => metrics.rpc_errors = value,
-            "gas_price_updates" => metrics.gas_price_updates = value,
-            "contract_events" => metrics.contract_events = value,
-            "auth_failures" => metrics.auth_failures = value,
-            "rate_limit_hits" => metrics.rate_limit_hits = value,
-            "blocked_devices" => metrics.blocked_devices = value,
-            "requests_total" => metrics.requests_total = value,
-            "requests_successful" => metrics.requests_successful = value,
-            "requests_failed" => metrics.requests_failed = value,
-            "active_connections" => metrics.active_connections = value,
-            "database_operations" => metrics.database_operations = value,
-            "database_errors" => metrics.database_errors = value,
-            "compression_operations" => metrics.compression_operations = value,
-            "security_events" => metrics.security_events = value,
-            "validation_failures" => metrics.validation_failures = value,
-            "cache_hits" => metrics.cache_hits = value,
-            "cache_misses" => metrics.cache_misses = value,
-            "network_errors" => metrics.network_errors = value,
-            "blockchain_confirmations" => metrics.blockchain_confirmations = value,
-            "blockchain_timeouts" => metrics.blockchain_timeouts = value,
-            _ => println!("Unknown metric: {}", metric_name),
-        }
-        
-        // Update uptime
-        metrics.uptime_seconds = (Utc::now() - self.start_time).num_seconds() as f64;
-        
-        // Check alert rules
-        self.check_alert_rules().await;
-    }
+
 
     pub async fn increment_metric(&self, metric_name: &str) {
         let mut metrics = self.metrics.write().await;
@@ -283,7 +249,7 @@ impl MonitoringManager {
             "network_errors" => metrics.network_errors += 1,
             "blockchain_confirmations" => metrics.blockchain_confirmations += 1,
             "blockchain_timeouts" => metrics.blockchain_timeouts += 1,
-            _ => println!("Unknown metric: {}", metric_name),
+            _ => println!("Unknown metric: {metric_name}"),
         }
         
         // Update uptime
@@ -307,12 +273,7 @@ impl MonitoringManager {
         metrics.response_time_avg_ms = response_times.iter().sum::<f64>() / response_times.len() as f64;
     }
 
-    pub async fn update_system_metrics(&self, memory_usage: u64, cpu_usage: f64) {
-        let mut metrics = self.metrics.write().await;
-        metrics.memory_usage_bytes = memory_usage;
-        metrics.cpu_usage_percent = cpu_usage;
-        metrics.uptime_seconds = (Utc::now() - self.start_time).num_seconds() as f64;
-    }
+
 
     pub async fn get_system_metrics(&self) -> SystemMetrics {
         self.system_metrics.read().await.clone()
@@ -407,35 +368,19 @@ impl MonitoringManager {
         
         if let Some(alert) = alerts.iter_mut().find(|a| a.id == alert_id) {
             alert.resolved = true;
-            println!("Alert resolved: {}", alert_id);
+            println!("Alert resolved: {alert_id}");
         }
         
         Ok(())
     }
 
-    pub async fn add_alert_rule(&self, rule: AlertRule) {
-        let mut rules = self.alert_rules.write().await;
-        rules.push(rule);
-    }
 
-    pub async fn remove_alert_rule(&self, rule_name: &str) {
-        let mut rules = self.alert_rules.write().await;
-        rules.retain(|r| r.name != rule_name);
-    }
 
-    pub async fn enable_alert_rule(&self, rule_name: &str) {
-        let mut rules = self.alert_rules.write().await;
-        if let Some(rule) = rules.iter_mut().find(|r| r.name == rule_name) {
-            rule.enabled = true;
-        }
-    }
 
-    pub async fn disable_alert_rule(&self, rule_name: &str) {
-        let mut rules = self.alert_rules.write().await;
-        if let Some(rule) = rules.iter_mut().find(|r| r.name == rule_name) {
-            rule.enabled = false;
-        }
-    }
+
+
+
+
 
     pub async fn get_health_status(&self) -> HashMap<String, serde_json::Value> {
         let metrics = self.metrics.read().await;

@@ -3,12 +3,13 @@ use actix_web::{
     Error, HttpResponse,
 };
 use futures::future::{ready, Ready};
-use std::pin::Pin;
-use std::future::Future;
 use std::sync::Arc;
 use std::collections::HashMap;
 use crate::middleware::metrics::MetricsCollector;
 use crate::monitoring::MonitoringManager;
+use std::marker::PhantomData;
+use futures_util::future::LocalBoxFuture;
+use futures::task::{Context, Poll};
 
 pub mod error_handling;
 pub mod input_validation;
@@ -18,18 +19,11 @@ pub mod security;
 pub mod critical_error_middleware;
 
 // Re-export security components
-pub use security::{
-    SecurityConfig, SecurityMiddleware, CSRFMiddleware, RequestSizeLimiter,
-    cors_config, compression_config, logging_config
-};
+pub use security::SecurityConfig;
 
 // Re-export error handling components
-pub use error_handling::{
-    ErrorHandlingMiddleware, global_error_handler, ErrorResponseBuilder, error_utils
-};
 
 // Re-export critical error middleware
-pub use critical_error_middleware::CriticalErrorMiddleware;
 
 // Enhanced security configuration with all features
 #[derive(Debug, Clone)]
@@ -52,47 +46,24 @@ impl Default for EnhancedSecurityConfig {
 }
 
 // Comprehensive security middleware that combines all security features
+#[derive(Clone)]
 pub struct ComprehensiveSecurityMiddleware {
     config: EnhancedSecurityConfig,
+}
+
+pub struct ComprehensiveSecurityService<S, B> {
+    service: Arc<S>,
+    config: EnhancedSecurityConfig,
+    _phantom: PhantomData<B>,
 }
 
 impl ComprehensiveSecurityMiddleware {
     pub fn new(config: EnhancedSecurityConfig) -> Self {
         Self { config }
     }
-
-    pub fn with_config(mut self, config: EnhancedSecurityConfig) -> Self {
-        self.config = config;
-        self
-    }
 }
 
 impl<S, B> Transform<S, ServiceRequest> for ComprehensiveSecurityMiddleware
-where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + Clone + 'static,
-    S::Future: 'static,
-    B: actix_web::body::MessageBody + 'static,
-{
-    type Response = ServiceResponse<actix_web::body::BoxBody>;
-    type Error = Error;
-    type Transform = ComprehensiveSecurityMiddlewareService<S>;
-    type InitError = ();
-    type Future = Ready<Result<Self::Transform, Self::InitError>>;
-
-    fn new_transform(&self, service: S) -> Self::Future {
-        ready(Ok(ComprehensiveSecurityMiddlewareService {
-            service: Arc::new(service),
-            config: self.config.clone(),
-        }))
-    }
-}
-
-pub struct ComprehensiveSecurityMiddlewareService<S> {
-    service: Arc<S>,
-    config: EnhancedSecurityConfig,
-}
-
-impl<S, B> Service<ServiceRequest> for ComprehensiveSecurityMiddlewareService<S>
 where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     S::Future: 'static,
@@ -100,9 +71,30 @@ where
 {
     type Response = ServiceResponse<actix_web::body::BoxBody>;
     type Error = Error;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
+    type Transform = ComprehensiveSecurityService<S, B>;
+    type InitError = ();
+    type Future = Ready<Result<Self::Transform, Self::InitError>>;
 
-    fn poll_ready(&self, cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+    fn new_transform(&self, service: S) -> Self::Future {
+        ready(Ok(ComprehensiveSecurityService {
+            service: Arc::new(service),
+            config: self.config.clone(),
+            _phantom: PhantomData,
+        }))
+    }
+}
+
+impl<S, B> Service<ServiceRequest> for ComprehensiveSecurityService<S, B>
+where
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    S::Future: 'static,
+    B: actix_web::body::MessageBody + 'static,
+{
+    type Response = ServiceResponse<actix_web::body::BoxBody>;
+    type Error = Error;
+    type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+    fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.service.poll_ready(cx)
     }
 
@@ -194,7 +186,7 @@ where
 
 fn is_suspicious_request(ip: &str, user_agent: &str, path: &str) -> bool {
     // Enhanced suspicious pattern detection
-    let suspicious_ips = vec!["127.0.0.1", "::1", "0.0.0.0", "localhost"];
+    let suspicious_ips = ["127.0.0.1", "::1", "0.0.0.0", "localhost"];
     let suspicious_user_agents = vec![
         "bot", "crawler", "spider", "scraper", "curl", "wget", "python", "java",
         "nmap", "sqlmap", "nikto", "dirbuster", "gobuster"
@@ -221,13 +213,12 @@ fn log_security_event(
 ) {
     // In a real implementation, this would log to a security monitoring system
     eprintln!(
-        "COMPREHENSIVE_SECURITY_EVENT: {} - IP: {} - UA: {} - Path: {} - Severity: {}",
-        event_type, client_ip, user_agent, path, severity
+        "COMPREHENSIVE_SECURITY_EVENT: {event_type} - IP: {client_ip} - UA: {user_agent} - Path: {path} - Severity: {severity}"
     );
 
     if let Some(details) = details {
         for (key, value) in details {
-            eprintln!("  {}: {}", key, value);
+            eprintln!("  {key}: {value}");
         }
     }
 }
@@ -239,14 +230,14 @@ fn validate_request_input(req: &ServiceRequest, _config: &EnhancedSecurityConfig
         Some((parts.next()?, parts.next()?))
     }) {
         if let Err(e) = validate_input(value) {
-            return Err(format!("Invalid query parameter '{}': {}", key, e));
+            return Err(format!("Invalid query parameter '{key}': {e}"));
         }
     }
 
     // Validate path parameters
     for segment in req.path().split('/') {
         if let Err(e) = validate_input(segment) {
-            return Err(format!("Invalid path segment: {}", e));
+            return Err(format!("Invalid path segment: {e}"));
         }
     }
 
@@ -263,7 +254,7 @@ fn validate_input(input: &str) -> Result<(), String> {
     let input_upper = input.to_uppercase();
     for pattern in &sql_patterns {
         if input_upper.contains(pattern) {
-            return Err(format!("SQL injection pattern detected: {}", pattern));
+            return Err(format!("SQL injection pattern detected: {pattern}"));
         }
     }
 
@@ -276,7 +267,7 @@ fn validate_input(input: &str) -> Result<(), String> {
     let input_lower = input.to_lowercase();
     for pattern in &xss_patterns {
         if input_lower.contains(pattern) {
-            return Err(format!("XSS pattern detected: {}", pattern));
+            return Err(format!("XSS pattern detected: {pattern}"));
         }
     }
 
@@ -291,14 +282,14 @@ fn validate_input(input: &str) -> Result<(), String> {
     let input_lower = input.to_lowercase();
     for pattern in &cmd_patterns {
         if input_lower.contains(pattern) {
-            return Err(format!("Command injection pattern detected: {}", pattern));
+            return Err(format!("Command injection pattern detected: {pattern}"));
         }
     }
 
     Ok(())
 }
 
-fn apply_comprehensive_security_headers<B>(res: ServiceResponse<B>, config: &EnhancedSecurityConfig) -> ServiceResponse<B>
+fn apply_comprehensive_security_headers<B>(res: ServiceResponse<B>, _config: &EnhancedSecurityConfig) -> ServiceResponse<B>
 where
     B: actix_web::body::MessageBody + 'static,
 {

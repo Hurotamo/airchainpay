@@ -2,7 +2,6 @@ use actix_web::{
     Error, HttpResponse,
     dev::{Service, Transform, ServiceRequest, ServiceResponse},
 };
-use std::task::{Context, Poll};
 use std::sync::Arc;
 use futures_util::future::{LocalBoxFuture, Ready};
 use actix_web::body::BoxBody;
@@ -18,9 +17,6 @@ pub struct CriticalErrorMiddleware {
 }
 
 impl CriticalErrorMiddleware {
-    pub fn new(critical_error_handler: Arc<EnhancedErrorHandler>) -> Self {
-        Self { critical_error_handler }
-    }
 }
 
 impl<S> Transform<S, ServiceRequest> for CriticalErrorMiddleware
@@ -84,7 +80,7 @@ where
 
                 // Check circuit breaker
                 if critical_error_handler.is_circuit_breaker_open(&critical_path).await {
-                    println!("Critical circuit breaker open for component: {}", component);
+                    println!("Critical circuit breaker open for component: {component}");
                     return Ok(req.into_response(
                         HttpResponse::ServiceUnavailable()
                             .json(json!({
@@ -104,12 +100,12 @@ where
             // Execute the service normally
             match service.call(req).await {
                 Ok(response) => {
-                    println!("Critical request completed: {} {}", method, path);
+                    println!("Critical request completed: {method} {path}");
                     Ok(response)
                 }
                 Err(error) => {
                     let error_msg = error.to_string();
-                    println!("Critical error in {} {}: {}", method, path, error_msg);
+                    println!("Critical error in {method} {path}: {error_msg}");
                     
                     // Record critical error
                     let error_record = ErrorRecord {
@@ -206,77 +202,6 @@ fn determine_critical_path(path: &str, method: &str) -> CriticalPath {
     }
 }
 
-/// Global critical error handler for unhandled critical errors
-pub async fn global_critical_error_handler(error: ErrorRecord) -> HttpResponse {
-    println!("Unhandled critical error: {:?} - {}", error.path, error.error_message);
 
-    // In production, don't expose internal error details
-    let is_development = std::env::var("RUST_ENV").unwrap_or_else(|_| "development".to_string()) == "development";
-    
-    let response_body = if is_development {
-        json!({
-            "error": "Critical system error",
-            "message": error.error_message,
-            "path": format!("{:?}", error.path),
-            "severity": format!("{:?}", error.severity),
-            "timestamp": Utc::now().to_rfc3339(),
-            "request_id": error.id,
-        })
-    } else {
-        json!({
-            "error": "Critical system error",
-            "message": "A critical error occurred in the system",
-            "timestamp": Utc::now().to_rfc3339(),
-            "request_id": error.id,
-        })
-    };
 
-    HttpResponse::InternalServerError().json(response_body)
-}
-
-/// Critical error response builder for consistent error responses
-pub struct CriticalErrorResponseBuilder;
-
-impl CriticalErrorResponseBuilder {
-    pub fn critical_error(message: &str, request_id: &str) -> HttpResponse {
-        HttpResponse::InternalServerError()
-            .json(json!({
-                "error": "Critical system error",
-                "message": message,
-                "timestamp": Utc::now().to_rfc3339(),
-                "request_id": request_id,
-            }))
-    }
-
-    pub fn fatal_error(message: &str, request_id: &str) -> HttpResponse {
-        HttpResponse::InternalServerError()
-            .json(json!({
-                "error": "Fatal system error",
-                "message": message,
-                "timestamp": Utc::now().to_rfc3339(),
-                "request_id": request_id,
-            }))
-    }
-
-    pub fn circuit_breaker_open(path: &str, request_id: &str) -> HttpResponse {
-        HttpResponse::ServiceUnavailable()
-            .json(json!({
-                "error": "Service temporarily unavailable",
-                "message": "Circuit breaker is open",
-                "path": path,
-                "timestamp": Utc::now().to_rfc3339(),
-                "request_id": request_id,
-                "retry_after": 60,
-            }))
-    }
-
-    pub fn timeout_error(operation: &str, request_id: &str) -> HttpResponse {
-        HttpResponse::RequestTimeout()
-            .json(json!({
-                "error": "Operation timeout",
-                "message": format!("{} operation timed out", operation),
-                "timestamp": Utc::now().to_rfc3339(),
-                "request_id": request_id,
-            }))
-    }
-} 
+ 

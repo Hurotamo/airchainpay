@@ -218,16 +218,7 @@ impl DynamicConfigManager {
         self.update_config(new_config).await
     }
     
-    pub async fn reload_from_file(&self) -> Result<()> {
-        if Path::new(&self.config_file_path).exists() {
-            let config_content = fs::read_to_string(&self.config_file_path)?;
-            let new_config: Config = serde_json::from_str(&config_content)
-                .map_err(|e| anyhow!("Failed to deserialize config: {}", e))?;
-            self.update_config(new_config).await
-        } else {
-            Err(anyhow!("Config file not found: {}", self.config_file_path))
-        }
-    }
+
     
     pub fn start_file_watcher(&self) -> Result<()> {
         let config_file_path = self.config_file_path.clone();
@@ -248,12 +239,12 @@ impl DynamicConfigManager {
             loop {
                 match rx.recv() {
                     Ok(_) => {
-                        println!("Config file changed: {}", config_file_path);
+                        println!("Config file changed: {config_file_path}");
                         sleep(Duration::from_millis(100)).await; // Debounce
                         let _ = reload_sender.send(true);
                     }
                     Err(e) => {
-                        println!("Config watcher error: {}", e);
+                        println!("Config watcher error: {e}");
                         break;
                     }
                 }
@@ -263,13 +254,7 @@ impl DynamicConfigManager {
         Ok(())
     }
     
-    pub async fn watch_for_reloads(&mut self) {
-        while let Some(_) = self.reload_receiver.changed().await.ok() {
-            if let Err(e) = self.reload_from_file().await {
-                println!("Failed to reload config: {}", e);
-            }
-        }
-    }
+
     
     pub async fn export_config(&self) -> Result<String> {
         let config = self.config.read().await;
@@ -388,14 +373,14 @@ impl DynamicConfigManager {
                 .and_then(|entries| {
                     entries
                         .filter_map(|entry| entry.ok())
-                        .filter(|entry| entry.path().extension().map_or(false, |ext| ext == "json"))
+                        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
                         .max_by_key(|entry| entry.metadata().unwrap().modified().unwrap())
                 })
                 .and_then(|entry| {
                     entry.metadata().ok().and_then(|metadata| {
                         metadata.modified().ok().map(|modified| {
                             DateTime::from_timestamp(modified.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64, 0)
-                                .unwrap_or_else(|| Utc::now())
+                                .unwrap_or_else(Utc::now)
                         })
                     })
                 })
@@ -405,7 +390,7 @@ impl DynamicConfigManager {
         
         ConfigStatus {
             is_valid,
-            last_reload_time: Some(DateTime::from_timestamp(Instant::now().elapsed().as_secs() as i64, 0).unwrap_or_else(|| Utc::now())),
+            last_reload_time: Some(DateTime::from_timestamp(Instant::now().elapsed().as_secs() as i64, 0).unwrap_or_else(Utc::now)),
             config_file_path: self.config_file_path.clone(),
             environment: config.environment.clone(),
             total_settings,
@@ -720,15 +705,5 @@ impl Config {
         self.supported_chains.get(&chain_id)
     }
     
-    pub fn is_production(&self) -> bool {
-        self.environment == "production"
-    }
     
-    pub fn is_staging(&self) -> bool {
-        self.environment == "staging"
-    }
-    
-    pub fn is_development(&self) -> bool {
-        self.environment == "development"
-    }
 } 

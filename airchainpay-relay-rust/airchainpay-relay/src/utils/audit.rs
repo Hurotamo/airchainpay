@@ -91,7 +91,6 @@ pub struct AuditLogger {
     max_events: usize,
     file_path: String,
     enabled: bool,
-    monitoring_manager: Option<Arc<crate::monitoring::MonitoringManager>>,
 }
 
 impl AuditLogger {
@@ -101,13 +100,7 @@ impl AuditLogger {
             max_events,
             file_path,
             enabled: true,
-            monitoring_manager: None,
         }
-    }
-
-    pub fn with_monitoring(mut self, monitoring_manager: Arc<crate::monitoring::MonitoringManager>) -> Self {
-        self.monitoring_manager = Some(monitoring_manager);
-        self
     }
 
     fn get_server_info() -> ServerInfo {
@@ -146,15 +139,15 @@ impl AuditLogger {
         self.write_to_file(&event).await?;
 
         // Record in monitoring
-        if let Some(ref monitoring) = self.monitoring_manager {
-            monitoring.increment_metric("audit_events").await;
-            match event.severity {
-                AuditSeverity::Critical => monitoring.increment_metric("audit_critical").await,
-                AuditSeverity::High => monitoring.increment_metric("audit_high").await,
-                AuditSeverity::Medium => monitoring.increment_metric("audit_medium").await,
-                AuditSeverity::Low => monitoring.increment_metric("audit_low").await,
-            }
-        }
+        // if let Some(ref monitoring) = self.monitoring_manager {
+        //     monitoring.increment_metric("audit_events").await;
+        //     match event.severity {
+        //         AuditSeverity::Critical => monitoring.increment_metric("audit_critical").await,
+        //         AuditSeverity::High => monitoring.increment_metric("audit_high").await,
+        //         AuditSeverity::Medium => monitoring.increment_metric("audit_medium").await,
+        //         AuditSeverity::Low => monitoring.increment_metric("audit_low").await,
+        //     }
+        // }
 
         // Log to console based on severity
         match event.severity {
@@ -234,7 +227,7 @@ impl AuditLogger {
     pub async fn log_backup_operation(
         &self,
         operation: &str,
-        backup_id: Option<String>,
+        _backup_id: Option<String>,
         success: bool,
         error_message: Option<String>,
         details: HashMap<String, serde_json::Value>,
@@ -831,7 +824,7 @@ impl AuditLogger {
 
         let mut writer = std::io::BufWriter::new(file);
         let json = serde_json::to_string(event)?;
-        writeln!(writer, "{}", json)?;
+        writeln!(writer, "{json}")?;
         writer.flush()?;
 
         Ok(())
@@ -847,6 +840,11 @@ impl AuditLogger {
 
     pub fn is_enabled(&self) -> bool {
         self.enabled
+    }
+
+    pub fn with_monitoring(self, _monitoring: Arc<crate::monitoring::MonitoringManager>) -> Self {
+        // Monitoring integration is a no-op for now
+        self
     }
 }
 

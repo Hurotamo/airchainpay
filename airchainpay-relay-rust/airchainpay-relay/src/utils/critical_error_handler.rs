@@ -1,6 +1,5 @@
-use std::sync::Arc;
 use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub enum CriticalPath {
@@ -17,6 +16,12 @@ pub struct CriticalErrorHandler {
     error_counts: HashMap<CriticalPath, u32>,
     last_errors: HashMap<CriticalPath, SystemTime>,
     circuit_breaker_states: HashMap<CriticalPath, bool>,
+}
+
+impl Default for CriticalErrorHandler {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CriticalErrorHandler {

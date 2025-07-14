@@ -76,7 +76,7 @@ impl DeploymentScripts {
         println!("Building Docker image...");
         
         let output = Command::new("docker")
-            .args(&[
+            .args([
                 "build",
                 "-t",
                 &config.docker_image,
@@ -88,7 +88,7 @@ impl DeploymentScripts {
         
         if !output.status.success() {
             let error = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("Docker build failed: {}", error).into());
+            return Err(format!("Docker build failed: {error}").into());
         }
         
         println!("Docker image built successfully");
@@ -99,12 +99,12 @@ impl DeploymentScripts {
         println!("Pushing Docker image...");
         
         let output = Command::new("docker")
-            .args(&["push", &config.docker_image])
+            .args(["push", &config.docker_image])
             .output()?;
         
         if !output.status.success() {
             let error = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("Docker push failed: {}", error).into());
+            return Err(format!("Docker push failed: {error}").into());
         }
         
         println!("Docker image pushed successfully");
@@ -120,13 +120,13 @@ impl DeploymentScripts {
         // Apply manifests
         for _manifest in manifests {
             let output = Command::new("kubectl")
-                .args(&["apply", "-f", "-"])
+                .args(["apply", "-f", "-"])
                 .stdin(std::process::Stdio::piped())
                 .output()?;
             
             if !output.status.success() {
                 let error = String::from_utf8_lossy(&output.stderr);
-                return Err(format!("Kubernetes deployment failed: {}", error).into());
+                return Err(format!("Kubernetes deployment failed: {error}").into());
             }
         }
         
@@ -230,7 +230,7 @@ spec:
         
         // Wait for deployment to be ready
         let output = Command::new("kubectl")
-            .args(&[
+            .args([
                 "wait",
                 "--for=condition=available",
                 "--timeout=300s",
@@ -252,7 +252,7 @@ spec:
     async fn test_api_endpoint(&self, config: &DeploymentConfig) -> Result<(), Box<dyn std::error::Error>> {
         // Get service URL
         let output = Command::new("kubectl")
-            .args(&[
+            .args([
                 "get",
                 "service",
                 &format!("airchainpay-relay-service-{}", config.environment),
@@ -279,19 +279,19 @@ spec:
     }
 
     pub async fn rollback(&self, environment: &str, version: &str) -> Result<(), Box<dyn std::error::Error>> {
-        println!("Rolling back {} to version {}", environment, version);
+        println!("Rolling back {environment} to version {version}");
         
         let output = Command::new("kubectl")
-            .args(&[
+            .args([
                 "rollout",
                 "undo",
-                &format!("deployment/airchainpay-relay-{}", environment),
+                &format!("deployment/airchainpay-relay-{environment}"),
             ])
             .output()?;
         
         if !output.status.success() {
             let error = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("Rollback failed: {}", error).into());
+            return Err(format!("Rollback failed: {error}").into());
         }
         
         println!("Rollback completed successfully");
@@ -299,13 +299,13 @@ spec:
     }
 
     pub async fn scale(&self, environment: &str, replicas: u32) -> Result<(), Box<dyn std::error::Error>> {
-        println!("Scaling {} to {} replicas", environment, replicas);
+        println!("Scaling {environment} to {replicas} replicas");
         
         let output = Command::new("kubectl")
-            .args(&[
+            .args([
                 "scale",
                 "deployment",
-                &format!("airchainpay-relay-{}", environment),
+                &format!("airchainpay-relay-{environment}"),
                 "--replicas",
                 &replicas.to_string(),
             ])
@@ -313,7 +313,7 @@ spec:
         
         if !output.status.success() {
             let error = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("Scale failed: {}", error).into());
+            return Err(format!("Scale failed: {error}").into());
         }
         
         println!("Scale operation completed successfully");
@@ -335,7 +335,7 @@ impl UtilityScripts {
         ];
         
         for (name, value) in secrets {
-            println!("{}={}", name, value);
+            println!("{name}={value}");
         }
         
         println!("Secrets generated successfully");
@@ -344,7 +344,7 @@ impl UtilityScripts {
 
     fn generate_random_string(&self, length: usize) -> Result<String, Box<dyn std::error::Error>> {
         use rand::Rng;
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let chars: Vec<char> = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".chars().collect();
         
         let result: String = (0..length)
@@ -355,7 +355,7 @@ impl UtilityScripts {
     }
 
     pub async fn check_payments(&self, chain_id: u64) -> Result<(), Box<dyn std::error::Error>> {
-        println!("Checking payments for chain {}", chain_id);
+        println!("Checking payments for chain {chain_id}");
         
         // This would implement payment verification logic
         // For now, just log the operation
@@ -370,7 +370,7 @@ impl UtilityScripts {
         let networks = vec![1, 137, 56]; // Ethereum, Polygon, BSC
         
         for network_id in networks {
-            println!("Checking network {}", network_id);
+            println!("Checking network {network_id}");
             // This would implement network comparison logic
         }
         
@@ -385,35 +385,35 @@ impl UtilityScripts {
         fs::create_dir_all(backup_dir)?;
         
         let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
-        let backup_file = format!("{}/backup_{}.tar.gz", backup_dir, timestamp);
+        let backup_file = format!("{backup_dir}/backup_{timestamp}.tar.gz");
         
         let output = Command::new("tar")
-            .args(&["-czf", &backup_file, "./data"])
+            .args(["-czf", &backup_file, "./data"])
             .output()?;
         
         if !output.status.success() {
             let error = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("Backup failed: {}", error).into());
+            return Err(format!("Backup failed: {error}").into());
         }
         
-        println!("Database backup created: {}", backup_file);
+        println!("Database backup created: {backup_file}");
         Ok(())
     }
 
     pub async fn restore_database(&self, backup_file: &str) -> Result<(), Box<dyn std::error::Error>> {
-        println!("Restoring database from {}", backup_file);
+        println!("Restoring database from {backup_file}");
         
         if !Path::new(backup_file).exists() {
             return Err("Backup file not found".into());
         }
         
         let output = Command::new("tar")
-            .args(&["-xzf", backup_file, "-C", "."])
+            .args(["-xzf", backup_file, "-C", "."])
             .output()?;
         
         if !output.status.success() {
             let error = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("Restore failed: {}", error).into());
+            return Err(format!("Restore failed: {error}").into());
         }
         
         println!("Database restore completed");
@@ -421,7 +421,7 @@ impl UtilityScripts {
     }
 
     pub async fn cleanup_old_data(&self, days: u32) -> Result<(), Box<dyn std::error::Error>> {
-        println!("Cleaning up data older than {} days", days);
+        println!("Cleaning up data older than {days} days");
         
         let cutoff_date = chrono::Utc::now() - chrono::Duration::days(days as i64);
         
@@ -502,6 +502,6 @@ pub async fn run_utility_script(script_name: &str) -> Result<(), Box<dyn std::er
             let days = std::env::var("DAYS").unwrap_or_else(|_| "30".to_string()).parse()?;
             utility_scripts.cleanup_old_data(days).await
         }
-        _ => Err(format!("Unknown script: {}", script_name).into()),
+        _ => Err(format!("Unknown script: {script_name}").into()),
     }
 } 

@@ -76,6 +76,7 @@ impl Default for ValidationConfig {
     }
 }
 
+#[derive(Clone)]
 pub struct InputValidationMiddleware {
     config: ValidationConfig,
 }
@@ -93,7 +94,7 @@ impl InputValidationMiddleware {
 
 impl<S, B> Transform<S, ServiceRequest> for InputValidationMiddleware
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + Clone + 'static,
     S::Future: 'static,
     B: 'static + actix_web::body::MessageBody,
 {
@@ -111,6 +112,7 @@ where
     }
 }
 
+#[derive(Clone)]
 pub struct InputValidationMiddlewareService<S> {
     service: Arc<S>,
     config: ValidationConfig,
@@ -118,7 +120,7 @@ pub struct InputValidationMiddlewareService<S> {
 
 impl<S, B> Service<ServiceRequest> for InputValidationMiddlewareService<S>
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + Clone + 'static,
     S::Future: 'static,
     B: 'static + actix_web::body::MessageBody,
 {
@@ -167,7 +169,7 @@ where
             }
 
             // Validate URL parameters
-            for (key, value) in req.query_string().split('&').filter_map(|pair| {
+            for (_key, value) in req.query_string().split('&').filter_map(|pair| {
                 let mut parts = pair.splitn(2, '=');
                 Some((parts.next()?, parts.next()?))
             }) {
@@ -245,7 +247,7 @@ fn validate_input(input: &str, config: &ValidationConfig) -> Result<(), String> 
     // Check for blocked patterns
     for pattern in &config.blocked_patterns {
         if input.contains(pattern) {
-            return Err(format!("Blocked pattern detected: {}", pattern));
+            return Err(format!("Blocked pattern detected: {pattern}"));
         }
     }
 
@@ -268,7 +270,7 @@ pub fn validate_json_input(json_str: &str, config: &ValidationConfig) -> Result<
     // Parse JSON and validate each value
     match serde_json::from_str::<serde_json::Value>(json_str) {
         Ok(value) => validate_json_value(&value, config),
-        Err(e) => Err(format!("Invalid JSON: {}", e)),
+        Err(e) => Err(format!("Invalid JSON: {e}")),
     }
 }
 
@@ -289,53 +291,4 @@ fn validate_json_value(value: &serde_json::Value, config: &ValidationConfig) -> 
         }
         _ => Ok(()),
     }
-}
-
-// Validation middleware functions
-pub fn validate_transaction_request() -> InputValidationMiddleware {
-    InputValidationMiddleware::new(ValidationConfig {
-        max_input_length: 10000,
-        allowed_content_types: vec!["application/json".to_string()],
-        blocked_patterns: vec!["<script>".to_string(), "javascript:".to_string()],
-        enable_sql_injection_check: true,
-        enable_xss_check: true,
-        enable_command_injection_check: true,
-        enable_path_traversal_check: true,
-    })
-}
-
-pub fn validate_ble_request() -> InputValidationMiddleware {
-    InputValidationMiddleware::new(ValidationConfig {
-        max_input_length: 5000,
-        allowed_content_types: vec!["application/json".to_string()],
-        blocked_patterns: vec!["<script>".to_string(), "javascript:".to_string()],
-        enable_sql_injection_check: true,
-        enable_xss_check: true,
-        enable_command_injection_check: true,
-        enable_path_traversal_check: true,
-    })
-}
-
-pub fn validate_auth_request() -> InputValidationMiddleware {
-    InputValidationMiddleware::new(ValidationConfig {
-        max_input_length: 2000,
-        allowed_content_types: vec!["application/json".to_string()],
-        blocked_patterns: vec!["<script>".to_string(), "javascript:".to_string()],
-        enable_sql_injection_check: true,
-        enable_xss_check: true,
-        enable_command_injection_check: true,
-        enable_path_traversal_check: true,
-    })
-}
-
-pub fn validate_compressed_payload_request() -> InputValidationMiddleware {
-    InputValidationMiddleware::new(ValidationConfig {
-        max_input_length: 50000,
-        allowed_content_types: vec!["application/json".to_string()],
-        blocked_patterns: vec!["<script>".to_string(), "javascript:".to_string()],
-        enable_sql_injection_check: true,
-        enable_xss_check: true,
-        enable_command_injection_check: true,
-        enable_path_traversal_check: true,
-    })
 } 

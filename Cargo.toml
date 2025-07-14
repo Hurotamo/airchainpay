@@ -1,0 +1,5 @@
+[workspace]
+members = [
+    "airchainpay-relay-rust/airchainpay-relay"
+]
+resolver = "2" 

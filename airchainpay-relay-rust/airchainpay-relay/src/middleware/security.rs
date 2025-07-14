@@ -2,12 +2,11 @@ use actix_web::{
     dev::{Service, Transform, ServiceRequest, ServiceResponse},
     Error, HttpResponse,
 };
-use std::task::{Context, Poll};
 use std::sync::Arc;
 use std::collections::HashMap;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use actix_web::http::{header, Method};
-use futures_util::future::{LocalBoxFuture, Ready};
+use futures_util::future::Ready;
 use actix_web::body::BoxBody;
 use std::pin::Pin;
 use std::future::Future;
@@ -78,6 +77,7 @@ impl Default for SecurityConfig {
     }
 }
 
+#[derive(Clone)]
 pub struct SecurityMiddleware {
     security_config: SecurityConfig,
 }
@@ -113,6 +113,7 @@ where
     }
 }
 
+#[derive(Clone)]
 pub struct SecurityMiddlewareService<S> {
     service: Arc<S>,
     security_config: SecurityConfig,
@@ -204,7 +205,7 @@ where
 }
 
 impl<S> SecurityMiddlewareService<S> {
-    fn is_suspicious_request(ip: &str, user_agent: &str, path: &str) -> bool {
+    fn is_suspicious_request(_ip: &str, user_agent: &str, path: &str) -> bool {
         // Check for suspicious patterns
         let suspicious_patterns = [
             "sqlmap", "nikto", "nmap", "dirb", "gobuster",
@@ -232,13 +233,12 @@ impl<S> SecurityMiddlewareService<S> {
     ) {
         // In a real implementation, this would log to a security monitoring system
         eprintln!(
-            "SECURITY_EVENT: {} - IP: {} - UA: {} - Path: {} - Severity: {}",
-            event_type, client_ip, user_agent, path, severity
+            "SECURITY_EVENT: {event_type} - IP: {client_ip} - UA: {user_agent} - Path: {path} - Severity: {severity}"
         );
 
         if let Some(details) = details {
             for (key, value) in details {
-                eprintln!("  {}: {}", key, value);
+                eprintln!("  {key}: {value}");
             }
         }
     }
@@ -253,7 +253,7 @@ impl<S> SecurityMiddlewareService<S> {
         let input_upper = input.to_uppercase();
         for pattern in &sql_patterns {
             if input_upper.contains(pattern) {
-                return Err(format!("SQL injection pattern detected: {}", pattern));
+                return Err(format!("SQL injection pattern detected: {pattern}"));
             }
         }
 
@@ -266,7 +266,7 @@ impl<S> SecurityMiddlewareService<S> {
         let input_lower = input.to_lowercase();
         for pattern in &xss_patterns {
             if input_lower.contains(pattern) {
-                return Err(format!("XSS pattern detected: {}", pattern));
+                return Err(format!("XSS pattern detected: {pattern}"));
             }
         }
 

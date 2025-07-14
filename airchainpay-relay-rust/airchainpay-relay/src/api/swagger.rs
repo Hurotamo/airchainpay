@@ -9,7 +9,6 @@ use std::collections::HashMap;
 #[openapi(
     paths(
         health,
-        ble_scan,
         send_tx,
         send_compressed_tx,
         compress_transaction,
@@ -353,28 +352,6 @@ async fn health() -> impl Responder {
     }))
 }
 
-/// BLE scan endpoint
-#[utoipa::path(
-    get,
-    path = "/ble_scan",
-    tag = "ble",
-    responses(
-        (status = 200, description = "BLE scan completed"),
-        (status = 500, description = "BLE scan failed", body = Error)
-    )
-)]
-#[get("/ble_scan")]
-async fn ble_scan() -> impl Responder {
-    match crate::ble::scan_ble_devices().await {
-        Ok(_) => HttpResponse::Ok().body("Scan complete. See logs for devices."),
-        Err(e) => HttpResponse::InternalServerError().json(Error {
-            error: format!("BLE scan error: {e}"),
-            field: None,
-            timestamp: chrono::Utc::now().to_rfc3339(),
-        }),
-    }
-}
-
 /// Send transaction endpoint
 #[utoipa::path(
     post,
@@ -393,7 +370,7 @@ async fn send_tx(
     storage: Data<Arc<crate::storage::Storage>>,
 ) -> impl Responder {
     // Validate input
-    if !crate::security::SecurityManager::validate_signed_tx(&req.signed_tx) {
+            if !crate::security::validate_signed_tx(&req.signed_tx) {
         return HttpResponse::BadRequest().json(Error {
             error: "Invalid signed transaction format".to_string(),
             field: Some("signed_tx".to_string()),
@@ -401,7 +378,7 @@ async fn send_tx(
         });
     }
     
-    if !crate::security::SecurityManager::validate_chain_id(req.chain_id) {
+            if !crate::security::validate_chain_id(req.chain_id) {
         return HttpResponse::BadRequest().json(Error {
             error: "Invalid chain ID".to_string(),
             field: Some("chain_id".to_string()),
@@ -477,7 +454,7 @@ async fn authenticate_device(
     storage: Data<Arc<crate::storage::Storage>>,
 ) -> impl Responder {
     // Validate device ID
-    if !crate::security::SecurityManager::validate_device_id(&req.device_id) {
+            if !crate::security::validate_device_id(&req.device_id) {
         return HttpResponse::BadRequest().json(Error {
             error: "Invalid device ID format".to_string(),
             field: Some("device_id".to_string()),
@@ -1304,7 +1281,7 @@ pub async fn run_api_server() -> std::io::Result<()> {
     // Initialize shared components
     let storage = Arc::new(crate::storage::Storage::new().expect("Failed to initialize storage"));
     let auth_manager = crate::auth::AuthManager::new();
-    let security_manager = crate::security::SecurityManager::new();
+
     
     HttpServer::new(move || {
         App::new()
@@ -1321,7 +1298,6 @@ pub async fn run_api_server() -> std::io::Result<()> {
             .service(get_metrics)
             
             // BLE endpoints
-            .service(ble_scan)
             .service(get_ble_status)
             .service(get_ble_devices)
             .service(process_ble_transaction)
@@ -1375,7 +1351,7 @@ pub async fn run_api_server() -> std::io::Result<()> {
 
 // Export all API functions
 pub use {
-    health, ble_scan, send_tx, send_compressed_tx, compress_transaction, 
+    health, send_tx, send_compressed_tx, compress_transaction, 
     compress_ble_payment, compress_qr_payment, submit_transaction, legacy_submit_transaction,
     get_contract_payments, generate_token, process_ble_transaction,
     initiate_key_exchange, rotate_session_key, block_device, unblock_device,

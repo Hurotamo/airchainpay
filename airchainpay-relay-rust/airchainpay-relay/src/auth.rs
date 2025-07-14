@@ -27,23 +27,25 @@ pub struct Claims {
 
 #[derive(Debug, Clone)]
 pub struct AuthManager {
-    jwt_secret: String,
     device_tokens: HashMap<String, String>,
+}
+
+impl Default for AuthManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AuthManager {
     pub fn new() -> Self {
-        let jwt_secret = Self::get_or_generate_jwt_secret();
-        
         Self {
-            jwt_secret,
             device_tokens: HashMap::new(),
         }
     }
 
     /// Generate a secure JWT secret
     pub fn generate_jwt_secret() -> String {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let bytes: [u8; 64] = rng.random(); // 512-bit secret
         hex::encode(bytes)
     }
@@ -52,7 +54,7 @@ impl AuthManager {
     pub fn get_or_generate_jwt_secret() -> String {
         std::env::var("JWT_SECRET").unwrap_or_else(|_| {
             let secret = Self::generate_jwt_secret();
-            println!("JWT_SECRET not found in environment, generated new secret: {}", secret);
+            println!("JWT_SECRET not found in environment, generated new secret: {secret}");
             secret
         })
     }
@@ -77,7 +79,7 @@ impl AuthManager {
         ) {
             Ok(token) => token,
             Err(e) => {
-                println!("Failed to generate JWT token: {}", e);
+                println!("Failed to generate JWT token: {e}");
                 String::new()
             }
         }
@@ -124,27 +126,7 @@ impl AuthManager {
         })
     }
 
-    /// Validate API key
-    pub fn validate_api_key(&self, api_key: &str) -> bool {
-        let expected_api_key = std::env::var("API_KEY").unwrap_or_else(|_| "dev_api_key".to_string());
-        api_key == expected_api_key
-    }
 
-    /// Generate API key
-    pub fn generate_api_key() -> String {
-        let mut rng = rand::thread_rng();
-        let bytes: [u8; 32] = rng.random(); // 256-bit API key
-        hex::encode(bytes)
-    }
-
-    /// Get or generate API key
-    pub fn get_or_generate_api_key() -> String {
-        std::env::var("API_KEY").unwrap_or_else(|_| {
-            let api_key = Self::generate_api_key();
-            println!("API_KEY not found in environment, generated new key: {}", api_key);
-            api_key
-        })
-    }
 
     /// Generate secure secrets for production
     pub fn generate_production_secrets() -> HashMap<String, String> {
@@ -154,7 +136,7 @@ impl AuthManager {
         secrets.insert("JWT_SECRET".to_string(), Self::generate_jwt_secret());
         
         // Generate API key
-        secrets.insert("API_KEY".to_string(), Self::generate_api_key());
+        secrets.insert("API_KEY".to_string(), Self::generate_random_string(32));
         
         // Generate database password
         secrets.insert("DATABASE_PASSWORD".to_string(), Self::generate_random_string(16));
@@ -170,7 +152,7 @@ impl AuthManager {
 
     /// Generate random string
     fn generate_random_string(length: usize) -> String {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let chars: Vec<char> = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".chars().collect();
         
         (0..length)
@@ -178,50 +160,7 @@ impl AuthManager {
             .collect()
     }
 
-    /// Validate device token
-    pub fn validate_device_token(&self, token: &str) -> Result<String, Box<dyn std::error::Error>> {
-        let claims = Self::verify_jwt_token(token)?;
-        
-        // Check if token is for a device
-        if claims.typ != "device" {
-            return Err("Invalid token type".into());
-        }
-        
-        // Check if token is expired
-        let now = Utc::now().timestamp();
-        if claims.exp < now {
-            return Err("Token expired".into());
-        }
-        
-        Ok(claims.sub)
-    }
 
-    /// Refresh device token
-    pub fn refresh_device_token(&self, old_token: &str) -> Result<AuthResponse, Box<dyn std::error::Error>> {
-        let device_id = self.validate_device_token(old_token)?;
-        
-        let token = Self::generate_jwt_token(&device_id, "device");
-        let expires_at = Utc::now() + Duration::hours(24);
-
-        Ok(AuthResponse {
-            token,
-            expires_at: expires_at.to_rfc3339(),
-            status: "refreshed".to_string(),
-        })
-    }
-
-    /// Revoke device token
-    pub fn revoke_device_token(&self, device_id: &str) -> Result<(), Box<dyn std::error::Error>> {
-        // In a real implementation, you would add the token to a blacklist
-        // For now, we just log the revocation
-        println!("Token revoked for device: {}", device_id);
-        Ok(())
-    }
-
-    /// Get token info
-    pub fn get_token_info(&self, token: &str) -> Result<Claims, Box<dyn std::error::Error>> {
-        Self::verify_jwt_token(token)
-    }
 }
 
 // Public function for generating JWT tokens (used by API endpoints)
@@ -230,11 +169,13 @@ pub fn generate_jwt_token(subject: &str, token_type: &str) -> String {
 }
 
 // Public function for verifying JWT tokens
+#[allow(dead_code)]
 pub fn verify_jwt_token(token: &str) -> Result<Claims, Box<dyn std::error::Error>> {
     AuthManager::verify_jwt_token(token)
 }
 
 // Public function for generating production secrets
+#[allow(dead_code)]
 pub fn generate_production_secrets() -> HashMap<String, String> {
     AuthManager::generate_production_secrets()
 }
@@ -260,15 +201,6 @@ mod tests {
         let claims = AuthManager::verify_jwt_token(&token).unwrap();
         assert_eq!(claims.sub, "test_device");
         assert_eq!(claims.typ, "device");
-    }
-
-    #[test]
-    fn test_api_key_generation() {
-        let api_key1 = AuthManager::generate_api_key();
-        let api_key2 = AuthManager::generate_api_key();
-        
-        assert_eq!(api_key1.len(), 64); // 32 bytes = 64 hex chars
-        assert_ne!(api_key1, api_key2); // Should be different each time
     }
 
     #[test]

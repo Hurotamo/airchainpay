@@ -2,13 +2,11 @@ use actix_web::{
     dev::{Service, Transform},
     Error, HttpResponse,
 };
-use std::task::{Context, Poll};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use std::collections::HashMap;
 use std::time::{Instant, Duration};
 use futures_util::future::{LocalBoxFuture, Ready};
-use actix_web::body::BoxBody;
 use actix_web::dev::{ServiceRequest, ServiceResponse};
 use futures_util::future::ready;
 
@@ -42,9 +40,9 @@ where
     S::Future: 'static,
     B: actix_web::body::MessageBody + 'static,
 {
-    type Response = ServiceResponse<BoxBody>;
+    type Response = ServiceResponse<actix_web::body::BoxBody>;
     type Error = Error;
-    type Transform = RateLimitingService<S>;
+    type Transform = RateLimitingService<S, B>;
     type InitError = ();
     type Future = Ready<Result<Self::Transform, Self::InitError>>;
 
@@ -55,25 +53,27 @@ where
             burst_limit: self.burst_limit,
             window_size: self.window_size,
             limits: Arc::new(RwLock::new(HashMap::new())),
+            _phantom: std::marker::PhantomData,
         }))
     }
 }
 
-pub struct RateLimitingService<S> {
+pub struct RateLimitingService<S, B> {
     service: Arc<S>,
     rate_limit: u32,
     burst_limit: u32,
     window_size: Duration,
     limits: Arc<RwLock<HashMap<String, RateLimitEntry>>>,
+    _phantom: std::marker::PhantomData<B>,
 }
 
-impl<S, B> Service<ServiceRequest> for RateLimitingService<S>
+impl<S, B> Service<ServiceRequest> for RateLimitingService<S, B>
 where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     S::Future: 'static,
     B: actix_web::body::MessageBody + 'static,
 {
-    type Response = ServiceResponse<BoxBody>;
+    type Response = ServiceResponse<actix_web::body::BoxBody>;
     type Error = Error;
     type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
 
@@ -251,6 +251,12 @@ pub mod utils {
     pub struct RateLimitManager {
         stats: Arc<RwLock<RateLimitStats>>,
         limits: Arc<RwLock<HashMap<String, RateLimitEntry>>>,
+    }
+
+    impl Default for RateLimitManager {
+        fn default() -> Self {
+            Self::new()
+        }
     }
 
     impl RateLimitManager {

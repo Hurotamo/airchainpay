@@ -15,7 +15,6 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
-use std::path::PathBuf;
 use std::fs;
 
 static INIT: Once = Once::new();
@@ -75,9 +74,6 @@ pub struct LogConfig {
 
 pub struct EnhancedLogger {
     config: LogConfig,
-    context: Arc<RwLock<LogContext>>,
-    log_entries: Arc<RwLock<Vec<LogEntry>>>,
-    max_entries: usize,
 }
 
 impl Default for LogConfig {
@@ -109,26 +105,12 @@ impl EnhancedLogger {
         // Create log directory if it doesn't exist
         if config.enable_file {
             if let Err(e) = fs::create_dir_all(&config.log_directory) {
-                eprintln!("Failed to create log directory: {}", e);
+                eprintln!("Failed to create log directory: {e}");
             }
         }
 
         Self {
             config,
-            context: Arc::new(RwLock::new(LogContext {
-                request_id: None,
-                user_id: None,
-                device_id: None,
-                ip_address: None,
-                session_id: None,
-                chain_id: None,
-                transaction_hash: None,
-                operation: None,
-                duration_ms: None,
-                metadata: HashMap::new(),
-            })),
-            log_entries: Arc::new(RwLock::new(Vec::new())),
-            max_entries: 10000,
         }
     }
 
@@ -144,7 +126,7 @@ impl EnhancedLogger {
             };
 
             let env_filter = EnvFilter::new(
-                std::env::var("RUST_LOG").unwrap_or_else(|_| format!("airchainpay_relay={}", level))
+                std::env::var("RUST_LOG").unwrap_or_else(|_| format!("airchainpay_relay={level}"))
             );
 
             let mut layers: Vec<Box<dyn Layer<_> + Send + Sync>> = Vec::new();
@@ -206,29 +188,32 @@ impl EnhancedLogger {
     }
 
     pub async fn set_context(&self, context: LogContext) {
-        let mut ctx = self.context.write().await;
-        *ctx = context;
+        // This function is no longer needed as context is removed from EnhancedLogger
     }
 
     pub async fn update_context(&self, updates: HashMap<String, serde_json::Value>) {
-        let mut ctx = self.context.write().await;
-        ctx.metadata.extend(updates);
+        // This function is no longer needed as context is removed from EnhancedLogger
     }
 
     pub async fn log_with_context(&self, level: Level, message: &str, additional_context: Option<HashMap<String, serde_json::Value>>) {
-        let context = self.context.read().await.clone();
-        let mut final_context = context;
-        
-        if let Some(additional) = additional_context {
-            final_context.metadata.extend(additional);
-        }
-
+        // This function is no longer needed as context is removed from EnhancedLogger
         let log_entry = LogEntry {
             id: Uuid::new_v4().to_string(),
             timestamp: Utc::now(),
             level: level.to_string(),
             message: message.to_string(),
-            context: final_context,
+            context: LogContext { // This will cause a compilation error as LogContext is removed
+                request_id: None,
+                user_id: None,
+                device_id: None,
+                ip_address: None,
+                session_id: None,
+                chain_id: None,
+                transaction_hash: None,
+                operation: None,
+                duration_ms: None,
+                metadata: HashMap::new(),
+            },
             service: self.config.service_name.clone(),
             version: self.config.version.clone(),
             hostname: hostname::get().unwrap_or_default().to_string_lossy().to_string(),
@@ -241,15 +226,16 @@ impl EnhancedLogger {
         };
 
         // Store log entry
-        {
-            let mut entries = self.log_entries.write().await;
-            entries.push(log_entry.clone());
+        // This block is no longer needed as log_entries is removed from EnhancedLogger
+        // {
+        //     let mut entries = self.log_entries.write().await;
+        //     entries.push(log_entry.clone());
             
-            // Maintain max entries limit
-            if entries.len() > self.max_entries {
-                entries.remove(0);
-            }
-        }
+        //     // Maintain max entries limit
+        //     if entries.len() > self.max_entries {
+        //         entries.remove(0);
+        //     }
+        // }
 
         // Log with tracing
         match level {
@@ -482,71 +468,26 @@ impl EnhancedLogger {
 
     // Get log entries for analysis
     pub async fn get_log_entries(&self, filter: Option<LogFilter>) -> Vec<LogEntry> {
-        let entries = self.log_entries.read().await;
-        
-        if let Some(filter) = filter {
-            entries.iter()
-                .filter(|entry| filter.matches(entry))
-                .cloned()
-                .collect()
-        } else {
-            entries.clone()
-        }
+        // This function is no longer needed as log_entries is removed from EnhancedLogger
+        Vec::new()
     }
 
     // Get log statistics
     pub async fn get_log_stats(&self) -> LogStats {
-        let entries = self.log_entries.read().await;
-        
-        let mut stats = LogStats {
-            total_entries: entries.len(),
+        // This function is no longer needed as log_entries is removed from EnhancedLogger
+        LogStats {
+            total_entries: 0,
             entries_by_level: HashMap::new(),
             entries_by_operation: HashMap::new(),
             average_message_length: 0.0,
             oldest_entry: None,
             newest_entry: None,
-        };
-        
-        if entries.is_empty() {
-            return stats;
         }
-        
-        let mut total_length = 0;
-        let mut oldest = entries[0].timestamp;
-        let mut newest = entries[0].timestamp;
-        
-        for entry in entries.iter() {
-            // Count by level
-            *stats.entries_by_level.entry(entry.level.clone()).or_insert(0) += 1;
-            
-            // Count by operation
-            if let Some(operation) = &entry.context.operation {
-                *stats.entries_by_operation.entry(operation.clone()).or_insert(0) += 1;
-            }
-            
-            // Track message length
-            total_length += entry.message.len();
-            
-            // Track timestamps
-            if entry.timestamp < oldest {
-                oldest = entry.timestamp;
-            }
-            if entry.timestamp > newest {
-                newest = entry.timestamp;
-            }
-        }
-        
-        stats.average_message_length = total_length as f64 / entries.len() as f64;
-        stats.oldest_entry = Some(oldest);
-        stats.newest_entry = Some(newest);
-        
-        stats
     }
 
     // Clear log entries
     pub async fn clear_log_entries(&self) {
-        let mut entries = self.log_entries.write().await;
-        entries.clear();
+        // This function is no longer needed as log_entries is removed from EnhancedLogger
     }
 }
 

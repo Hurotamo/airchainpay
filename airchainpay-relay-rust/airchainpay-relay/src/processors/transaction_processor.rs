@@ -5,9 +5,8 @@ use crate::storage::Storage;
 use crate::utils::payload_compressor::PayloadCompressor;
 use anyhow::{Result, anyhow};
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock, Mutex};
+use tokio::sync::{RwLock, Mutex};
 use tokio::time::{Duration, Instant, sleep};
-use uuid::Uuid;
 use serde_json::Value;
 use std::collections::{HashMap, BinaryHeap, VecDeque};
 use std::cmp::Ordering;
@@ -255,8 +254,8 @@ impl TransactionProcessor {
         
         // Start worker tasks
         for worker_id in 0..self.config.max_concurrent_workers {
-            let processor = self.clone();
-            let worker_id = format!("worker-{}", worker_id);
+            let _processor = self.clone();
+            let worker_id = format!("worker-{worker_id}");
             
             let worker_id_clone = worker_id.clone();
             let processor = self.clone();
@@ -332,7 +331,7 @@ impl TransactionProcessor {
     }
 
     async fn worker_loop(&self, worker_id: String) {
-        println!("Worker {} started", worker_id);
+        println!("Worker {worker_id} started");
 
         while *self.running.read().await {
             // Get next transaction from queue
@@ -371,7 +370,7 @@ impl TransactionProcessor {
             }
         }
 
-        println!("Worker {} stopped", worker_id);
+        println!("Worker {worker_id} stopped");
     }
 
     async fn process_transaction_with_retry(&self, mut queued_transaction: QueuedTransaction) -> TransactionResult {
@@ -616,7 +615,7 @@ impl TransactionProcessor {
                     return Ok(decompressed);
                 }
                 Err(e) => {
-                    println!("Auto-decompression failed: {}, trying as raw hex", e);
+                    println!("Auto-decompression failed: {e}, trying as raw hex");
                 }
             }
         }
@@ -690,13 +689,13 @@ impl TransactionProcessor {
             chain_id: 84532, // Default chain ID
             device_id: Some(transaction.device_id.clone()),
             timestamp: chrono::DateTime::from_timestamp(transaction.timestamp as i64, 0)
-                .unwrap_or_else(|| chrono::Utc::now()),
+                .unwrap_or_else(chrono::Utc::now),
             status: format!("{:?}", transaction.status),
             tx_hash: None, // Will be set after successful broadcast
             security: crate::storage::TransactionSecurity {
                 hash: transaction.id.clone(),
                 created_at: chrono::DateTime::from_timestamp(transaction.timestamp as i64, 0)
-                    .unwrap_or_else(|| chrono::Utc::now()),
+                    .unwrap_or_else(chrono::Utc::now),
                 server_id: "airchainpay-relay".to_string(),
             },
         };
@@ -705,7 +704,7 @@ impl TransactionProcessor {
         Ok(())
     }
 
-    fn extract_chain_id_from_transaction(&self, transaction_data: &str) -> Option<u64> {
+    fn extract_chain_id_from_transaction(&self, _transaction_data: &str) -> Option<u64> {
         // In a real implementation, you would parse the transaction to extract chain ID
         // For now, we'll use a default chain ID
         // This could be extracted from the transaction data or metadata
@@ -757,7 +756,7 @@ impl TransactionProcessor {
             }),
         ).await?;
         
-        println!("Failed transaction {} queued for retry", transaction_id);
+        println!("Failed transaction {transaction_id} queued for retry");
         Ok(())
     }
 

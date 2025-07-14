@@ -168,25 +168,14 @@ impl Storage {
         Ok(())
     }
     
-    pub async fn get_pending_transactions_for_device(&self, device_id: &str) -> Result<Vec<Transaction>> {
-        let transactions = self.transactions.lock().unwrap();
-        let pending: Vec<Transaction> = transactions
-            .iter()
-            .filter(|t| t.device_id.as_deref() == Some(device_id) && t.status == "pending")
-            .cloned()
-            .collect();
-        Ok(pending)
-    }
+
     
     pub async fn get_transaction(&self, transaction_id: &str) -> Result<Option<Transaction>> {
         let transactions = self.transactions.lock().unwrap();
         Ok(transactions.iter().find(|t| t.id == transaction_id).cloned())
     }
     
-    pub async fn get_all_transactions(&self) -> Result<Vec<Transaction>> {
-        let transactions = self.transactions.lock().unwrap();
-        Ok(transactions.clone())
-    }
+
     
     pub fn save_device(&self, device: Device) -> Result<()> {
         let mut devices = self.devices.lock().unwrap();
@@ -195,10 +184,7 @@ impl Storage {
         Ok(())
     }
     
-    pub fn get_device(&self, device_id: &str) -> Option<Device> {
-        let devices = self.devices.lock().unwrap();
-        devices.get(device_id).cloned()
-    }
+
     
     pub fn update_metrics(&self, field: &str, value: u64) -> Result<()> {
         let mut metrics = self.metrics.lock().unwrap();
@@ -224,7 +210,7 @@ impl Storage {
         let test_file = format!("{}/health_check.tmp", self.data_dir);
         let is_healthy = fs::write(&test_file, "health_check").is_ok() && fs::remove_file(&test_file).is_ok();
         
-        let metrics = self.get_metrics();
+        let _metrics = self.get_metrics();
         let transactions = self.transactions.lock().unwrap();
         let devices = self.devices.lock().unwrap();
         
@@ -254,7 +240,7 @@ impl Storage {
         })
     }
     
-    pub fn get_recent_audit_logs(&self, limit: usize) -> Vec<serde_json::Value> {
+    pub fn get_recent_audit_logs(&self, _limit: usize) -> Vec<serde_json::Value> {
         // Return empty audit logs for now
         vec![]
     }

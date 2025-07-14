@@ -1,20 +1,16 @@
 use actix_web::{
     Error, HttpResponse,
     dev::{Service, Transform, ServiceRequest, ServiceResponse},
-    web,
 };
-use std::task::{Context, Poll};
 use std::sync::Arc;
 use crate::utils::error_handler::{ErrorType, ErrorSeverity, ErrorRecord, EnhancedErrorHandler};
 use crate::utils::error_handler::CriticalPath;
 use futures_util::future::{LocalBoxFuture, Ready, ready};
 use serde_json::json;
 use chrono::Utc;
-use actix_web::body::BoxBody;
 use std::marker::PhantomData;
-use actix_web::body::MessageBody;
-use actix_service::forward_ready;
 
+#[derive(Clone)]
 pub struct ErrorHandlingMiddleware {
     error_handler: Arc<EnhancedErrorHandler>,
 }
@@ -27,46 +23,48 @@ impl ErrorHandlingMiddleware {
 
 impl<S, B> Transform<S, ServiceRequest> for ErrorHandlingMiddleware
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + Clone + 'static,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     S::Future: 'static,
-    B: MessageBody + 'static,
+    B: actix_web::body::MessageBody + 'static,
 {
-    type Response = ServiceResponse<BoxBody>;
+    type Response = ServiceResponse<actix_web::body::BoxBody>;
     type Error = Error;
-    type Transform = ErrorHandlingMiddlewareService<S, B>;
+    type Transform = ErrorHandlingService<S, B>;
     type InitError = ();
     type Future = Ready<Result<Self::Transform, Self::InitError>>;
 
     fn new_transform(&self, service: S) -> Self::Future {
-        futures_util::future::ready(Ok(ErrorHandlingMiddlewareService {
-            service,
+        ready(Ok(ErrorHandlingService {
+            service: Arc::new(service),
             error_handler: Arc::clone(&self.error_handler),
             _phantom: PhantomData,
         }))
     }
 }
 
-pub struct ErrorHandlingMiddlewareService<S, B> {
-    service: S,
+pub struct ErrorHandlingService<S, B> {
+    service: Arc<S>,
     error_handler: Arc<EnhancedErrorHandler>,
     _phantom: PhantomData<B>,
 }
 
-impl<S, B> Service<ServiceRequest> for ErrorHandlingMiddlewareService<S, B>
+impl<S, B> Service<ServiceRequest> for ErrorHandlingService<S, B>
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + Clone + 'static,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     S::Future: 'static,
-    B: MessageBody + 'static,
+    B: actix_web::body::MessageBody + 'static,
 {
-    type Response = ServiceResponse<BoxBody>;
+    type Response = ServiceResponse<actix_web::body::BoxBody>;
     type Error = Error;
     type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
 
-    forward_ready!(service);
+    fn poll_ready(&self, cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+        self.service.poll_ready(cx)
+    }
 
     fn call(&self, req: ServiceRequest) -> Self::Future {
         let error_handler = Arc::clone(&self.error_handler);
-        let service = self.service.clone();
+        let service = Arc::clone(&self.service);
         let path = req.path().to_string();
         let method = req.method().to_string();
         let start_time = std::time::Instant::now();
@@ -87,7 +85,7 @@ where
                     _ => CriticalPath::TransactionProcessing,
                 };
                 if error_handler.is_circuit_breaker_open(&critical_path).await {
-                    println!("Circuit breaker open for component: {}", component);
+                    println!("Circuit breaker open for component: {component}");
                     return Ok(ServiceResponse::new(req.request().clone(), HttpResponse::ServiceUnavailable()
                             .json(json!({
                                 "error": "Service temporarily unavailable",
@@ -148,7 +146,7 @@ where
                     // Return appropriate error response based on severity
                     let error_response = match severity {
                         ErrorSeverity::Critical => {
-                            println!("CRITICAL ERROR in {} {}: {}", method, path, error_msg);
+                            println!("CRITICAL ERROR in {method} {path}: {error_msg}");
                             HttpResponse::InternalServerError()
                                 .json(json!({
                                     "error": "Internal server error",
@@ -158,7 +156,7 @@ where
                                 }))
                         }
                         ErrorSeverity::High => {
-                            println!("HIGH SEVERITY ERROR in {} {}: {}", method, path, error_msg);
+                            println!("HIGH SEVERITY ERROR in {method} {path}: {error_msg}");
                             HttpResponse::InternalServerError()
                                 .json(json!({
                                     "error": "Service error",
@@ -168,7 +166,7 @@ where
                                 }))
                         }
                         ErrorSeverity::Medium => {
-                            println!("MEDIUM SEVERITY ERROR in {} {}: {}", method, path, error_msg);
+                            println!("MEDIUM SEVERITY ERROR in {method} {path}: {error_msg}");
                             HttpResponse::BadRequest()
                                 .json(json!({
                                     "error": "Request error",
@@ -178,7 +176,7 @@ where
                                 }))
                         }
                         ErrorSeverity::Low => {
-                            println!("LOW SEVERITY ERROR in {} {}: {}", method, path, error_msg);
+                            println!("LOW SEVERITY ERROR in {method} {path}: {error_msg}");
                             HttpResponse::BadRequest()
                                 .json(json!({
                                     "error": "Request error",
@@ -188,7 +186,7 @@ where
                                 }))
                         }
                         ErrorSeverity::Fatal => {
-                            println!("FATAL ERROR in {} {}: {}", method, path, error_msg);
+                            println!("FATAL ERROR in {method} {path}: {error_msg}");
                             HttpResponse::InternalServerError()
                                 .json(json!({
                                     "error": "Fatal error occurred",
@@ -203,19 +201,6 @@ where
                 }
             }
         })
-    }
-}
-
-impl<S, B> Clone for ErrorHandlingMiddlewareService<S, B>
-where
-    S: Clone,
-{
-    fn clone(&self) -> Self {
-        Self {
-            service: self.service.clone(),
-            error_handler: Arc::clone(&self.error_handler),
-            _phantom: PhantomData,
-        }
     }
 }
 
@@ -265,7 +250,7 @@ pub fn get_component_from_path(path: &str) -> String {
 /// Global error handler for unhandled errors
 pub async fn global_error_handler(error: Error) -> HttpResponse {
     let error_msg = error.to_string();
-    println!("Unhandled error: {}", error_msg);
+    println!("Unhandled error: {error_msg}");
 
     // In production, don't expose internal error details
     let is_development = std::env::var("RUST_ENV").unwrap_or_else(|_| "development".to_string()) == "development";
@@ -419,8 +404,7 @@ pub mod error_utils {
                 let _ = error_handler.record_error(error_record).await;
 
                 Err(ErrorResponseBuilder::internal_server_error(&format!(
-                    "Blockchain operation failed: {}",
-                    error_msg
+                    "Blockchain operation failed: {error_msg}"
                 )))
             }
         }
@@ -477,8 +461,7 @@ pub mod error_utils {
                 let _ = error_handler.record_error(error_record).await;
 
                 Err(ErrorResponseBuilder::internal_server_error(&format!(
-                    "BLE operation failed: {}",
-                    error_msg
+                    "BLE operation failed: {error_msg}"
                 )))
             }
         }
@@ -537,8 +520,7 @@ pub mod error_utils {
                 let _ = error_handler.record_error(error_record).await;
 
                 Err(ErrorResponseBuilder::internal_server_error(&format!(
-                    "Storage operation failed: {}",
-                    error_msg
+                    "Storage operation failed: {error_msg}"
                 )))
             }
         }
