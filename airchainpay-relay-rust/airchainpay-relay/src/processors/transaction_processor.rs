@@ -1,6 +1,5 @@
 use crate::ble::manager::{BLETransaction, TransactionStatus};
 use crate::blockchain::BlockchainManager;
-use crate::logger::Logger;
 use crate::validators::TransactionValidator;
 use crate::storage::Storage;
 use crate::utils::payload_compressor::PayloadCompressor;
@@ -252,18 +251,20 @@ impl TransactionProcessor {
         *running = true;
         drop(running);
 
-        Logger::info("Starting enhanced transaction processor");
+        println!("Starting enhanced transaction processor");
         
         // Start worker tasks
         for worker_id in 0..self.config.max_concurrent_workers {
             let processor = self.clone();
             let worker_id = format!("worker-{}", worker_id);
             
+            let worker_id_clone = worker_id.clone();
+            let processor = self.clone();
             let handle = tokio::spawn(async move {
-                processor.worker_loop(worker_id).await;
+                processor.worker_loop(worker_id_clone).await;
             });
 
-            self.workers.write().await.insert(worker_id.clone(), handle);
+            self.workers.write().await.insert(worker_id, handle);
         }
 
         // Start metrics updater
@@ -293,7 +294,7 @@ impl TransactionProcessor {
         }
         workers.clear();
 
-        Logger::info("Transaction processor stopped");
+        println!("Transaction processor stopped");
         Ok(())
     }
 
@@ -311,8 +312,8 @@ impl TransactionProcessor {
             .unwrap_or(84532); // Default to Base Sepolia
         
         let queued_transaction = QueuedTransaction {
-            transaction,
-            priority,
+            transaction: transaction.clone(),
+            priority: priority.clone(),
             queued_at: Utc::now(),
             retry_count: 0,
             max_retries: self.config.default_retry_count,
@@ -323,18 +324,15 @@ impl TransactionProcessor {
         };
 
         let mut queue = self.queue.lock().await;
-        queue.add_transaction(queued_transaction)?;
-
-        Logger::debug(&format!(
-            "Transaction {} added to queue with priority {:?}",
-            queued_transaction.transaction.id, priority
-        ));
+        queue.add_transaction(queued_transaction.clone())?;
+        
+        println!("Transaction {} added to queue with priority {:?}", queued_transaction.transaction.id, priority);
 
         Ok(())
     }
 
     async fn worker_loop(&self, worker_id: String) {
-        Logger::info(&format!("Worker {} started", worker_id));
+        println!("Worker {} started", worker_id);
 
         while *self.running.read().await {
             // Get next transaction from queue
@@ -366,17 +364,14 @@ impl TransactionProcessor {
                 // Update metrics
                 self.update_metrics(&result, processing_time).await;
 
-                Logger::debug(&format!(
-                    "Worker {} processed transaction {} in {}ms",
-                    worker_id, result.transaction_id, processing_time
-                ));
+                println!("Worker {} processed transaction {} in {}ms", worker_id, result.transaction_id, processing_time);
             } else {
                 // No transactions in queue, wait a bit
                 sleep(Duration::from_millis(100)).await;
             }
         }
 
-        Logger::info(&format!("Worker {} stopped", worker_id));
+        println!("Worker {} stopped", worker_id);
     }
 
     async fn process_transaction_with_retry(&self, mut queued_transaction: QueuedTransaction) -> TransactionResult {
@@ -405,10 +400,7 @@ impl TransactionProcessor {
                     retry_count += 1;
                     queued_transaction.retry_count = retry_count;
 
-                    Logger::warn(&format!(
-                        "Transaction {} failed (attempt {}/{}): {}",
-                        transaction_id, retry_count, queued_transaction.max_retries, e
-                    ));
+                    println!("Transaction {} failed (attempt {}/{}): {}", transaction_id, retry_count, queued_transaction.max_retries, e);
 
                     if retry_count > queued_transaction.max_retries {
                         return TransactionResult {
@@ -453,7 +445,7 @@ impl TransactionProcessor {
     }
 
     async fn process_single_transaction(&self, transaction: &BLETransaction) -> Result<(String, Option<u64>, Option<u64>)> {
-        Logger::debug(&format!("Processing transaction: {}", transaction.id));
+        println!("Processing transaction: {}", transaction.id);
         
         // Update status to processing
         let mut transaction_clone = transaction.clone();
@@ -466,7 +458,7 @@ impl TransactionProcessor {
         // Validate transaction
         match self.validator.validate_transaction(transaction).await {
             Ok(_) => {
-                Logger::debug(&format!("Transaction validation passed: {}", transaction.id));
+                println!("Transaction validation passed: {}", transaction.id);
             }
             Err(e) => {
                 transaction_clone.status = TransactionStatus::Failed;
@@ -485,7 +477,7 @@ impl TransactionProcessor {
             Ok(Ok((tx_hash, gas_used, block_number))) => {
                 // Extract chain ID from transaction data or use default
                 let chain_id = self.extract_chain_id_from_transaction(&transaction.transaction_data).unwrap_or(84532);
-                Logger::transaction_processed(&transaction.id, chain_id);
+                println!("Transaction processed: {} -> {} (chain: {})", transaction.id, tx_hash, chain_id);
                 
                 // Update transaction with success
                 transaction_clone.status = TransactionStatus::Completed;
@@ -531,13 +523,10 @@ impl TransactionProcessor {
             chain_id,
         ).await?;
         
-        let gas_used = receipt.gas_used.unwrap_or_default().as_u64();
+        let gas_used = receipt.gas_used.as_u64();
         let block_number = receipt.block_number.unwrap_or_default().as_u64();
         
-        Logger::info(&format!(
-            "Transaction broadcast successful: {} -> {} (gas: {}, block: {})",
-            transaction.id, tx_hash, gas_used, block_number
-        ));
+        println!("Transaction broadcast successful: {} -> {} (gas: {}, block: {})", transaction.id, tx_hash, gas_used, block_number);
         
         Ok((tx_hash, gas_used, block_number))
     }
@@ -623,11 +612,11 @@ impl TransactionProcessor {
             let mut compressor = PayloadCompressor::new();
             match compressor.auto_decompress(&decoded_bytes).await {
                 Ok(decompressed) => {
-                    Logger::debug("Successfully decompressed transaction payload");
+                    println!("Successfully decompressed transaction payload");
                     return Ok(decompressed);
                 }
                 Err(e) => {
-                    Logger::debug(&format!("Auto-decompression failed: {}, trying as raw hex", e));
+                    println!("Auto-decompression failed: {}, trying as raw hex", e);
                 }
             }
         }
@@ -646,7 +635,7 @@ impl TransactionProcessor {
         match compressor.decompress_ble_payment_data(compressed_data).await {
             Ok(result) => {
                 if result.success {
-                    Logger::debug("Successfully decompressed BLE payment data");
+                    println!("Successfully decompressed BLE payment data");
                     Ok(result.data)
                 } else {
                     Err(anyhow!("BLE payment decompression failed: {}", 
@@ -664,7 +653,7 @@ impl TransactionProcessor {
         match compressor.decompress_qr_payment_request(compressed_data).await {
             Ok(result) => {
                 if result.success {
-                    Logger::debug("Successfully decompressed QR payment request");
+                    println!("Successfully decompressed QR payment request");
                     Ok(result.data)
                 } else {
                     Err(anyhow!("QR payment decompression failed: {}", 
@@ -699,11 +688,11 @@ impl TransactionProcessor {
             id: transaction.id.clone(),
             signed_tx: transaction.transaction_data.clone(),
             chain_id: 84532, // Default chain ID
-            device_id: transaction.device_id.clone(),
+            device_id: Some(transaction.device_id.clone()),
             timestamp: chrono::DateTime::from_timestamp(transaction.timestamp as i64, 0)
                 .unwrap_or_else(|| chrono::Utc::now()),
             status: format!("{:?}", transaction.status),
-            hash: None, // Will be set after successful broadcast
+            tx_hash: None, // Will be set after successful broadcast
             security: crate::storage::TransactionSecurity {
                 hash: transaction.id.clone(),
                 created_at: chrono::DateTime::from_timestamp(transaction.timestamp as i64, 0)
@@ -748,7 +737,7 @@ impl TransactionProcessor {
         // Convert to BLETransaction
         let ble_transaction = BLETransaction {
             id: transaction.id,
-            device_id: transaction.device_id,
+            device_id: transaction.device_id.expect("Device ID is required"),
             transaction_data: transaction.signed_tx,
             status: TransactionStatus::Pending,
             timestamp: transaction.timestamp.timestamp() as u64,
@@ -768,7 +757,7 @@ impl TransactionProcessor {
             }),
         ).await?;
         
-        Logger::info(&format!("Failed transaction {} queued for retry", transaction_id));
+        println!("Failed transaction {} queued for retry", transaction_id);
         Ok(())
     }
 
@@ -799,7 +788,7 @@ impl TransactionProcessor {
         let mut queue = self.queue.lock().await;
         queue.queue.clear();
         queue.processing.clear();
-        Logger::info("Transaction queue cleared");
+        println!("Transaction queue cleared");
         Ok(())
     }
 

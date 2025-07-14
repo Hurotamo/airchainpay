@@ -49,3 +49,8 @@ Incomplete authentication system
 Missing rate limiting implementation
 No circuit breaker patterns
 Inadequate logging for production debugging
+
+Fix all remaining usages of blockchain_status.field to use the HashMap access pattern.
+Update all endpoints to use the correct method signatures for Storage.
+Address the borrow checker issues with req.
+Remove or fix any references to missing methods.

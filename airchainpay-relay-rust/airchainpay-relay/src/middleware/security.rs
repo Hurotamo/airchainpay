@@ -1,19 +1,20 @@
 use actix_web::{
-    dev::{Service, ServiceRequest, ServiceResponse, Transform},
-    Error, HttpResponse, HttpRequest,
+    dev::{Service, Transform, ServiceRequest, ServiceResponse},
+    Error, HttpResponse,
 };
-use actix_web::body::EitherBody;
-use futures::future::{ready, Ready};
-use std::pin::Pin;
-use std::future::Future;
+use std::task::{Context, Poll};
 use std::sync::Arc;
 use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use actix_web::http::{header, Method};
+use futures_util::future::{LocalBoxFuture, Ready};
+use actix_web::body::BoxBody;
+use std::pin::Pin;
+use std::future::Future;
 use actix_cors::Cors;
-use actix_web::http::{header, Method, StatusCode};
 use actix_web::middleware::{Compress, Logger};
-use actix_web::web::Json;
-use std::time::{SystemTime, UNIX_EPOCH};
+use futures_util::future::ready;
+use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecurityConfig {
@@ -96,9 +97,9 @@ impl<S, B> Transform<S, ServiceRequest> for SecurityMiddleware
 where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     S::Future: 'static,
-    B: 'static,
+    B: actix_web::body::MessageBody + 'static,
 {
-    type Response = ServiceResponse<EitherBody<B, actix_web::body::BoxBody>>;
+    type Response = ServiceResponse<BoxBody>;
     type Error = Error;
     type Transform = SecurityMiddlewareService<S>;
     type InitError = ();
@@ -121,9 +122,9 @@ impl<S, B> Service<ServiceRequest> for SecurityMiddlewareService<S>
 where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     S::Future: 'static,
-    B: 'static,
+    B: actix_web::body::MessageBody + 'static,
 {
-    type Response = ServiceResponse<EitherBody<B, actix_web::body::BoxBody>>;
+    type Response = ServiceResponse<BoxBody>;
     type Error = Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
 
@@ -147,7 +148,7 @@ where
                                     "maxSize": format!("{}MB", security_config.request_size_limit / 1024 / 1024),
                                     "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
                                 }))
-                                .map_into_right_body()
+                                .map_into_boxed_body()
                         ));
                     }
                 }
@@ -165,7 +166,7 @@ where
                                     "error": "Invalid content type",
                                     "message": "Only application/json and application/x-www-form-urlencoded are allowed"
                                 }))
-                                .map_into_right_body()
+                                .map_into_boxed_body()
                         ));
                     }
                 }
@@ -197,7 +198,7 @@ where
             // Apply security headers to response
             let res = Self::apply_security_headers_to_response(res, &security_config);
             
-            Ok(res.map_into_left_body())
+            Ok(res.map_into_boxed_body())
         })
     }
 }
@@ -540,9 +541,9 @@ impl<S, B> Transform<S, ServiceRequest> for CSRFMiddleware
 where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     S::Future: 'static,
-    B: 'static,
+    B: actix_web::body::MessageBody + 'static,
 {
-    type Response = ServiceResponse<EitherBody<B, actix_web::body::BoxBody>>;
+    type Response = ServiceResponse<BoxBody>;
     type Error = Error;
     type Transform = CSRFMiddlewareService<S>;
     type InitError = ();
@@ -567,9 +568,9 @@ impl<S, B> Service<ServiceRequest> for CSRFMiddlewareService<S>
 where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     S::Future: 'static,
-    B: 'static,
+    B: actix_web::body::MessageBody + 'static,
 {
-    type Response = ServiceResponse<EitherBody<B, actix_web::body::BoxBody>>;
+    type Response = ServiceResponse<BoxBody>;
     type Error = Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
 
@@ -586,14 +587,14 @@ where
             if !enabled {
                 let fut = service.call(req);
                 let res = fut.await?;
-                return Ok(res.map_into_left_body());
+                return Ok(res.map_into_boxed_body());
             }
 
             // Skip CSRF check for GET requests and OPTIONS requests
             if req.method() == Method::GET || req.method() == Method::OPTIONS {
                 let fut = service.call(req);
                 let res = fut.await?;
-                return Ok(res.map_into_left_body());
+                return Ok(res.map_into_boxed_body());
             }
 
             // Check for CSRF token
@@ -606,7 +607,7 @@ where
                                 "error": "CSRF token missing or invalid",
                                 "message": "CSRF protection enabled"
                             }))
-                            .map_into_right_body()
+                            .map_into_boxed_body()
                     ));
                 }
             } else {
@@ -616,13 +617,13 @@ where
                             "error": "CSRF token required",
                             "message": "CSRF protection enabled"
                         }))
-                        .map_into_right_body()
+                        .map_into_boxed_body()
                 ));
             }
 
             let fut = service.call(req);
             let res = fut.await?;
-            Ok(res.map_into_left_body())
+            Ok(res.map_into_boxed_body())
         })
     }
 }
@@ -651,9 +652,9 @@ impl<S, B> Transform<S, ServiceRequest> for RequestSizeLimiter
 where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     S::Future: 'static,
-    B: 'static,
+    B: actix_web::body::MessageBody + 'static,
 {
-    type Response = ServiceResponse<EitherBody<B, actix_web::body::BoxBody>>;
+    type Response = ServiceResponse<BoxBody>;
     type Error = Error;
     type Transform = RequestSizeLimiterService<S>;
     type InitError = ();
@@ -678,9 +679,9 @@ impl<S, B> Service<ServiceRequest> for RequestSizeLimiterService<S>
 where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     S::Future: 'static,
-    B: 'static,
+    B: actix_web::body::MessageBody + 'static,
 {
-    type Response = ServiceResponse<EitherBody<B, actix_web::body::BoxBody>>;
+    type Response = ServiceResponse<BoxBody>;
     type Error = Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
 
@@ -697,7 +698,7 @@ where
             if !enabled {
                 let fut = service.call(req);
                 let res = fut.await?;
-                return Ok(res.map_into_left_body());
+                return Ok(res.map_into_boxed_body());
             }
 
             // Check request size
@@ -710,7 +711,7 @@ where
                                     "error": "Request entity too large",
                                     "maxSize": format!("{} bytes", max_size)
                                 }))
-                                .map_into_right_body()
+                                .map_into_boxed_body()
                         ));
                     }
                 }
@@ -718,7 +719,7 @@ where
 
             let fut = service.call(req);
             let res = fut.await?;
-            Ok(res.map_into_left_body())
+            Ok(res.map_into_boxed_body())
         })
     }
 } 

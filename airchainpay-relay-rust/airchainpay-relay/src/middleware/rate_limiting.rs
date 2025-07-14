@@ -1,15 +1,16 @@
 use actix_web::{
-    dev::{Service, ServiceRequest, ServiceResponse, Transform},
+    dev::{Service, Transform},
     Error, HttpResponse,
 };
-use futures::future::{ready, Ready};
-use std::collections::HashMap;
-use std::future::Future;
-use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use actix_web::dev::EitherBody;
+use std::collections::HashMap;
+use std::time::{Instant, Duration};
+use futures_util::future::{LocalBoxFuture, Ready};
+use actix_web::body::BoxBody;
+use actix_web::dev::{ServiceRequest, ServiceResponse};
+use futures_util::future::ready;
 
 #[derive(Debug, Clone)]
 pub struct RateLimitEntry {
@@ -37,11 +38,11 @@ impl RateLimitingMiddleware {
 
 impl<S, B> Transform<S, ServiceRequest> for RateLimitingMiddleware
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + Clone,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     S::Future: 'static,
-    B: 'static,
+    B: actix_web::body::MessageBody + 'static,
 {
-    type Response = ServiceResponse<EitherBody<B, actix_web::body::BoxBody>>;
+    type Response = ServiceResponse<BoxBody>;
     type Error = Error;
     type Transform = RateLimitingService<S>;
     type InitError = ();
@@ -68,13 +69,13 @@ pub struct RateLimitingService<S> {
 
 impl<S, B> Service<ServiceRequest> for RateLimitingService<S>
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static + Clone,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     S::Future: 'static,
-    B: 'static,
+    B: actix_web::body::MessageBody + 'static,
 {
-    type Response = ServiceResponse<EitherBody<B, actix_web::body::BoxBody>>;
+    type Response = ServiceResponse<BoxBody>;
     type Error = Error;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
+    type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&self, cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
         self.service.poll_ready(cx)
@@ -112,7 +113,7 @@ where
                                     "error": "Rate limit exceeded (burst)",
                                     "retry_after": entry.reset_time.duration_since(now).as_secs()
                                 }))
-                                .map_into_left_body()
+                                .map_into_boxed_body()
                         ));
                     }
 
@@ -124,7 +125,7 @@ where
                                     "error": "Rate limit exceeded",
                                     "retry_after": entry.reset_time.duration_since(now).as_secs()
                                 }))
-                                .map_into_left_body()
+                                .map_into_boxed_body()
                         ));
                     }
 
@@ -140,9 +141,8 @@ where
             }
 
             // Call the inner service
-            let fut = service.call(req);
-            let res = fut.await?;
-            Ok(res.map_into_right_body())
+            let res = service.call(req).await?;
+            Ok(res.map_into_boxed_body())
         })
     }
 }

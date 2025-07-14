@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use tokio::sync::RwLock;
 use std::sync::Arc;
-use crate::logger::Logger;
+// Remove logger import and replace with simple logging
+// use crate::logger::Logger;
 use tokio::time::{interval, Duration};
 use std::process::Command;
 use sha2::{Sha256, Digest};
@@ -86,23 +87,19 @@ impl BackupManager {
         self
     }
 
-    pub async fn start_auto_backup(&self) {
-        if !self.config.auto_backup {
+    pub fn start_auto_backup(manager: Arc<Self>) {
+        if !manager.config.auto_backup {
             return;
         }
-
-        let backup_manager = Arc::new(self.clone());
-        let interval_hours = self.config.backup_interval_hours;
-        
+        let interval_hours = manager.config.backup_interval_hours;
         tokio::spawn(async move {
             let mut interval = interval(Duration::from_secs(interval_hours * 3600));
             loop {
                 interval.tick().await;
-                
-                if let Err(e) = backup_manager.create_backup(BackupType::Auto, Some("Automatic backup".to_string())).await {
-                    Logger::error(&format!("Automatic backup failed: {}", e));
+                if let Err(e) = manager.create_backup(BackupType::Auto, Some("Automatic backup".to_string())).await {
+                    println!("Automatic backup failed: {}", e);
                 } else {
-                    Logger::info("Automatic backup completed successfully");
+                    println!("Automatic backup completed successfully");
                 }
             }
         });
@@ -167,7 +164,7 @@ impl BackupManager {
             }
         }
 
-        Logger::info(&format!("Backup created: {} ({} bytes)", backup_id, file_size));
+        println!("Backup created: {} ({} bytes)", backup_id, file_size);
 
         // Record successful backup in monitoring
         if let Some(ref monitoring) = self.monitoring_manager {
@@ -382,7 +379,7 @@ impl BackupManager {
             // Verify restored files
             let restored_files = self.verify_restored_files(&restore_path, &metadata.files).await;
 
-            Logger::info(&format!("Backup restored: {} to {} ({} files)", backup_id, restore_path.display(), restored_files.len()));
+            println!("Backup restored: {} to {} ({} files)", backup_id, restore_path.display(), restored_files.len());
 
             // Record restoration in monitoring
             if let Some(ref monitoring) = self.monitoring_manager {
@@ -428,7 +425,7 @@ impl BackupManager {
             let is_valid = current_checksum == metadata.checksum;
 
             if !is_valid {
-                Logger::warn(&format!("Backup {} checksum verification failed", backup_id));
+                println!("Backup {} checksum verification failed", backup_id);
             }
 
             Ok(is_valid)
@@ -498,7 +495,7 @@ impl BackupManager {
         let mut backups = self.backups.write().await;
         backups.remove(backup_id);
 
-        Logger::info(&format!("Backup deleted: {}", backup_id));
+        println!("Backup deleted: {}", backup_id);
 
         Ok(())
     }
@@ -515,13 +512,13 @@ impl BackupManager {
         let mut deleted_count = 0;
         for backup_id in old_backups {
             if let Err(e) = self.delete_backup(&backup_id).await {
-                Logger::error(&format!("Failed to delete old backup {}: {}", backup_id, e));
+                println!("Failed to delete old backup {}: {}", backup_id, e);
             } else {
                 deleted_count += 1;
             }
         }
 
-        Logger::info(&format!("Cleaned up {} old backups", deleted_count));
+        println!("Cleaned up {} old backups", deleted_count);
 
         Ok(deleted_count)
     }
@@ -576,7 +573,7 @@ impl BackupManager {
             // Remove original file
             fs::remove_file(backup_path)?;
 
-            Logger::info(&format!("Backup encrypted: {}", encrypted_path.display()));
+            println!("Backup encrypted: {}", encrypted_path.display());
         }
 
         Ok(())
@@ -598,7 +595,7 @@ impl BackupManager {
             let mut decrypted_file = fs::File::create(&decrypted_path)?;
             decrypted_file.write_all(&buffer)?;
 
-            Logger::info(&format!("Backup decrypted: {}", decrypted_path.display()));
+            println!("Backup decrypted: {}", decrypted_path.display());
             return Ok(decrypted_path);
         }
 

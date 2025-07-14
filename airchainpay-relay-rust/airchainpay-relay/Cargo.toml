@@ -40,7 +40,7 @@ regex = "1.11.1"
 lazy_static = "1.5.0"
 # Additional dependencies
 dotenv = "0.15.0"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.19", features = ["env-filter", "time"] }
 tracing-appender = "0.2.3"
 futures = "0.3.31"
 tracing = "0.1.41"

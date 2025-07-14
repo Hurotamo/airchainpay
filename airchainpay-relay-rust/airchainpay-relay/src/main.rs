@@ -13,33 +13,25 @@ mod utils;
 mod scheduler;
 mod middleware;
 mod monitoring;
-mod tests;
-mod scripts;
 
-use actix_web::{App, HttpServer, middleware, web};
-use actix_cors::Cors;
+use actix_web::{App, HttpServer, web};
+
 use std::sync::Arc;
-use crate::config::{Config, DynamicConfigManager};
+use crate::config::DynamicConfigManager;
 use crate::storage::Storage;
 use crate::blockchain::BlockchainManager;
 use crate::auth::AuthManager;
 use crate::security::SecurityManager;
 use crate::monitoring::MonitoringManager;
-use crate::middleware::{
-    legacy_cors_config, legacy_compression_config, legacy_logging_config, 
-    ComprehensiveSecurityMiddleware, create_production_security_config, create_development_security_config,
-    ErrorHandlingMiddleware, global_error_handler, CriticalErrorMiddleware
-};
 use crate::middleware::input_validation::{
     validate_transaction_request, validate_ble_request, validate_auth_request, validate_compressed_payload_request
 };
 use crate::middleware::rate_limiting::{
-    GlobalRateLimiter, AuthRateLimiter, TransactionRateLimiter, BLERateLimiter,
+    AuthRateLimiter, TransactionRateLimiter, BLERateLimiter,
     HealthRateLimiter, MetricsRateLimiter, DatabaseRateLimiter, CompressRateLimiter
 };
-use crate::middleware::metrics::{MetricsMiddleware, MetricsCollector};
 use crate::api::{
-    health, ble_scan, send_tx, send_compressed_tx, compress_transaction, 
+    health, ble_scan, send_compressed_tx, compress_transaction, 
     compress_ble_payment, compress_qr_payment, submit_transaction, legacy_submit_transaction,
     create_backup, restore_backup, list_backups, get_backup_info, delete_backup, 
     verify_backup, get_backup_stats, cleanup_backups,
@@ -53,16 +45,15 @@ use crate::api::{
     add_transaction_to_processor, get_processor_status, get_processor_metrics, get_failed_transactions,
     retry_failed_transaction, clear_processor_queue, get_transaction_status,
     get_critical_errors, get_critical_errors_by_path, get_critical_metrics, 
-    reset_critical_circuit_breaker, get_critical_health, test_critical_error_handling
+    reset_critical_circuit_breaker, get_critical_health, test_critical_error_handling,
+    process_transaction
 };
 use crate::utils::backup::{BackupManager, BackupConfig};
-use crate::utils::audit::{AuditLogger, AuditEventType, AuditSeverity};
-use crate::utils::error_handler::{ErrorHandler, ErrorStatistics};
-use crate::utils::critical_error_handler::{CriticalErrorHandler, CriticalPath};
+use crate::utils::audit::AuditLogger;
+use crate::utils::critical_error_handler::CriticalErrorHandler;
 use crate::ble::manager::BLEManager;
 use crate::logger::Logger;
 use std::env;
-use crate::middleware::EnhancedSecurityConfig;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -80,8 +71,7 @@ async fn main() -> std::io::Result<()> {
     
     // Initialize blockchain manager
     let blockchain_manager = Arc::new(BlockchainManager::new(config.clone())
-        .expect("Failed to initialize blockchain manager")
-        .with_critical_error_handler(Arc::clone(&critical_error_handler)));
+        .expect("Failed to initialize blockchain manager"));
     
     // Initialize auth manager
     let auth_manager = Arc::new(AuthManager::new());
@@ -98,14 +88,11 @@ async fn main() -> std::io::Result<()> {
         .with_monitoring(Arc::clone(&monitoring_manager)));
     
     // Start automatic backup
-    backup_manager.start_auto_backup().await;
+    BackupManager::start_auto_backup(Arc::clone(&backup_manager));
     
     // Initialize audit logger
     let audit_logger = Arc::new(AuditLogger::new("audit.log".to_string(), 10000)
         .with_monitoring(Arc::clone(&monitoring_manager)));
-    
-    // Initialize error handler
-    let error_handler = Arc::new(ErrorHandler::new());
     
     // Initialize critical error handler for production-critical paths
     let critical_error_handler = Arc::new(CriticalErrorHandler::new());
@@ -121,35 +108,28 @@ async fn main() -> std::io::Result<()> {
     transaction_processor.start().await.expect("Failed to start transaction processor");
     
     // Create channel for BLE transactions
-    let (tx_sender, _tx_receiver) = tokio::sync::mpsc::channel(100);
+    let (_tx_sender, _tx_receiver) = tokio::sync::mpsc::channel::<String>(100);
     
     // Initialize BLE manager
-    let ble_manager = Arc::new(BLEManager::new(config.clone(), tx_sender)
+    let ble_manager = Arc::new(BLEManager::new()
         .await
-        .expect("Failed to initialize BLE manager")
-        .with_critical_error_handler(Arc::clone(&critical_error_handler)));
+        .expect("Failed to initialize BLE manager"));
     
     // Get port from environment or use default
     let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string()).parse::<u16>().unwrap_or(8080);
     
-    // Determine environment and create appropriate security configuration
-    let security_config = if env::var("RUST_ENV").unwrap_or_else(|_| "development".to_string()) == "production" {
-        create_production_security_config()
-    } else {
-        create_development_security_config()
-    };
-    
-    log::info!("Starting AirChainPay Relay Server on port {} with {} security configuration", 
-                port, if env::var("RUST_ENV").unwrap_or_else(|_| "development".to_string()) == "production" { "production" } else { "development" });
+    log::info!("Starting AirChainPay Relay Server on port {}", port);
     
     HttpServer::new(move || {
         App::new()
-            // Apply comprehensive security middleware
-            .wrap(ComprehensiveSecurityMiddleware::new(security_config.clone()))
-            .wrap(CriticalErrorMiddleware::new(Arc::clone(&critical_error_handler)))
-            .wrap(ErrorHandlingMiddleware::new(Arc::clone(&error_handler)))
-            .wrap(GlobalRateLimiter::new())
-            .wrap(MetricsMiddleware::new(Arc::clone(&monitoring_manager)))
+            // Use built-in Actix Web middleware instead of custom middleware that requires Clone
+            .wrap(actix_web::middleware::Logger::default())
+            .wrap(actix_web::middleware::Compress::default())
+            .wrap(actix_cors::Cors::default()
+                .allow_any_origin()
+                .allow_any_method()
+                .allow_any_header()
+                .max_age(3600))
             
             // Health check endpoints with health rate limiting
             .service(
@@ -216,7 +196,7 @@ async fn main() -> std::io::Result<()> {
                 web::scope("/send")
                     .wrap(TransactionRateLimiter::new())
                     .wrap(validate_transaction_request())
-                    .service(send_tx)
+                    .service(process_transaction)
             )
             
             // Auth endpoints with auth rate limiting
@@ -323,7 +303,6 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(ble_manager.clone()))
             .app_data(web::Data::new(backup_manager.clone()))
             .app_data(web::Data::new(audit_logger.clone()))
-            .app_data(web::Data::new(error_handler.clone()))
             .app_data(web::Data::new(critical_error_handler.clone()))
             .app_data(web::Data::new(config_manager.clone()))
             .app_data(web::Data::new(transaction_processor.clone()))

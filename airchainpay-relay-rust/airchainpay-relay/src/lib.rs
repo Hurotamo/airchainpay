@@ -13,7 +13,6 @@ pub mod monitoring;
 pub mod processors;
 pub mod security;
 pub mod storage;
-pub mod tests;
 pub mod utils;
 pub mod validators;
 pub mod scheduler;

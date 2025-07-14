@@ -5,7 +5,8 @@ use std::io::Write;
 use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};
 use chrono::{DateTime, Utc};
-use crate::logger::Logger;
+// Remove logger import and replace with simple logging
+// use crate::logger::Logger;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Transaction {
@@ -196,9 +197,9 @@ impl Database {
                 let current_hash = self.calculate_hash(&data);
                 
                 if current_hash != stored_hash.hash {
-                    Logger::error(&format!("🚨 DATA INTEGRITY VIOLATION DETECTED: {}", file_name));
-                    Logger::error(&format!("Expected hash: {}", stored_hash.hash));
-                    Logger::error(&format!("Current hash: {}", current_hash));
+                    println!("🚨 DATA INTEGRITY VIOLATION DETECTED: {}", file_name);
+                    println!("Expected hash: {}", stored_hash.hash);
+                    println!("Current hash: {}", current_hash);
                     
                     // Log security incident
                     self.log_security_incident("DATA_INTEGRITY_VIOLATION", &serde_json::json!({
@@ -208,7 +209,7 @@ impl Database {
                         "timestamp": Utc::now().to_rfc3339(),
                     }))?;
                 } else {
-                    Logger::info(&format!("✅ Data integrity verified for {}", file_name));
+                    println!("✅ Data integrity verified for {}", file_name);
                 }
             }
         }
@@ -232,7 +233,7 @@ impl Database {
         
         self.write_file(&self.incidents_file, &incidents)?;
         
-        Logger::error(&format!("🚨 SECURITY INCIDENT: {}", incident_type));
+        println!("🚨 SECURITY INCIDENT: {}", incident_type);
         Ok(())
     }
 
@@ -541,7 +542,7 @@ impl Database {
         
         tar.finish()?;
         
-        Logger::info(&format!("Backup created: {}", backup_path));
+        println!("Backup created: {}", backup_path);
         Ok(backup_path)
     }
 
@@ -559,7 +560,7 @@ impl Database {
         let audit_logs = self.get_recent_audit_logs(10000);
         if audit_logs.len() > 10000 {
             // This would require rewriting the audit file
-            Logger::warn("Audit log cleanup not implemented");
+            println!("Audit log cleanup not implemented");
         }
         
         // Clean up old security incidents (keep only last 1000)
@@ -571,7 +572,7 @@ impl Database {
             self.write_file(&self.incidents_file, &incidents)?;
         }
         
-        Logger::info("Database cleanup completed");
+        println!("Database cleanup completed");
         Ok(())
     }
 

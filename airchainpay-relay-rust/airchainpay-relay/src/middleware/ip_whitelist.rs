@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use actix_web::dev::EitherBody;
+use actix_web::body::BoxBody;
 
 #[derive(Clone)]
 pub struct IPWhitelistMiddleware {
@@ -35,7 +35,7 @@ where
     S::Future: 'static,
     B: 'static,
 {
-    type Response = ServiceResponse<EitherBody<B, actix_web::body::BoxBody>>;
+    type Response = ServiceResponse<BoxBody>;
     type Error = Error;
     type Transform = IPWhitelistService<S>;
     type InitError = ();
@@ -62,7 +62,7 @@ where
     S::Future: 'static,
     B: 'static,
 {
-    type Response = ServiceResponse<EitherBody<B, actix_web::body::BoxBody>>;
+    type Response = ServiceResponse<BoxBody>;
     type Error = Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
 

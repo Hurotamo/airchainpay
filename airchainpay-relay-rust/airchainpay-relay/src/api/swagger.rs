@@ -1371,4 +1371,18 @@ pub async fn run_api_server() -> std::io::Result<()> {
     .bind(("0.0.0.0", 4000))?
     .run()
     .await
-} 
+}
+
+// Export all API functions
+pub use {
+    health, ble_scan, send_tx, send_compressed_tx, compress_transaction, 
+    compress_ble_payment, compress_qr_payment, submit_transaction, legacy_submit_transaction,
+    get_contract_payments, generate_token, process_ble_transaction,
+    initiate_key_exchange, rotate_session_key, block_device, unblock_device,
+    get_key_exchange_devices, get_database_transactions, get_transaction_by_id,
+    get_transactions_by_device, create_database_backup, get_database_stats,
+    get_database_security, authenticate_device, get_transactions, get_metrics,
+    get_devices, get_ble_status, get_ble_devices, get_contract_owner,
+    get_ble_auth_device, block_ble_auth_device, unblock_ble_auth_device,
+    get_ble_auth_devices, get_ble_key_exchange_device, get_networks_status
+}; 

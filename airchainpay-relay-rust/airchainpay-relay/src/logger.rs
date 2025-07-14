@@ -1,12 +1,13 @@
-use tracing::{info, warn, error, debug, trace, Level, Subscriber};
+use tracing::{info, warn, error, debug, trace, Level};
 use tracing_subscriber::{
     layer::SubscriberExt, 
     util::SubscriberInitExt,
     fmt::{self, time::UtcTime},
     EnvFilter,
     Registry,
+    Layer,
 };
-use tracing_appender::{non_blocking, rolling};
+use tracing_appender::{non_blocking, rolling, rolling::Rotation};
 use serde::{Serialize, Deserialize};
 use std::sync::Once;
 use std::collections::HashMap;
@@ -142,9 +143,12 @@ impl EnhancedLogger {
                 _ => Level::INFO,
             };
 
-            let mut layers = Vec::new();
+            let env_filter = EnvFilter::new(
+                std::env::var("RUST_LOG").unwrap_or_else(|_| format!("airchainpay_relay={}", level))
+            );
 
-            // Console layer
+            let mut layers: Vec<Box<dyn Layer<_> + Send + Sync>> = Vec::new();
+
             if self.config.enable_console {
                 let console_layer = fmt::layer()
                     .with_timer(UtcTime::rfc_3339())
@@ -152,36 +156,18 @@ impl EnhancedLogger {
                     .with_file(self.config.enable_file_line)
                     .with_line_number(self.config.enable_file_line)
                     .with_target(self.config.enable_module_path)
-                    .with_ansi(self.config.enable_colors);
-
-                layers.push(console_layer.boxed());
+                    .with_ansi(self.config.enable_colors)
+                    .with_writer(std::io::stdout);
+                layers.push(Box::new(console_layer));
             }
 
-            // File layer with rotation
             if self.config.enable_file {
-                let file_appender = if self.config.enable_rotation {
-                    rolling::RollingFileAppender::new(
-                        rolling::RollingFileAppender::builder()
-                            .rotation(rolling::RollingFileAppender::builder().rotation("daily"))
-                            .filename_prefix("airchainpay-relay")
-                            .filename_suffix("log")
-                            .max_files(self.config.max_files)
-                            .max_size_bytes(self.config.max_file_size)
-                            .build_in(&self.config.log_directory)
-                            .expect("Failed to create rolling file appender")
-                    )
-                } else {
-                    rolling::RollingFileAppender::new(
-                        rolling::RollingFileAppender::builder()
-                            .rotation(rolling::RollingFileAppender::builder().rotation("never"))
-                            .filename("airchainpay-relay.log")
-                            .build_in(&self.config.log_directory)
-                            .expect("Failed to create file appender")
-                    )
-                };
-
-                let (non_blocking_appender, _guard) = non_blocking(file_appender);
-                
+                let file_appender = rolling::RollingFileAppender::new(
+                    Rotation::DAILY,
+                    &self.config.log_directory,
+                    "airchainpay_relay.log"
+                );
+                let (non_blocking_file_appender, _guard) = non_blocking(file_appender);
                 let file_layer = fmt::layer()
                     .with_timer(UtcTime::rfc_3339())
                     .with_thread_ids(self.config.enable_thread_ids)
@@ -189,36 +175,17 @@ impl EnhancedLogger {
                     .with_line_number(self.config.enable_file_line)
                     .with_target(self.config.enable_module_path)
                     .with_ansi(false)
-                    .with_writer(non_blocking_appender);
-
-                layers.push(file_layer.boxed());
+                    .with_writer(non_blocking_file_appender);
+                layers.push(Box::new(file_layer));
             }
 
-            // JSON layer for structured logging
             if self.config.enable_json {
-                let json_appender = if self.config.enable_rotation {
-                    rolling::RollingFileAppender::new(
-                        rolling::RollingFileAppender::builder()
-                            .rotation(rolling::RollingFileAppender::builder().rotation("daily"))
-                            .filename_prefix("airchainpay-relay")
-                            .filename_suffix("json")
-                            .max_files(self.config.max_files)
-                            .max_size_bytes(self.config.max_file_size)
-                            .build_in(&self.config.log_directory)
-                            .expect("Failed to create JSON rolling file appender")
-                    )
-                } else {
-                    rolling::RollingFileAppender::new(
-                        rolling::RollingFileAppender::builder()
-                            .rotation(rolling::RollingFileAppender::builder().rotation("never"))
-                            .filename("airchainpay-relay.json")
-                            .build_in(&self.config.log_directory)
-                            .expect("Failed to create JSON file appender")
-                    )
-                };
-
+                let json_appender = rolling::RollingFileAppender::new(
+                    Rotation::DAILY,
+                    &self.config.log_directory,
+                    "airchainpay_relay.json"
+                );
                 let (non_blocking_json_appender, _guard) = non_blocking(json_appender);
-                
                 let json_layer = fmt::layer()
                     .with_timer(UtcTime::rfc_3339())
                     .with_thread_ids(self.config.enable_thread_ids)
@@ -226,19 +193,14 @@ impl EnhancedLogger {
                     .with_line_number(self.config.enable_file_line)
                     .with_target(self.config.enable_module_path)
                     .with_ansi(false)
-                    .json()
                     .with_writer(non_blocking_json_appender);
-
-                layers.push(json_layer.boxed());
+                layers.push(Box::new(json_layer));
             }
 
-            // Create registry with all layers
-            let registry = Registry::default()
-                .with(EnvFilter::new(
-                    std::env::var("RUST_LOG").unwrap_or_else(|_| format!("airchainpay_relay={}", level))
-                ));
+            let subscriber = Registry::default()
+                .with(env_filter)
+                .with(layers);
 
-            let subscriber = layers.into_iter().fold(registry, |acc, layer| acc.with(layer));
             subscriber.init();
         });
     }
@@ -455,7 +417,7 @@ impl EnhancedLogger {
     pub async fn system_metric(&self, name: &str, value: f64, unit: Option<&str>) {
         let mut context = HashMap::new();
         context.insert("metric_name".to_string(), serde_json::Value::String(name.to_string()));
-        context.insert("metric_value".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(value).unwrap_or_default()));
+        context.insert("metric_value".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(value).unwrap_or(serde_json::Number::from(0))));
         context.insert("operation".to_string(), serde_json::Value::String("system_metric".to_string()));
         
         if let Some(unit) = unit {
@@ -655,7 +617,7 @@ pub struct LogStats {
 pub struct Logger;
 
 impl Logger {
-    pub fn init(log_level: &str) {
+    pub fn init(_log_level: &str) {
         let config = LogConfig::default();
         let enhanced_logger = EnhancedLogger::new(config);
         enhanced_logger.init();

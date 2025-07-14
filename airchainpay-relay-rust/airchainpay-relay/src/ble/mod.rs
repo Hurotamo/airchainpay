@@ -1,5 +1,5 @@
 pub mod manager;
-use manager::{BLEManager, BLEDevice, BLETransaction, AuthRequest, AuthResponse, DeviceStatus, TransactionStatus};
+use manager::{AuthResponse, DeviceStatus};
 use btleplug::api::{Central, Manager as _, ScanFilter};
 use btleplug::platform::Manager;
 use anyhow::Result;

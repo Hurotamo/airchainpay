@@ -8,6 +8,7 @@ use std::future::Future;
 use std::sync::Arc;
 use regex::Regex;
 use lazy_static::lazy_static;
+use actix_web::body::BoxBody;
 
 lazy_static! {
     static ref SQL_INJECTION_PATTERNS: Vec<Regex> = vec![
@@ -94,9 +95,9 @@ impl<S, B> Transform<S, ServiceRequest> for InputValidationMiddleware
 where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     S::Future: 'static,
-    B: 'static,
+    B: 'static + actix_web::body::MessageBody,
 {
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<BoxBody>;
     type Error = Error;
     type Transform = InputValidationMiddlewareService<S>;
     type InitError = ();
@@ -119,9 +120,9 @@ impl<S, B> Service<ServiceRequest> for InputValidationMiddlewareService<S>
 where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     S::Future: 'static,
-    B: 'static,
+    B: 'static + actix_web::body::MessageBody,
 {
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<BoxBody>;
     type Error = Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
 
@@ -144,6 +145,7 @@ where
                                 "error": "Invalid content type",
                                 "message": "Content type not allowed"
                             }))
+                            .map_into_boxed_body()
                     ));
                 }
             }
@@ -158,6 +160,7 @@ where
                                     "error": "Request too large",
                                     "message": format!("Request body exceeds maximum size of {} bytes", config.max_input_length)
                                 }))
+                                .map_into_boxed_body()
                         ));
                     }
                 }
@@ -175,6 +178,7 @@ where
                                 "error": "Invalid input",
                                 "message": e
                             }))
+                            .map_into_boxed_body()
                     ));
                 }
             }
@@ -188,6 +192,7 @@ where
                                 "error": "Invalid path",
                                 "message": e
                             }))
+                            .map_into_boxed_body()
                     ));
                 }
             }

@@ -8,8 +8,8 @@ use ethers::{
     middleware::Middleware,
 };
 use serde::{Deserialize, Serialize};
-use crate::logger::Logger;
-use chrono::{DateTime, Utc};
+// Remove logger import and replace with simple logging
+// use chrono::{DateTime, Utc};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChainConfig {
@@ -64,7 +64,7 @@ pub struct GasEstimate {
 pub struct NetworkStatus {
     pub is_healthy: bool,
     pub connected_networks: u32,
-    pub last_block_time: Option<DateTime<Utc>>,
+    pub last_block_time: Option<chrono::DateTime<chrono::Utc>>,
     pub gas_price_updates: u32,
     pub pending_transactions: u32,
     pub failed_transactions: u32,
@@ -77,7 +77,7 @@ pub struct NetworkStatus {
 
 pub struct BlockchainManager {
     providers: Arc<RwLock<HashMap<u64, Arc<Provider<Http>>>>>,
-    contracts: Arc<RwLock<HashMap<u64, Contract<Arc<Provider<Http>>>>>,
+    contracts: Arc<RwLock<HashMap<u64, Contract<Provider<Http>>>>>,
     supported_chains: HashMap<u64, ChainConfig>,
 }
 
@@ -144,7 +144,7 @@ impl BlockchainManager {
         Ok(providers.get(&chain_id).unwrap().clone())
     }
 
-    pub async fn get_contract(&self, chain_id: u64) -> Result<Contract<Arc<Provider<Http>>>, Box<dyn std::error::Error>> {
+    pub async fn get_contract(&self, chain_id: u64) -> Result<Contract<Provider<Http>>, Box<dyn std::error::Error>> {
         if !self.supported_chains.contains_key(&chain_id) {
             return Err(format!("Unsupported chain: {}", chain_id).into());
         }
@@ -154,11 +154,12 @@ impl BlockchainManager {
         if !contracts.contains_key(&chain_id) {
             let config = self.supported_chains.get(&chain_id).unwrap();
             let contract_address = config.contract_address.ok_or("No contract address configured")?;
-            let provider = self.get_provider(chain_id).await?;
-            
+            let provider: Arc<Provider<Http>> = self.get_provider(chain_id).await?;
             // Load contract ABI
-            let abi = include_bytes!("../../abi/AirChainPay.json");
-            let contract = Contract::new(contract_address, abi.into(), provider);
+            let abi_bytes = include_bytes!("../abi/AirChainPay.json");
+            let abi_json: serde_json::Value = serde_json::from_slice(abi_bytes)?;
+            let abi: ethers::abi::Abi = serde_json::from_value(abi_json)?;
+            let contract = Contract::new(contract_address, abi, provider.clone());
             contracts.insert(chain_id, contract);
         }
 
@@ -210,9 +211,9 @@ impl BlockchainManager {
                 let mut tx = ethers::types::TransactionRequest::new()
                     .to(tx_data.to)
                     .data(Bytes::from(vec![]));
-                let typed_tx: ethers::types::TypedTransaction = tx.into();
+                let typed_tx = tx;
                 let gas_limit = provider
-                    .estimate_gas(&typed_tx, None)
+                    .estimate_gas(&typed_tx.into(), None)
                     .await;
 
                 match gas_limit {
@@ -281,7 +282,7 @@ impl BlockchainManager {
 
     pub async fn cleanup(&self) {
         // Cleanup logic here
-        Logger::info("Blockchain manager cleanup completed");
+        println!("Blockchain manager cleanup completed");
     }
 
     pub async fn health_check(&self) -> HashMap<String, serde_json::Value> {
@@ -348,7 +349,7 @@ impl BlockchainManager {
         NetworkStatus {
             is_healthy: connected_networks > 0,
             connected_networks,
-            last_block_time: Some(Utc::now()),
+            last_block_time: Some(chrono::Utc::now()),
             gas_price_updates: 0,
             pending_transactions: 0,
             failed_transactions: 0,

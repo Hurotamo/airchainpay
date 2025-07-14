@@ -3,10 +3,11 @@ use anyhow::Result;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use chrono::{DateTime, Utc};
-use btleplug::api::{Manager as _, ScanFilter};
+use btleplug::api::{
+    Central, CentralEvent, Manager as _, Peripheral as _, ScanFilter,
+    WriteType, Characteristic, Service,
+};
 use btleplug::platform::{Adapter, Manager};
-use btleplug::api::CharPropFlags;
-use btleplug::api::bleuuid::uuid_from_u16;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use rand::Rng;
@@ -14,7 +15,7 @@ use sha2::{Sha256, Digest};
 use hex;
 use uuid::Uuid;
 use std::collections::VecDeque;
-use crate::utils::critical_error_handler::{CriticalErrorHandler, CriticalPath};
+use crate::utils::error_handler::EnhancedErrorHandler;
 
 // Constants
 const AIRCHAINPAY_SERVICE_UUID: u16 = 0xabcd;
@@ -151,7 +152,7 @@ pub struct BLEStatus {
 #[derive(Debug, Clone)]
 struct DeviceConnection {
     peripheral: btleplug::platform::Peripheral,
-    characteristics: Vec<btleplug::platform::Characteristic>,
+    characteristics: Vec<btleplug::api::Characteristic>,
     connected_at: DateTime<Utc>,
     last_activity: DateTime<Utc>,
 }
@@ -249,7 +250,7 @@ pub struct BLEManager {
     relay_public_key: String,
     
     // Critical error handler
-    critical_error_handler: Option<Arc<CriticalErrorHandler>>,
+    critical_error_handler: Option<Arc<EnhancedErrorHandler>>,
 }
 
 impl BLEManager {
@@ -305,14 +306,14 @@ impl BLEManager {
         })
     }
 
-    pub fn with_critical_error_handler(mut self, handler: Arc<CriticalErrorHandler>) -> Self {
+    pub fn with_critical_error_handler(mut self, handler: Arc<EnhancedErrorHandler>) -> Self {
         self.critical_error_handler = Some(handler);
         self
     }
 
     async fn initialize_ble(&self) -> Result<()> {
         if let Some(adapter) = &self.adapter {
-            adapter.start_scan().await?;
+            adapter.start_scan(ScanFilter::default()).await?;
             // Logger::info("BLE adapter initialized successfully"); // Assuming Logger is defined elsewhere
         }
         Ok(())
@@ -320,7 +321,7 @@ impl BLEManager {
 
     fn generate_key_pair() -> Result<(String, String)> {
         let mut rng = rand::thread_rng();
-        let private_key: [u8; 32] = rng.gen();
+        let private_key: [u8; 32] = rng.random();
         let public_key = sha2::Sha256::digest(&private_key);
         
         Ok((
@@ -344,71 +345,71 @@ impl BLEManager {
         context.insert("operation".to_string(), "scan_devices".to_string());
 
         if let Some(handler) = &self.critical_error_handler {
-            return handler.execute_critical_operation(
-                CriticalPath::BLEDeviceConnection,
-                || async {
-                    let adapter = self.adapter.as_ref()
-                        .ok_or_else(|| anyhow::anyhow!("BLE adapter not available"))?;
-                    
-                    let mut devices = Vec::new();
-                    let scan_start = Instant::now();
-                    
-                    // Start scanning
-                    adapter.start_scan().await?;
-                    
-                    // Wait for scan to complete
-                    tokio::time::sleep(SCAN_TIMEOUT).await;
-                    
-                    // Stop scanning
-                    adapter.stop_scan().await?;
-                    
-                    let scan_duration = scan_start.elapsed();
-                    
-                    // Get discovered devices
-                    let peripherals = adapter.peripherals().await?;
-                    
-                    for peripheral in peripherals {
-                        let properties = peripheral.properties().await?;
-                        if let Some(props) = properties {
-                            if let Some(name) = &props.local_name {
-                                if name.contains("AirChainPay") {
-                                    let device = BLEDevice {
-                                        id: peripheral.id().to_string(),
-                                        name: Some(name.clone()),
-                                        address: peripheral.id().to_string(),
-                                        rssi: props.rssi,
-                                        is_connected: false,
-                                        last_seen: Utc::now().timestamp() as u64,
-                                        status: DeviceStatus::Disconnected,
-                                        auth_status: AuthStatus::Pending,
-                                        key_exchange_status: KeyExchangeStatus::Pending,
-                                    };
-                                    devices.push(device);
-                                }
+            let result = (async {
+                let adapter = self.adapter.as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("BLE adapter not available"))?;
+                
+                let mut devices = Vec::new();
+                let scan_start = Instant::now();
+                
+                // Start scanning
+                adapter.start_scan(ScanFilter::default()).await?;
+                
+                // Wait for scan to complete
+                tokio::time::sleep(SCAN_TIMEOUT).await;
+                
+                // Stop scanning
+                adapter.stop_scan().await?;
+                
+                let scan_duration = scan_start.elapsed();
+                
+                // Get discovered devices
+                let peripherals = adapter.peripherals().await?;
+                
+                for peripheral in peripherals {
+                    let properties = peripheral.properties().await?;
+                    if let Some(props) = properties {
+                        if let Some(name) = &props.local_name {
+                            if name.contains("AirChainPay") {
+                                let device = BLEDevice {
+                                    id: peripheral.id().to_string(),
+                                    name: Some(name.clone()),
+                                    address: peripheral.id().to_string(),
+                                    rssi: props.rssi,
+                                    is_connected: false,
+                                    last_seen: Utc::now().timestamp() as u64,
+                                    status: DeviceStatus::Disconnected,
+                                    auth_status: AuthStatus::Pending,
+                                    key_exchange_status: KeyExchangeStatus::Pending,
+                                };
+                                devices.push(device);
                             }
                         }
                     }
-                    
-                    // Update status
-                    {
-                        let mut status = self.status.write().await;
-                        status.last_scan_time = Some(Utc::now());
-                        status.scan_duration_ms = scan_duration.as_millis() as u64;
-                        status.total_devices_discovered += devices.len() as u32;
+                }
+                
+                // Update status
+                {
+                    let mut status = self.status.write().await;
+                    status.last_scan_time = Some(Utc::now());
+                    status.scan_duration_ms = scan_duration.as_millis() as u64;
+                    status.total_devices_discovered += devices.len() as u32;
+                }
+                
+                // Store discovered devices
+                {
+                    let mut devices_map = self.devices.write().await;
+                    for device in &devices {
+                        devices_map.insert(device.id.clone(), device.clone());
                     }
-                    
-                    // Store discovered devices
-                    {
-                        let mut devices_map = self.devices.write().await;
-                        for device in &devices {
-                            devices_map.insert(device.id.clone(), device.clone());
-                        }
-                    }
-                    
-                    Ok(devices)
-                },
-                context,
-            ).await.map_err(|e| anyhow::anyhow!("Critical error in BLE scan: {}", e.error_message));
+                }
+                
+                Ok(devices)
+            }).await;
+            if let Err(ref e) = result {
+                println!("BLEManager error: {}", e);
+            }
+            return result;
         }
 
         // Fallback to direct execution
@@ -419,7 +420,7 @@ impl BLEManager {
         let scan_start = Instant::now();
         
         // Start scanning
-        adapter.start_scan().await?;
+        adapter.start_scan(ScanFilter::default()).await?;
         
         // Wait for scan to complete
         tokio::time::sleep(SCAN_TIMEOUT).await;
@@ -479,65 +480,65 @@ impl BLEManager {
         context.insert("operation".to_string(), "connect_device".to_string());
 
         if let Some(handler) = &self.critical_error_handler {
-            return handler.execute_critical_operation(
-                CriticalPath::BLEDeviceConnection,
-                || async {
-                    // Check rate limiting
-                    if !self.check_connection_rate_limit(device_id).await {
-                        return Err(anyhow::anyhow!("Connection rate limit exceeded for device"));
+            let result = (async {
+                // Check rate limiting
+                if !self.check_connection_rate_limit(device_id).await {
+                    return Err(anyhow::anyhow!("Connection rate limit exceeded for device"));
+                }
+                
+                // Check if device is blocked
+                if self.is_device_blocked(device_id).await {
+                    return Err(anyhow::anyhow!("Device is blocked"));
+                }
+                
+                let adapter = self.adapter.as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("BLE adapter not available"))?;
+                
+                // Find peripheral
+                let peripherals = adapter.peripherals().await?;
+                let peripheral = peripherals.into_iter()
+                    .find(|p| p.id().to_string() == device_id)
+                    .ok_or_else(|| anyhow::anyhow!("Device not found"))?;
+                
+                // Connect to peripheral
+                peripheral.connect().await?;
+                
+                // Wait for connection to establish
+                tokio::time::sleep(CONNECTION_TIMEOUT).await;
+                
+                // Check if connection was successful
+                if peripheral.is_connected().await? {
+                    // Update device status
+                    {
+                        let mut devices = self.devices.write().await;
+                        if let Some(device) = devices.get_mut(device_id) {
+                            device.is_connected = true;
+                            device.status = DeviceStatus::Connected;
+                            device.last_seen = Utc::now().timestamp() as u64;
+                        }
                     }
                     
-                    // Check if device is blocked
-                    if self.is_device_blocked(device_id).await {
-                        return Err(anyhow::anyhow!("Device is blocked"));
+                    // Update connection count
+                    {
+                        let mut status = self.status.write().await;
+                        status.connected_devices += 1;
+                        status.active_connections += 1;
                     }
                     
-                    let adapter = self.adapter.as_ref()
-                        .ok_or_else(|| anyhow::anyhow!("BLE adapter not available"))?;
-                    
-                    // Find peripheral
-                    let peripherals = adapter.peripherals().await?;
-                    let peripheral = peripherals.into_iter()
-                        .find(|p| p.id().to_string() == device_id)
-                        .ok_or_else(|| anyhow::anyhow!("Device not found"))?;
-                    
-                    // Connect to peripheral
-                    peripheral.connect().await?;
-                    
-                    // Wait for connection to establish
-                    tokio::time::sleep(CONNECTION_TIMEOUT).await;
-                    
-                    // Check if connection was successful
-                    if peripheral.is_connected().await? {
-                        // Update device status
-                        {
-                            let mut devices = self.devices.write().await;
-                            if let Some(device) = devices.get_mut(device_id) {
-                                device.is_connected = true;
-                                device.status = DeviceStatus::Connected;
-                                device.last_seen = Utc::now().timestamp() as u64;
-                            }
-                        }
-                        
-                        // Update connection count
-                        {
-                            let mut status = self.status.write().await;
-                            status.connected_devices += 1;
-                            status.active_connections += 1;
-                        }
-                        
-                        // Logger::info(&format!("Successfully connected to device: {}", device_id)); // Assuming Logger is defined elsewhere
-                        Ok(())
-                    } else {
-                        {
-                            let mut status = self.status.write().await;
-                            status.failed_connections += 1;
-                        }
-                        Err(anyhow::anyhow!("Failed to establish connection"))
+                    // Logger::info(&format!("Successfully connected to device: {}", device_id)); // Assuming Logger is defined elsewhere
+                    Ok(())
+                } else {
+                    {
+                        let mut status = self.status.write().await;
+                        status.failed_connections += 1;
                     }
-                },
-                context,
-            ).await.map_err(|e| anyhow::anyhow!("Critical error connecting device: {}", e.error_message));
+                    Err(anyhow::anyhow!("Failed to establish connection"))
+                }
+            }).await;
+            if let Err(ref e) = result {
+                println!("BLEManager error: {}", e);
+            }
+            return result;
         }
 
         // Fallback to direct execution

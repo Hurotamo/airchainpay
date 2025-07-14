@@ -9,10 +9,9 @@ use tokio::time::sleep;
 use std::path::Path;
 use std::fs;
 use anyhow::{Result, anyhow};
-use notify::{Watcher, RecursiveMode, watcher};
 use std::sync::mpsc::channel;
-use crate::logger::Logger;
 use chrono::{DateTime, Utc};
+use notify::Watcher;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChainConfig {
@@ -125,7 +124,7 @@ impl Default for Config {
             database: DatabaseConfig::default(),
             supported_chains: HashMap::new(),
             config_file_path: None,
-            last_modified: Some(Instant::now().elapsed().as_secs()),
+            last_modified: Some(Utc::now().timestamp() as u64),
             version: env!("CARGO_PKG_VERSION").to_string(),
         }
     }
@@ -210,7 +209,7 @@ impl DynamicConfigManager {
         // Notify reload
         let _ = self.reload_sender.send(true);
         
-        Logger::info("Configuration updated successfully");
+        println!("Configuration updated successfully");
         Ok(())
     }
     
@@ -238,23 +237,23 @@ impl DynamicConfigManager {
         let (tx, rx) = channel();
         
         // Create a watcher object, delivering debounced events.
-        let mut watcher = watcher(tx, notify::Config::default())?;
+        let mut watcher = notify::recommended_watcher(tx)?;
         
         // Add a path to be watched. All files and directories at that path and
         // below will be monitored for changes.
-        watcher.watch(&config_file_path, RecursiveMode::NonRecursive)?;
+        watcher.watch(config_file_path.as_ref(), notify::RecursiveMode::NonRecursive)?;
         
         // Start watching in a separate task
         tokio::spawn(async move {
             loop {
                 match rx.recv() {
                     Ok(_) => {
-                        Logger::info(&format!("Config file changed: {}", config_file_path));
+                        println!("Config file changed: {}", config_file_path);
                         sleep(Duration::from_millis(100)).await; // Debounce
                         let _ = reload_sender.send(true);
                     }
                     Err(e) => {
-                        Logger::error(&format!("Config watcher error: {}", e));
+                        println!("Config watcher error: {}", e);
                         break;
                     }
                 }
@@ -267,7 +266,7 @@ impl DynamicConfigManager {
     pub async fn watch_for_reloads(&mut self) {
         while let Some(_) = self.reload_receiver.changed().await.ok() {
             if let Err(e) = self.reload_from_file().await {
-                Logger::error(&format!("Failed to reload config: {}", e));
+                println!("Failed to reload config: {}", e);
             }
         }
     }
@@ -374,7 +373,7 @@ impl DynamicConfigManager {
         };
         
         // Count total settings
-        let total_settings = serde_json::to_value(&config)
+        let total_settings = serde_json::to_value(&*config)
             .map(|v| v.as_object().map(|obj| obj.len()).unwrap_or(0))
             .unwrap_or(0) as u32;
         
@@ -476,7 +475,7 @@ impl Config {
                 .map_err(|e| anyhow!("Failed to read config file: {}", e))?;
             let mut config: Config = serde_json::from_str(&content)
                 .map_err(|e| anyhow!("Failed to deserialize config: {}", e))?;
-            config.last_modified = Some(Instant::now().elapsed().as_secs());
+            config.last_modified = Some(Utc::now().timestamp() as u64);
             Ok(config)
         } else {
             Err(anyhow!("Config file not found"))
@@ -544,7 +543,7 @@ impl Config {
             },
             supported_chains: Self::get_supported_chains(),
             config_file_path: None,
-            last_modified: Some(Instant::now().elapsed().as_secs()),
+            last_modified: Some(Utc::now().timestamp() as u64),
         })
     }
     
@@ -601,7 +600,7 @@ impl Config {
             },
             supported_chains: Self::get_supported_chains(),
             config_file_path: None,
-            last_modified: Some(Instant::now().elapsed().as_secs()),
+            last_modified: Some(Utc::now().timestamp() as u64),
         })
     }
     
@@ -658,7 +657,7 @@ impl Config {
             },
             supported_chains: Self::get_supported_chains(),
             config_file_path: None,
-            last_modified: Some(Instant::now().elapsed().as_secs()),
+            last_modified: Some(Utc::now().timestamp() as u64),
         })
     }
     

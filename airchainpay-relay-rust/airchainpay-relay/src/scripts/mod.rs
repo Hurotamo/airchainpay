@@ -2,7 +2,6 @@ use std::process::Command;
 use std::fs;
 use std::path::Path;
 use serde::{Deserialize, Serialize};
-use crate::logger::Logger;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,7 +27,7 @@ pub struct DeploymentScripts;
 
 impl DeploymentScripts {
     pub async fn deploy(&self, config: &DeploymentConfig) -> Result<(), Box<dyn std::error::Error>> {
-        Logger::info(&format!("Starting deployment for environment: {}", config.environment));
+        println!("Starting deployment for environment: {}", config.environment);
         
         // Validate configuration
         self.validate_config(config)?;
@@ -45,7 +44,7 @@ impl DeploymentScripts {
         // Run health checks
         self.run_health_checks(config).await?;
         
-        Logger::info("Deployment completed successfully");
+        println!("Deployment completed successfully");
         Ok(())
     }
 
@@ -74,7 +73,7 @@ impl DeploymentScripts {
     }
 
     async fn build_docker_image(&self, config: &DeploymentConfig) -> Result<(), Box<dyn std::error::Error>> {
-        Logger::info("Building Docker image...");
+        println!("Building Docker image...");
         
         let output = Command::new("docker")
             .args(&[
@@ -92,12 +91,12 @@ impl DeploymentScripts {
             return Err(format!("Docker build failed: {}", error).into());
         }
         
-        Logger::info("Docker image built successfully");
+        println!("Docker image built successfully");
         Ok(())
     }
 
     async fn push_docker_image(&self, config: &DeploymentConfig) -> Result<(), Box<dyn std::error::Error>> {
-        Logger::info("Pushing Docker image...");
+        println!("Pushing Docker image...");
         
         let output = Command::new("docker")
             .args(&["push", &config.docker_image])
@@ -108,12 +107,12 @@ impl DeploymentScripts {
             return Err(format!("Docker push failed: {}", error).into());
         }
         
-        Logger::info("Docker image pushed successfully");
+        println!("Docker image pushed successfully");
         Ok(())
     }
 
     async fn deploy_to_kubernetes(&self, config: &DeploymentConfig) -> Result<(), Box<dyn std::error::Error>> {
-        Logger::info("Deploying to Kubernetes...");
+        println!("Deploying to Kubernetes...");
         
         // Generate Kubernetes manifests
         let manifests = self.generate_kubernetes_manifests(config)?;
@@ -131,7 +130,7 @@ impl DeploymentScripts {
             }
         }
         
-        Logger::info("Kubernetes deployment completed");
+        println!("Kubernetes deployment completed");
         Ok(())
     }
 
@@ -227,7 +226,7 @@ spec:
     }
 
     async fn run_health_checks(&self, config: &DeploymentConfig) -> Result<(), Box<dyn std::error::Error>> {
-        Logger::info("Running health checks...");
+        println!("Running health checks...");
         
         // Wait for deployment to be ready
         let output = Command::new("kubectl")
@@ -246,7 +245,7 @@ spec:
         // Test API endpoint
         self.test_api_endpoint(config).await?;
         
-        Logger::info("Health checks passed");
+        println!("Health checks passed");
         Ok(())
     }
 
@@ -280,7 +279,7 @@ spec:
     }
 
     pub async fn rollback(&self, environment: &str, version: &str) -> Result<(), Box<dyn std::error::Error>> {
-        Logger::info(&format!("Rolling back {} to version {}", environment, version));
+        println!("Rolling back {} to version {}", environment, version);
         
         let output = Command::new("kubectl")
             .args(&[
@@ -295,12 +294,12 @@ spec:
             return Err(format!("Rollback failed: {}", error).into());
         }
         
-        Logger::info("Rollback completed successfully");
+        println!("Rollback completed successfully");
         Ok(())
     }
 
     pub async fn scale(&self, environment: &str, replicas: u32) -> Result<(), Box<dyn std::error::Error>> {
-        Logger::info(&format!("Scaling {} to {} replicas", environment, replicas));
+        println!("Scaling {} to {} replicas", environment, replicas);
         
         let output = Command::new("kubectl")
             .args(&[
@@ -317,7 +316,7 @@ spec:
             return Err(format!("Scale failed: {}", error).into());
         }
         
-        Logger::info("Scale operation completed successfully");
+        println!("Scale operation completed successfully");
         Ok(())
     }
 }
@@ -326,7 +325,7 @@ pub struct UtilityScripts;
 
 impl UtilityScripts {
     pub async fn generate_secrets(&self) -> Result<(), Box<dyn std::error::Error>> {
-        Logger::info("Generating secrets...");
+        println!("Generating secrets...");
         
         let secrets = vec![
             ("JWT_SECRET", self.generate_random_string(64)?),
@@ -339,7 +338,7 @@ impl UtilityScripts {
             println!("{}={}", name, value);
         }
         
-        Logger::info("Secrets generated successfully");
+        println!("Secrets generated successfully");
         Ok(())
     }
 
@@ -356,31 +355,31 @@ impl UtilityScripts {
     }
 
     pub async fn check_payments(&self, chain_id: u64) -> Result<(), Box<dyn std::error::Error>> {
-        Logger::info(&format!("Checking payments for chain {}", chain_id));
+        println!("Checking payments for chain {}", chain_id);
         
         // This would implement payment verification logic
         // For now, just log the operation
         
-        Logger::info("Payment check completed");
+        println!("Payment check completed");
         Ok(())
     }
 
     pub async fn compare_networks(&self) -> Result<(), Box<dyn std::error::Error>> {
-        Logger::info("Comparing network configurations...");
+        println!("Comparing network configurations...");
         
         let networks = vec![1, 137, 56]; // Ethereum, Polygon, BSC
         
         for network_id in networks {
-            Logger::info(&format!("Checking network {}", network_id));
+            println!("Checking network {}", network_id);
             // This would implement network comparison logic
         }
         
-        Logger::info("Network comparison completed");
+        println!("Network comparison completed");
         Ok(())
     }
 
     pub async fn backup_database(&self) -> Result<(), Box<dyn std::error::Error>> {
-        Logger::info("Creating database backup...");
+        println!("Creating database backup...");
         
         let backup_dir = "./backups";
         fs::create_dir_all(backup_dir)?;
@@ -397,12 +396,12 @@ impl UtilityScripts {
             return Err(format!("Backup failed: {}", error).into());
         }
         
-        Logger::info(&format!("Database backup created: {}", backup_file));
+        println!("Database backup created: {}", backup_file);
         Ok(())
     }
 
     pub async fn restore_database(&self, backup_file: &str) -> Result<(), Box<dyn std::error::Error>> {
-        Logger::info(&format!("Restoring database from {}", backup_file));
+        println!("Restoring database from {}", backup_file);
         
         if !Path::new(backup_file).exists() {
             return Err("Backup file not found".into());
@@ -417,12 +416,12 @@ impl UtilityScripts {
             return Err(format!("Restore failed: {}", error).into());
         }
         
-        Logger::info("Database restore completed");
+        println!("Database restore completed");
         Ok(())
     }
 
     pub async fn cleanup_old_data(&self, days: u32) -> Result<(), Box<dyn std::error::Error>> {
-        Logger::info(&format!("Cleaning up data older than {} days", days));
+        println!("Cleaning up data older than {} days", days);
         
         let cutoff_date = chrono::Utc::now() - chrono::Duration::days(days as i64);
         
@@ -437,7 +436,7 @@ impl UtilityScripts {
                 
                 if modified_time < cutoff_date {
                     fs::remove_file(entry.path())?;
-                    Logger::info(&format!("Removed old log file: {:?}", entry.path()));
+                    println!("Removed old log file: {:?}", entry.path());
                 }
             }
         }
@@ -453,12 +452,12 @@ impl UtilityScripts {
                 
                 if modified_time < cutoff_date {
                     fs::remove_file(entry.path())?;
-                    Logger::info(&format!("Removed old backup: {:?}", entry.path()));
+                    println!("Removed old backup: {:?}", entry.path());
                 }
             }
         }
         
-        Logger::info("Data cleanup completed");
+        println!("Data cleanup completed");
         Ok(())
     }
 }

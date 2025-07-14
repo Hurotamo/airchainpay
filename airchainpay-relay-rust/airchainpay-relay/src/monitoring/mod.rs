@@ -3,7 +3,6 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
-use crate::logger::Logger;
 use std::time::{Duration, Instant};
 use tokio::time::interval;
 
@@ -58,6 +57,7 @@ pub struct SystemMetrics {
     pub heap_used_bytes: u64,
     pub gc_collections: u64,
     pub gc_time_ms: u64,
+    pub uptime_seconds: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,6 +87,7 @@ pub struct AlertRule {
     pub enabled: bool,
 }
 
+#[derive(Debug)]
 pub struct MonitoringManager {
     metrics: Arc<RwLock<PrometheusMetrics>>,
     system_metrics: Arc<RwLock<SystemMetrics>>,
@@ -124,11 +125,11 @@ impl MonitoringManager {
         let mut metrics = system_metrics.write().await;
         
         // Update memory usage
-        if let Ok(memory_info) = sysinfo::System::new_all() {
-            metrics.memory_usage_bytes = memory_info.used_memory() * 1024; // Convert KB to bytes
-            metrics.cpu_usage_percent = memory_info.cpu_usage() as f64;
-            metrics.thread_count = memory_info.total_threads() as u64;
-        }
+        let mut memory_info = sysinfo::System::new_all();
+        memory_info.refresh_all();
+        metrics.memory_usage_bytes = memory_info.used_memory() * 1024; // Convert KB to bytes
+        metrics.cpu_usage_percent = memory_info.global_cpu_usage() as f64;
+        metrics.thread_count = memory_info.processes().len() as u64;
 
         // Update disk usage (simplified)
         metrics.disk_usage_percent = 0.0; // Would need more complex implementation
@@ -240,7 +241,7 @@ impl MonitoringManager {
             "network_errors" => metrics.network_errors = value,
             "blockchain_confirmations" => metrics.blockchain_confirmations = value,
             "blockchain_timeouts" => metrics.blockchain_timeouts = value,
-            _ => Logger::warn(&format!("Unknown metric: {}", metric_name)),
+            _ => println!("Unknown metric: {}", metric_name),
         }
         
         // Update uptime
@@ -282,7 +283,7 @@ impl MonitoringManager {
             "network_errors" => metrics.network_errors += 1,
             "blockchain_confirmations" => metrics.blockchain_confirmations += 1,
             "blockchain_timeouts" => metrics.blockchain_timeouts += 1,
-            _ => Logger::warn(&format!("Unknown metric: {}", metric_name)),
+            _ => println!("Unknown metric: {}", metric_name),
         }
         
         // Update uptime
@@ -367,7 +368,7 @@ impl MonitoringManager {
         alerts.push(alert.clone());
         
         // Log the alert
-        Logger::warn(&format!("Alert triggered: {} - {}", rule.name, alert.message));
+        println!("Alert triggered: {} - {}", rule.name, alert.message);
         
         // Send notification (in production, this would send to Slack, email, etc.)
         self.send_notification(&alert).await;
@@ -377,13 +378,13 @@ impl MonitoringManager {
         // In production, this would send to various notification channels
         match alert.severity {
             AlertSeverity::Critical => {
-                Logger::error(&format!("CRITICAL ALERT: {} - {}", alert.name, alert.message));
+                println!("CRITICAL ALERT: {} - {}", alert.name, alert.message);
             }
             AlertSeverity::Warning => {
-                Logger::warn(&format!("WARNING: {} - {}", alert.name, alert.message));
+                println!("WARNING: {} - {}", alert.name, alert.message);
             }
             AlertSeverity::Info => {
-                Logger::info(&format!("INFO: {} - {}", alert.name, alert.message));
+                println!("INFO: {} - {}", alert.name, alert.message);
             }
         }
     }
@@ -406,7 +407,7 @@ impl MonitoringManager {
         
         if let Some(alert) = alerts.iter_mut().find(|a| a.id == alert_id) {
             alert.resolved = true;
-            Logger::info(&format!("Alert resolved: {}", alert_id));
+            println!("Alert resolved: {}", alert_id);
         }
         
         Ok(())
@@ -533,6 +534,7 @@ impl Default for SystemMetrics {
             heap_used_bytes: 0,
             gc_collections: 0,
             gc_time_ms: 0,
+            uptime_seconds: 0.0,
         }
     }
 }

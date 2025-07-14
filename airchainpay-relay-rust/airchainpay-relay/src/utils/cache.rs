@@ -3,7 +3,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
-use crate::logger::Logger;
+// Remove logger import and replace with simple logging
+// use crate::logger::Logger;
 use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
@@ -363,7 +364,7 @@ impl CacheManager {
         }
 
         stats.warm_up_entries += warm_up_cache.len() as u64;
-        Logger::info(&format!("Warmed up cache with {} entries", warm_up_cache.len()));
+        println!("Warmed up cache with {} entries", warm_up_cache.len());
 
         Ok(())
     }
@@ -518,7 +519,7 @@ impl CacheManager {
         }
 
         stats.total_entries = stats.total_entries.saturating_sub(expired_count as u64);
-        Logger::debug(&format!("Cleaned up {} expired cache entries", expired_count));
+        println!("Cleaned up {} expired cache entries", expired_count);
     }
 
     async fn compress_data(&self, data: &serde_json::Value) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
@@ -573,7 +574,7 @@ impl CacheManager {
                 loop {
                     interval.tick().await;
                     // Perform warm-up operations here
-                    Logger::debug("Cache warm-up cycle completed");
+                    println!("Cache warm-up cycle completed");
                 }
             });
         }

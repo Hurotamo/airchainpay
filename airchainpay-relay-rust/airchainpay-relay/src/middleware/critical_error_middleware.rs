@@ -1,34 +1,34 @@
 use actix_web::{
-    dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
-    Error, HttpResponse, http::StatusCode,
+    Error, HttpResponse,
+    dev::{Service, Transform, ServiceRequest, ServiceResponse},
 };
-use futures_util::future::{LocalBoxFuture, Ready};
-use std::future::Future;
-use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::sync::Arc;
-use anyhow::Error as AnyhowError;
-use serde_json::json;
+use futures_util::future::{LocalBoxFuture, Ready};
+use actix_web::body::BoxBody;
+use std::marker::PhantomData;
+use crate::middleware::error_handling::{is_critical_endpoint, get_component_from_path};
+use crate::utils::error_handler::{EnhancedErrorHandler, ErrorRecord, ErrorType, ErrorSeverity, CriticalPath};
 use chrono::Utc;
-use crate::logger::Logger;
-use crate::utils::critical_error_handler::{CriticalErrorHandler, CriticalPath, CriticalError};
+use serde_json::json;
+use actix_service::forward_ready;
 
 pub struct CriticalErrorMiddleware {
-    critical_error_handler: Arc<CriticalErrorHandler>,
+    critical_error_handler: Arc<EnhancedErrorHandler>,
 }
 
 impl CriticalErrorMiddleware {
-    pub fn new(critical_error_handler: Arc<CriticalErrorHandler>) -> Self {
+    pub fn new(critical_error_handler: Arc<EnhancedErrorHandler>) -> Self {
         Self { critical_error_handler }
     }
 }
 
-impl<S, B> Transform<S, ServiceRequest> for CriticalErrorMiddleware
+impl<S> Transform<S, ServiceRequest> for CriticalErrorMiddleware
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
+    S: Service<ServiceRequest, Response = ServiceResponse<BoxBody>, Error = Error> + Clone + 'static,
     S::Future: 'static,
-    B: 'static,
 {
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<BoxBody>;
     type Error = Error;
     type Transform = CriticalErrorMiddlewareService<S>;
     type InitError = ();
@@ -38,22 +38,23 @@ where
         futures_util::future::ready(Ok(CriticalErrorMiddlewareService {
             service,
             critical_error_handler: Arc::clone(&self.critical_error_handler),
+            _phantom: PhantomData,
         }))
     }
 }
 
 pub struct CriticalErrorMiddlewareService<S> {
     service: S,
-    critical_error_handler: Arc<CriticalErrorHandler>,
+    critical_error_handler: Arc<EnhancedErrorHandler>,
+    _phantom: PhantomData<BoxBody>,
 }
 
-impl<S, B> Service<ServiceRequest> for CriticalErrorMiddlewareService<S>
+impl<S> Service<ServiceRequest> for CriticalErrorMiddlewareService<S>
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + Clone,
+    S: Service<ServiceRequest, Response = ServiceResponse<BoxBody>, Error = Error> + Clone + 'static,
     S::Future: 'static,
-    B: 'static,
 {
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<BoxBody>;
     type Error = Error;
     type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
 
@@ -64,113 +65,103 @@ where
         let service = self.service.clone();
         let path = req.path().to_string();
         let method = req.method().to_string();
-        let start_time = std::time::Instant::now();
 
         Box::pin(async move {
-            // Determine critical path based on request
-            let critical_path = determine_critical_path(&path, &method);
+            // Check if this is a critical endpoint
+            if is_critical_endpoint(&path) {
+                let component = get_component_from_path(&path);
+                let critical_path = match component.as_str() {
+                    "transaction" => CriticalPath::TransactionProcessing,
+                    "ble" => CriticalPath::BLEDeviceConnection,
+                    "authentication" => CriticalPath::Authentication,
+                    "health" => CriticalPath::HealthCheck,
+                    "metrics" => CriticalPath::MonitoringMetrics,
+                    "configuration" => CriticalPath::ConfigurationReload,
+                    "backup" => CriticalPath::BackupOperation,
+                    "audit" => CriticalPath::SecurityValidation,
+                    _ => CriticalPath::GeneralAPI,
+                };
+
+                // Check circuit breaker
+                if critical_error_handler.is_circuit_breaker_open(&critical_path).await {
+                    println!("Critical circuit breaker open for component: {}", component);
+                    return Ok(req.into_response(
+                        HttpResponse::ServiceUnavailable()
+                            .json(json!({
+                                "error": "Critical service temporarily unavailable",
+                                "message": "Critical circuit breaker is open",
+                                "component": component,
+                                "timestamp": Utc::now().to_rfc3339(),
+                                "retry_after": 300,
+                            }))
+                    ).map_into_boxed_body());
+                }
+            }
+
+            // Extract request information before calling service
+            let request_info = req.request().clone();
             
-            // Create context for error tracking
-            let mut context = std::collections::HashMap::new();
-            context.insert("path".to_string(), path.clone());
-            context.insert("method".to_string(), method.clone());
-            context.insert("user_agent".to_string(), 
-                req.headers().get("user-agent").and_then(|h| h.to_str().ok()).unwrap_or("unknown").to_string());
-            context.insert("client_ip".to_string(), 
-                req.connection_info().peer_addr().unwrap_or("unknown").to_string());
-
-            // Execute the service with critical error handling
-            let result = critical_error_handler.execute_critical_operation(
-                critical_path,
-                || async {
-                    service.call(req).await
-                },
-                context,
-            ).await;
-
-            match result {
+            // Execute the service normally
+            match service.call(req).await {
                 Ok(response) => {
-                    let duration = start_time.elapsed();
-                    Logger::info(&format!(
-                        "Critical request completed: {} {} - {}ms",
-                        method,
-                        path,
-                        duration.as_millis()
-                    ));
+                    println!("Critical request completed: {} {}", method, path);
                     Ok(response)
                 }
-                Err(critical_error) => {
-                    let duration = start_time.elapsed();
+                Err(error) => {
+                    let error_msg = error.to_string();
+                    println!("Critical error in {} {}: {}", method, path, error_msg);
                     
-                    // Log the critical error
-                    Logger::error(&format!(
-                        "CRITICAL ERROR in {} {}: {} ({}ms)",
-                        method,
-                        path,
-                        critical_error.error_message,
-                        duration.as_millis()
-                    ));
+                    // Record critical error
+                    let error_record = ErrorRecord {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        timestamp: Utc::now(),
+                        path: CriticalPath::GeneralAPI,
+                        error_type: ErrorType::CriticalSystemFailure,
+                        error_message: error_msg.clone(),
+                        context: {
+                            let mut context = std::collections::HashMap::new();
+                            context.insert("path".to_string(), path.clone());
+                            context.insert("method".to_string(), method.clone());
+                            context
+                        },
+                        severity: ErrorSeverity::Critical,
+                        retry_count: 0,
+                        max_retries: 0,
+                        resolved: false,
+                        resolution_time: None,
+                        stack_trace: None,
+                        user_id: None,
+                        device_id: None,
+                        transaction_id: None,
+                        chain_id: None,
+                        ip_address: None,
+                        component: get_component_from_path(&path),
+                    };
+                    let _ = critical_error_handler.record_error(error_record).await;
 
                     // Return appropriate error response based on critical error severity
-                    let error_response = match critical_error.severity {
-                        crate::utils::critical_error_handler::CriticalErrorSeverity::Fatal => {
-                            HttpResponse::InternalServerError()
-                                .json(json!({
-                                    "error": "Fatal system error",
-                                    "message": "A fatal error occurred in the system",
-                                    "timestamp": Utc::now().to_rfc3339(),
-                                    "request_id": critical_error.id,
-                                    "path": path,
-                                    "method": method,
-                                }))
-                        }
-                        crate::utils::critical_error_handler::CriticalErrorSeverity::Critical => {
+                    let error_response = match ErrorSeverity::Critical {
+                        ErrorSeverity::Critical => {
                             HttpResponse::InternalServerError()
                                 .json(json!({
                                     "error": "Critical system error",
-                                    "message": "A critical error occurred",
+                                    "message": "A critical system error occurred",
                                     "timestamp": Utc::now().to_rfc3339(),
-                                    "request_id": critical_error.id,
-                                    "path": path,
-                                    "method": method,
+                                    "request_id": uuid::Uuid::new_v4().to_string(),
                                 }))
                         }
-                        crate::utils::critical_error_handler::CriticalErrorSeverity::High => {
+                        _ => {
                             HttpResponse::InternalServerError()
                                 .json(json!({
-                                    "error": "High severity error",
-                                    "message": "A high severity error occurred",
+                                    "error": "System error",
+                                    "message": "A system error occurred",
                                     "timestamp": Utc::now().to_rfc3339(),
-                                    "request_id": critical_error.id,
-                                    "path": path,
-                                    "method": method,
-                                }))
-                        }
-                        crate::utils::critical_error_handler::CriticalErrorSeverity::Medium => {
-                            HttpResponse::BadRequest()
-                                .json(json!({
-                                    "error": "Medium severity error",
-                                    "message": "A medium severity error occurred",
-                                    "timestamp": Utc::now().to_rfc3339(),
-                                    "request_id": critical_error.id,
-                                    "path": path,
-                                    "method": method,
-                                }))
-                        }
-                        crate::utils::critical_error_handler::CriticalErrorSeverity::Low => {
-                            HttpResponse::BadRequest()
-                                .json(json!({
-                                    "error": "Low severity error",
-                                    "message": "A low severity error occurred",
-                                    "timestamp": Utc::now().to_rfc3339(),
-                                    "request_id": critical_error.id,
-                                    "path": path,
-                                    "method": method,
+                                    "request_id": uuid::Uuid::new_v4().to_string(),
                                 }))
                         }
                     };
 
-                    Ok(req.into_response(error_response).map_into_boxed_body())
+                    Ok(ServiceResponse::new(request_info, error_response.map_into_boxed_body()))
                 }
             }
         })
@@ -185,6 +176,7 @@ where
         Self {
             service: self.service.clone(),
             critical_error_handler: Arc::clone(&self.critical_error_handler),
+            _phantom: PhantomData,
         }
     }
 }
@@ -215,8 +207,8 @@ fn determine_critical_path(path: &str, method: &str) -> CriticalPath {
 }
 
 /// Global critical error handler for unhandled critical errors
-pub async fn global_critical_error_handler(error: CriticalError) -> HttpResponse {
-    Logger::error(&format!("Unhandled critical error: {:?} - {}", error.path, error.error_message));
+pub async fn global_critical_error_handler(error: ErrorRecord) -> HttpResponse {
+    println!("Unhandled critical error: {:?} - {}", error.path, error.error_message);
 
     // In production, don't expose internal error details
     let is_development = std::env::var("RUST_ENV").unwrap_or_else(|_| "development".to_string()) == "development";

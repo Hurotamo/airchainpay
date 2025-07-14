@@ -1,36 +1,39 @@
 use actix_web::{
-    dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
-    Error, HttpResponse, http::StatusCode,
+    Error, HttpResponse,
+    dev::{Service, Transform, ServiceRequest, ServiceResponse},
+    web,
 };
-use futures_util::future::{LocalBoxFuture, Ready};
-use std::future::Future;
-use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::sync::Arc;
-use anyhow::Error as AnyhowError;
+use crate::utils::error_handler::{ErrorType, ErrorSeverity, ErrorRecord, EnhancedErrorHandler};
+use crate::utils::error_handler::CriticalPath;
+use futures_util::future::{LocalBoxFuture, Ready, ready};
 use serde_json::json;
 use chrono::Utc;
-use crate::logger::Logger;
-use crate::utils::error_handler::{ErrorHandler, ErrorCategory, ErrorSeverity};
+use actix_web::body::BoxBody;
+use std::marker::PhantomData;
+use actix_web::body::MessageBody;
+use actix_service::forward_ready;
 
 pub struct ErrorHandlingMiddleware {
-    error_handler: Arc<ErrorHandler>,
+    error_handler: Arc<EnhancedErrorHandler>,
 }
 
 impl ErrorHandlingMiddleware {
-    pub fn new(error_handler: Arc<ErrorHandler>) -> Self {
+    pub fn new(error_handler: Arc<EnhancedErrorHandler>) -> Self {
         Self { error_handler }
     }
 }
 
 impl<S, B> Transform<S, ServiceRequest> for ErrorHandlingMiddleware
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + Clone + 'static,
     S::Future: 'static,
-    B: 'static,
+    B: MessageBody + 'static,
 {
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<BoxBody>;
     type Error = Error;
-    type Transform = ErrorHandlingMiddlewareService<S>;
+    type Transform = ErrorHandlingMiddlewareService<S, B>;
     type InitError = ();
     type Future = Ready<Result<Self::Transform, Self::InitError>>;
 
@@ -38,22 +41,24 @@ where
         futures_util::future::ready(Ok(ErrorHandlingMiddlewareService {
             service,
             error_handler: Arc::clone(&self.error_handler),
+            _phantom: PhantomData,
         }))
     }
 }
 
-pub struct ErrorHandlingMiddlewareService<S> {
+pub struct ErrorHandlingMiddlewareService<S, B> {
     service: S,
-    error_handler: Arc<ErrorHandler>,
+    error_handler: Arc<EnhancedErrorHandler>,
+    _phantom: PhantomData<B>,
 }
 
-impl<S, B> Service<ServiceRequest> for ErrorHandlingMiddlewareService<S>
+impl<S, B> Service<ServiceRequest> for ErrorHandlingMiddlewareService<S, B>
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + Clone,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + Clone + 'static,
     S::Future: 'static,
-    B: 'static,
+    B: MessageBody + 'static,
 {
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<BoxBody>;
     type Error = Error;
     type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
 
@@ -70,40 +75,47 @@ where
             // Check circuit breaker for critical endpoints
             if is_critical_endpoint(&path) {
                 let component = get_component_from_path(&path);
-                if error_handler.is_circuit_breaker_open(&component).await {
-                    Logger::warn(&format!("Circuit breaker open for component: {}", component));
-                    return Ok(req.into_response(
-                        HttpResponse::ServiceUnavailable()
+                let critical_path = match component.as_str() {
+                    "transaction" => CriticalPath::TransactionProcessing,
+                    "ble" => CriticalPath::BLEDeviceConnection,
+                    "authentication" => CriticalPath::Authentication,
+                    "health" => CriticalPath::HealthCheck,
+                    "metrics" => CriticalPath::MonitoringMetrics,
+                    "configuration" => CriticalPath::ConfigurationReload,
+                    "backup" => CriticalPath::BackupOperation,
+                    "audit" => CriticalPath::SecurityValidation,
+                    _ => CriticalPath::TransactionProcessing,
+                };
+                if error_handler.is_circuit_breaker_open(&critical_path).await {
+                    println!("Circuit breaker open for component: {}", component);
+                    return Ok(ServiceResponse::new(req.request().clone(), HttpResponse::ServiceUnavailable()
                             .json(json!({
                                 "error": "Service temporarily unavailable",
                                 "message": "Circuit breaker is open",
                                 "component": component,
                                 "timestamp": Utc::now().to_rfc3339(),
                                 "retry_after": 60,
-                            }))
-                    ).map_into_boxed_body());
+                            })).map_into_boxed_body()));
                 }
             }
 
+            // Extract request information before calling service
+            let request_info = req.request().clone();
+            
             // Execute the service with error handling
             match service.call(req).await {
                 Ok(response) => {
                     let duration = start_time.elapsed();
-                    Logger::info(&format!(
-                        "Request completed: {} {} - {}ms",
-                        method,
-                        path,
-                        duration.as_millis()
-                    ));
-                    Ok(response)
+                    println!("Request completed: {} {} - {}ms", method, path, duration.as_millis());
+                    Ok(response.map_into_boxed_body())
                 }
                 Err(error) => {
                     let duration = start_time.elapsed();
                     let error_msg = error.to_string();
                     
                     // Categorize and record the error
-                    let category = ErrorHandler::categorize_error(&AnyhowError::msg(error_msg.clone()));
-                    let severity = ErrorHandler::determine_severity(&AnyhowError::msg(error_msg.clone()), &path);
+                    let severity = ErrorSeverity::High;
+                    let category = ErrorType::Unknown;
                     
                     let mut context = std::collections::HashMap::new();
                     context.insert("path".to_string(), path.clone());
@@ -111,18 +123,32 @@ where
                     context.insert("duration_ms".to_string(), duration.as_millis().to_string());
                     
                     // Record error in error handler
-                    let _ = error_handler.record_error(
-                        &AnyhowError::msg(error_msg.clone()),
-                        category,
-                        severity,
-                        &get_component_from_path(&path),
-                        context,
-                    ).await;
+                    let error_record = ErrorRecord {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        timestamp: Utc::now(),
+                        path: CriticalPath::TransactionProcessing,
+                        error_type: category,
+                        error_message: error_msg.clone(),
+                        context: context.clone(),
+                        severity: severity.clone(),
+                        retry_count: 0,
+                        max_retries: 0,
+                        resolved: false,
+                        resolution_time: None,
+                        stack_trace: None,
+                        user_id: None,
+                        device_id: None,
+                        transaction_id: None,
+                        chain_id: None,
+                        ip_address: None,
+                        component: get_component_from_path(&path),
+                    };
+                    let _ = error_handler.record_error(error_record).await;
 
                     // Return appropriate error response based on severity
                     let error_response = match severity {
                         ErrorSeverity::Critical => {
-                            Logger::error(&format!("CRITICAL ERROR in {} {}: {}", method, path, error_msg));
+                            println!("CRITICAL ERROR in {} {}: {}", method, path, error_msg);
                             HttpResponse::InternalServerError()
                                 .json(json!({
                                     "error": "Internal server error",
@@ -132,7 +158,7 @@ where
                                 }))
                         }
                         ErrorSeverity::High => {
-                            Logger::error(&format!("HIGH SEVERITY ERROR in {} {}: {}", method, path, error_msg));
+                            println!("HIGH SEVERITY ERROR in {} {}: {}", method, path, error_msg);
                             HttpResponse::InternalServerError()
                                 .json(json!({
                                     "error": "Service error",
@@ -142,7 +168,7 @@ where
                                 }))
                         }
                         ErrorSeverity::Medium => {
-                            Logger::warn(&format!("MEDIUM SEVERITY ERROR in {} {}: {}", method, path, error_msg));
+                            println!("MEDIUM SEVERITY ERROR in {} {}: {}", method, path, error_msg);
                             HttpResponse::BadRequest()
                                 .json(json!({
                                     "error": "Request error",
@@ -152,7 +178,7 @@ where
                                 }))
                         }
                         ErrorSeverity::Low => {
-                            Logger::info(&format!("LOW SEVERITY ERROR in {} {}: {}", method, path, error_msg));
+                            println!("LOW SEVERITY ERROR in {} {}: {}", method, path, error_msg);
                             HttpResponse::BadRequest()
                                 .json(json!({
                                     "error": "Request error",
@@ -161,16 +187,26 @@ where
                                     "request_id": uuid::Uuid::new_v4().to_string(),
                                 }))
                         }
+                        ErrorSeverity::Fatal => {
+                            println!("FATAL ERROR in {} {}: {}", method, path, error_msg);
+                            HttpResponse::InternalServerError()
+                                .json(json!({
+                                    "error": "Fatal error occurred",
+                                    "message": "A fatal error occurred",
+                                    "timestamp": Utc::now().to_rfc3339(),
+                                    "request_id": uuid::Uuid::new_v4().to_string(),
+                                }))
+                        }
                     };
 
-                    Ok(req.into_response(error_response).map_into_boxed_body())
+                    Ok(ServiceResponse::new(request_info, error_response.map_into_boxed_body()))
                 }
             }
         })
     }
 }
 
-impl<S> Clone for ErrorHandlingMiddlewareService<S>
+impl<S, B> Clone for ErrorHandlingMiddlewareService<S, B>
 where
     S: Clone,
 {
@@ -178,12 +214,13 @@ where
         Self {
             service: self.service.clone(),
             error_handler: Arc::clone(&self.error_handler),
+            _phantom: PhantomData,
         }
     }
 }
 
 /// Check if an endpoint is critical and needs circuit breaker protection
-fn is_critical_endpoint(path: &str) -> bool {
+pub fn is_critical_endpoint(path: &str) -> bool {
     let critical_paths = [
         "/transaction/submit",
         "/transaction/send_tx",
@@ -201,7 +238,7 @@ fn is_critical_endpoint(path: &str) -> bool {
 }
 
 /// Extract component name from path for circuit breaker
-fn get_component_from_path(path: &str) -> String {
+pub fn get_component_from_path(path: &str) -> String {
     if path.starts_with("/transaction") {
         "transaction".to_string()
     } else if path.starts_with("/compressed") {
@@ -228,7 +265,7 @@ fn get_component_from_path(path: &str) -> String {
 /// Global error handler for unhandled errors
 pub async fn global_error_handler(error: Error) -> HttpResponse {
     let error_msg = error.to_string();
-    Logger::error(&format!("Unhandled error: {}", error_msg));
+    println!("Unhandled error: {}", error_msg);
 
     // In production, don't expose internal error details
     let is_development = std::env::var("RUST_ENV").unwrap_or_else(|_| "development".to_string()) == "development";
@@ -332,7 +369,7 @@ pub mod error_utils {
     pub async fn handle_blockchain_error<T>(
         result: Result<T, anyhow::Error>,
         operation: &str,
-        error_handler: &Arc<ErrorHandler>,
+        error_handler: &Arc<EnhancedErrorHandler>,
     ) -> Result<T, HttpResponse> {
         match result {
             Ok(value) => Ok(value),
@@ -341,11 +378,11 @@ pub mod error_utils {
                 
                 // Categorize blockchain errors
                 let category = if error_msg.contains("network") || error_msg.contains("connection") {
-                    ErrorCategory::Network
+                    ErrorType::Network
                 } else if error_msg.contains("gas") || error_msg.contains("nonce") {
-                    ErrorCategory::Blockchain
+                    ErrorType::Blockchain
                 } else {
-                    ErrorCategory::Blockchain
+                    ErrorType::Blockchain
                 };
 
                 let severity = if error_msg.contains("timeout") || error_msg.contains("connection refused") {
@@ -359,13 +396,27 @@ pub mod error_utils {
                 context.insert("error_type".to_string(), "blockchain".to_string());
 
                 // Record error
-                let _ = error_handler.record_error(
-                    &error,
-                    category,
-                    severity,
-                    "blockchain",
-                    context,
-                ).await;
+                let error_record = ErrorRecord {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    timestamp: Utc::now(),
+                    path: CriticalPath::TransactionProcessing,
+                    error_type: category,
+                    error_message: error_msg.clone(),
+                    context: context.clone(),
+                    severity: severity.clone(),
+                    retry_count: 0,
+                    max_retries: 0,
+                    resolved: false,
+                    resolution_time: None,
+                    stack_trace: None,
+                    user_id: None,
+                    device_id: None,
+                    transaction_id: None,
+                    chain_id: None,
+                    ip_address: None,
+                    component: "blockchain".to_string(),
+                };
+                let _ = error_handler.record_error(error_record).await;
 
                 Err(ErrorResponseBuilder::internal_server_error(&format!(
                     "Blockchain operation failed: {}",
@@ -379,7 +430,7 @@ pub mod error_utils {
     pub async fn handle_ble_error<T>(
         result: Result<T, anyhow::Error>,
         operation: &str,
-        error_handler: &Arc<ErrorHandler>,
+        error_handler: &Arc<EnhancedErrorHandler>,
     ) -> Result<T, HttpResponse> {
         match result {
             Ok(value) => Ok(value),
@@ -387,9 +438,9 @@ pub mod error_utils {
                 let error_msg = error.to_string();
                 
                 let category = if error_msg.contains("connection") || error_msg.contains("scan") {
-                    ErrorCategory::Network
+                    ErrorType::Network
                 } else {
-                    ErrorCategory::System
+                    ErrorType::System
                 };
 
                 let severity = if error_msg.contains("hardware") || error_msg.contains("permission") {
@@ -403,13 +454,27 @@ pub mod error_utils {
                 context.insert("error_type".to_string(), "ble".to_string());
 
                 // Record error
-                let _ = error_handler.record_error(
-                    &error,
-                    category,
-                    severity,
-                    "ble",
-                    context,
-                ).await;
+                let error_record = ErrorRecord {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    timestamp: Utc::now(),
+                    path: CriticalPath::TransactionProcessing,
+                    error_type: category,
+                    error_message: error_msg.clone(),
+                    context: context.clone(),
+                    severity: severity.clone(),
+                    retry_count: 0,
+                    max_retries: 0,
+                    resolved: false,
+                    resolution_time: None,
+                    stack_trace: None,
+                    user_id: None,
+                    device_id: None,
+                    transaction_id: None,
+                    chain_id: None,
+                    ip_address: None,
+                    component: "ble".to_string(),
+                };
+                let _ = error_handler.record_error(error_record).await;
 
                 Err(ErrorResponseBuilder::internal_server_error(&format!(
                     "BLE operation failed: {}",
@@ -423,7 +488,7 @@ pub mod error_utils {
     pub async fn handle_storage_error<T>(
         result: Result<T, anyhow::Error>,
         operation: &str,
-        error_handler: &Arc<ErrorHandler>,
+        error_handler: &Arc<EnhancedErrorHandler>,
     ) -> Result<T, HttpResponse> {
         match result {
             Ok(value) => Ok(value),
@@ -431,9 +496,9 @@ pub mod error_utils {
                 let error_msg = error.to_string();
                 
                 let category = if error_msg.contains("disk") || error_msg.contains("space") {
-                    ErrorCategory::System
+                    ErrorType::System
                 } else {
-                    ErrorCategory::Database
+                    ErrorType::Database
                 };
 
                 let severity = if error_msg.contains("disk full") || error_msg.contains("permission denied") {
@@ -449,13 +514,27 @@ pub mod error_utils {
                 context.insert("error_type".to_string(), "storage".to_string());
 
                 // Record error
-                let _ = error_handler.record_error(
-                    &error,
-                    category,
-                    severity,
-                    "storage",
-                    context,
-                ).await;
+                let error_record = ErrorRecord {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    timestamp: Utc::now(),
+                    path: CriticalPath::TransactionProcessing,
+                    error_type: category,
+                    error_message: error_msg.clone(),
+                    context: context.clone(),
+                    severity: severity.clone(),
+                    retry_count: 0,
+                    max_retries: 0,
+                    resolved: false,
+                    resolution_time: None,
+                    stack_trace: None,
+                    user_id: None,
+                    device_id: None,
+                    transaction_id: None,
+                    chain_id: None,
+                    ip_address: None,
+                    component: "storage".to_string(),
+                };
+                let _ = error_handler.record_error(error_record).await;
 
                 Err(ErrorResponseBuilder::internal_server_error(&format!(
                     "Storage operation failed: {}",

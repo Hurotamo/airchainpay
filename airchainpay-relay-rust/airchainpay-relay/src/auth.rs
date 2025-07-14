@@ -1,9 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use chrono::{DateTime, Utc, Duration};
-use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey};
+use jsonwebtoken::{encode, decode, Header, Validation, EncodingKey, DecodingKey};
+use chrono::{Utc, Duration};
 use rand::Rng;
-use crate::logger::Logger;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthRequest {
@@ -53,7 +52,7 @@ impl AuthManager {
     pub fn get_or_generate_jwt_secret() -> String {
         std::env::var("JWT_SECRET").unwrap_or_else(|_| {
             let secret = Self::generate_jwt_secret();
-            Logger::warn(&format!("JWT_SECRET not found in environment, generated new secret: {}", secret));
+            println!("JWT_SECRET not found in environment, generated new secret: {}", secret);
             secret
         })
     }
@@ -78,7 +77,7 @@ impl AuthManager {
         ) {
             Ok(token) => token,
             Err(e) => {
-                Logger::error(&format!("Failed to generate JWT token: {}", e));
+                println!("Failed to generate JWT token: {}", e);
                 String::new()
             }
         }
@@ -142,7 +141,7 @@ impl AuthManager {
     pub fn get_or_generate_api_key() -> String {
         std::env::var("API_KEY").unwrap_or_else(|_| {
             let api_key = Self::generate_api_key();
-            Logger::warn(&format!("API_KEY not found in environment, generated new key: {}", api_key));
+            println!("API_KEY not found in environment, generated new key: {}", api_key);
             api_key
         })
     }
@@ -215,7 +214,7 @@ impl AuthManager {
     pub fn revoke_device_token(&self, device_id: &str) -> Result<(), Box<dyn std::error::Error>> {
         // In a real implementation, you would add the token to a blacklist
         // For now, we just log the revocation
-        Logger::info(&format!("Token revoked for device: {}", device_id));
+        println!("Token revoked for device: {}", device_id);
         Ok(())
     }
 

@@ -1,6 +1,5 @@
 use crate::ble::manager::BLEManager;
 use crate::blockchain::BlockchainManager;
-use crate::logger::Logger;
 use crate::storage::Storage;
 use crate::processors::TransactionProcessor;
 use anyhow::Result;
@@ -127,7 +126,7 @@ pub struct Scheduler {
     tasks: Arc<RwLock<HashMap<String, ScheduledTask>>>,
     queue: Arc<Mutex<TaskQueue>>,
     running: Arc<RwLock<bool>>,
-    task_handlers: Arc<RwLock<HashMap<TaskType, Box<dyn TaskHandler + Send + Sync>>>>,
+    task_handlers: Arc<RwLock<HashMap<TaskType, Arc<dyn TaskHandler + Send + Sync>>>>,
 }
 
 pub trait TaskHandler {
@@ -154,7 +153,7 @@ impl Scheduler {
         *running = true;
         drop(running);
 
-        Logger::info("Starting AirChainPay Relay Scheduler");
+        println!("Starting AirChainPay Relay Scheduler");
 
         // Start the main scheduler loop
         let scheduler_clone = self.clone();
@@ -168,7 +167,7 @@ impl Scheduler {
     pub async fn stop(&self) -> Result<(), Box<dyn std::error::Error>> {
         let mut running = self.running.write().await;
         *running = false;
-        Logger::info("Stopping AirChainPay Relay Scheduler");
+        println!("Stopping AirChainPay Relay Scheduler");
         Ok(())
     }
 
@@ -186,14 +185,14 @@ impl Scheduler {
             queue.add_task(task);
         }
 
-        Logger::info(&format!("Added task: {} ({})", task_name, task_id));
+        println!("Added task: {} ({})", task_name, task_id);
         Ok(())
     }
 
     pub async fn remove_task(&self, task_id: &str) -> Result<(), Box<dyn std::error::Error>> {
         let mut tasks = self.tasks.write().await;
         tasks.remove(task_id);
-        Logger::info(&format!("Removed task: {}", task_id));
+        println!("Removed task: {}", task_id);
         Ok(())
     }
 
@@ -215,7 +214,7 @@ impl Scheduler {
         Ok(())
     }
 
-    pub async fn register_task_handler(&self, task_type: TaskType, handler: Box<dyn TaskHandler + Send + Sync>) {
+    pub async fn register_task_handler(&self, task_type: TaskType, handler: Arc<dyn TaskHandler + Send + Sync>) {
         let mut handlers = self.task_handlers.write().await;
         handlers.insert(task_type, handler);
     }
@@ -271,78 +270,55 @@ impl Scheduler {
 
     async fn process_task_queue(&self) {
         let mut queue = self.queue.lock().await;
-        let handlers = self.task_handlers.read().await;
-
         // Process up to max_concurrent_tasks
         let mut processed = 0;
         while processed < self.config.max_concurrent_tasks {
             if let Some(task) = queue.get_next_task() {
-                // Check if we have a handler for this task type
-                if let Some(handler) = handlers.get(&task.task_type) {
-                    let task_id = task.id.clone();
-                    let task_name = task.name.clone();
-                    let task_clone = task.clone();
+                // Clone the task before spawning
+                let task_clone = task.clone();
+                let task_name = task.name.clone();
+                let task_type = task.task_type.clone();
+                
+                // Spawn the task execution
+                let scheduler_clone = self.clone();
+                let task_type_clone = task_type.clone();
+                tokio::spawn(async move {
+                    // Get handler reference inside the spawned task
+                    let handler_opt = {
+                        let handlers = scheduler_clone.task_handlers.read().await;
+                        handlers.get(&task_type_clone).cloned()
+                    };
                     
-                    // Mark task as running
-                    queue.mark_task_running(&task_id);
-
-                    // Clone the handler before spawning
-                    let handler_clone = handler.clone();
-                    let scheduler_clone = self.clone();
-                    
-                    tokio::spawn(async move {
+                    if let Some(handler) = handler_opt {
                         let start_time = Instant::now();
                         let mut retry_count = 0;
                         let mut success = false;
-                        let mut error_message = None;
-
-                        while retry_count <= task_clone.max_retries {
-                            match handler_clone.execute(&task_clone) {
+                        while retry_count <= task_clone.max_retries && !success {
+                            match handler.execute(&task_clone) {
                                 Ok(_) => {
                                     success = true;
-                                    break;
                                 }
                                 Err(e) => {
-                                    error_message = Some(e.to_string());
                                     retry_count += 1;
-                                    
+                                    println!("Task {} failed: {}", task_name, e);
                                     if retry_count <= task_clone.max_retries {
-                                        Logger::warn(&format!("Task {} failed, retrying ({}/{})", 
-                                            task_name, retry_count, task_clone.max_retries));
+                                        println!("Task {} failed, retrying ({}/{})", task_name, retry_count, task_clone.max_retries);
                                         sleep(task_clone.retry_delay).await;
                                     }
                                 }
                             }
                         }
-
-                        let duration = start_time.elapsed().as_millis() as u64;
-                        
-                        // Record result
-                        let result = TaskResult {
-                            task_id: task_id.clone(),
-                            success,
-                            duration_ms: duration,
-                            error_message,
-                            timestamp: Utc::now(),
-                            retry_count,
-                        };
-
-                        // Update queue
-                        let mut queue = scheduler_clone.queue.lock().await;
-                        queue.mark_task_completed(&task_id);
-                        queue.add_completed_task(result);
-
+                        let duration = start_time.elapsed();
                         if success {
-                            Logger::info(&format!("Task {} completed successfully in {}ms", task_name, duration));
+                            println!("Task {} completed successfully in {}ms", task_name, duration.as_millis());
                         } else {
-                            Logger::error(&format!("Task {} failed after {} retries", task_name, retry_count));
+                            println!("Task {} failed after {} retries", task_name, retry_count);
                         }
-                    });
-
-                    processed += 1;
-                } else {
-                    Logger::warn(&format!("No handler found for task type: {:?}", task.task_type));
-                }
+                    } else {
+                        println!("No handler found for task type: {:?}", task_type);
+                    }
+                });
+                processed += 1;
             } else {
                 break;
             }
@@ -475,7 +451,7 @@ impl Eq for ScheduledTask {}
 pub struct BackupTaskHandler;
 impl TaskHandler for BackupTaskHandler {
     fn execute(&self, task: &ScheduledTask) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        Logger::info(&format!("Executing backup task: {}", task.name));
+        println!("Executing backup task: {}", task.name);
         // Implement backup logic here
         Ok(())
     }
@@ -488,7 +464,7 @@ impl TaskHandler for BackupTaskHandler {
 pub struct CleanupTaskHandler;
 impl TaskHandler for CleanupTaskHandler {
     fn execute(&self, task: &ScheduledTask) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        Logger::info(&format!("Executing cleanup task: {}", task.name));
+        println!("Executing cleanup task: {}", task.name);
         // Implement cleanup logic here
         Ok(())
     }
@@ -501,7 +477,7 @@ impl TaskHandler for CleanupTaskHandler {
 pub struct HealthCheckTaskHandler;
 impl TaskHandler for HealthCheckTaskHandler {
     fn execute(&self, task: &ScheduledTask) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        Logger::info(&format!("Executing health check task: {}", task.name));
+        println!("Executing health check task: {}", task.name);
         // Implement health check logic here
         Ok(())
     }
@@ -514,7 +490,7 @@ impl TaskHandler for HealthCheckTaskHandler {
 pub struct MetricsCollectionTaskHandler;
 impl TaskHandler for MetricsCollectionTaskHandler {
     fn execute(&self, task: &ScheduledTask) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        Logger::info(&format!("Executing metrics collection task: {}", task.name));
+        println!("Executing metrics collection task: {}", task.name);
         // Implement metrics collection logic here
         Ok(())
     }

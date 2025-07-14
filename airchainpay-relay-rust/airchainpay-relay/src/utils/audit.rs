@@ -4,7 +4,8 @@ use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
-use crate::logger::Logger;
+// Remove logger import and replace with simple logging
+// use crate::logger::Logger;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,10 +158,10 @@ impl AuditLogger {
 
         // Log to console based on severity
         match event.severity {
-            AuditSeverity::Critical => Logger::error(&format!("🚨 AUDIT CRITICAL: {} - {}", event.action, event.resource)),
-            AuditSeverity::High => Logger::warn(&format!("⚠️ AUDIT HIGH: {} - {}", event.action, event.resource)),
-            AuditSeverity::Medium => Logger::info(&format!("ℹ️ AUDIT MEDIUM: {} - {}", event.action, event.resource)),
-            AuditSeverity::Low => Logger::debug(&format!("🔍 AUDIT LOW: {} - {}", event.action, event.resource)),
+            AuditSeverity::Critical => println!("🚨 AUDIT CRITICAL: {} - {}", event.action, event.resource),
+            AuditSeverity::High => println!("⚠️ AUDIT HIGH: {} - {}", event.action, event.resource),
+            AuditSeverity::Medium => println!("ℹ️ AUDIT MEDIUM: {} - {}", event.action, event.resource),
+            AuditSeverity::Low => println!("🔍 AUDIT LOW: {} - {}", event.action, event.resource),
         }
 
         Ok(())

@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc, Duration};
 use tokio::sync::RwLock;
 use std::sync::Arc;
-use crate::logger::Logger;
+// Remove logger import and replace with simple logging
+// use crate::logger::Logger;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CleanupConfig {
@@ -64,11 +65,11 @@ impl CleanupManager {
 
     pub async fn run_cleanup(&self) -> Result<CleanupStats, Box<dyn std::error::Error>> {
         if !self.config.enabled {
-            Logger::info("Cleanup is disabled");
+            println!("Cleanup is disabled");
             return Ok(self.stats.read().await.clone());
         }
 
-        Logger::info("Starting data cleanup process");
+        println!("Starting data cleanup process");
 
         let mut stats = self.stats.write().await;
         stats.last_cleanup = Some(Utc::now());
@@ -84,7 +85,7 @@ impl CleanupManager {
                 }
                 Err(e) => {
                     let error_msg = format!("Failed to cleanup {:?}: {}", cleanup_type, e);
-                    Logger::error(&error_msg);
+                    println!("{}", error_msg);
                     stats.errors.push(error_msg);
                 }
             }
@@ -93,8 +94,8 @@ impl CleanupManager {
         // Calculate total size freed
         stats.total_size_freed = self.calculate_freed_size().await?;
 
-        Logger::info(&format!("Cleanup completed: {} items cleaned, {} bytes freed", 
-            stats.total_items_cleaned, stats.total_size_freed));
+        println!("Cleanup completed: {} items cleaned, {} bytes freed", 
+            stats.total_items_cleaned, stats.total_size_freed);
 
         Ok(stats.clone())
     }
@@ -132,7 +133,7 @@ impl CleanupManager {
         };
 
         if self.config.log_cleanup_actions {
-            Logger::info(&format!("Cleaned up {} {:?} items", cleaned_count, cleanup_type));
+            println!("Cleaned up {} {:?} items", cleaned_count, cleanup_type);
         }
 
         Ok(cleaned_count)

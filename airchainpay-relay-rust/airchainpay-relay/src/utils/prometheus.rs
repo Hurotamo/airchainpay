@@ -3,7 +3,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
-use crate::logger::Logger;
+// Remove logger import and replace with simple logging
+// use crate::logger::Logger;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrometheusMetric {
@@ -84,7 +85,7 @@ impl PrometheusExporter {
             "auth_failures_total" => metrics.auth_failures_total += value,
             "rate_limit_hits_total" => metrics.rate_limit_hits_total += value,
             "blocked_devices_total" => metrics.blocked_devices_total += value,
-            _ => Logger::warn(&format!("Unknown metric: {}", metric_name)),
+            _ => println!("Unknown metric: {}", metric_name),
         }
     }
 
@@ -101,7 +102,7 @@ impl PrometheusExporter {
             "disk_usage_bytes" => metrics.disk_usage_bytes = value as u64,
             "network_bytes_received" => metrics.network_bytes_received = value as u64,
             "network_bytes_sent" => metrics.network_bytes_sent = value as u64,
-            _ => Logger::warn(&format!("Unknown gauge metric: {}", metric_name)),
+            _ => println!("Unknown gauge metric: {}", metric_name),
         }
     }
 
@@ -116,7 +117,7 @@ impl PrometheusExporter {
                     metrics.request_duration_seconds.remove(0);
                 }
             }
-            _ => Logger::warn(&format!("Unknown histogram metric: {}", metric_name)),
+            _ => println!("Unknown histogram metric: {}", metric_name),
         }
     }
 
@@ -295,16 +296,14 @@ impl PrometheusExporter {
         metrics.uptime_seconds = (Utc::now() - self.start_time).num_seconds() as f64;
         
         // Update memory usage (simplified)
-        if let Ok(mut sys) = sysinfo::System::new_all() {
-            sys.refresh_memory();
-            metrics.memory_usage_bytes = sys.used_memory() * 1024; // Convert KB to bytes
-        }
+        let mut sys = sysinfo::System::new_all();
+        sys.refresh_memory();
+        metrics.memory_usage_bytes = sys.used_memory() * 1024; // Convert KB to bytes
         
         // Update CPU usage (simplified)
-        if let Ok(mut sys) = sysinfo::System::new_all() {
-            sys.refresh_cpu();
-            metrics.cpu_usage_percent = sys.global_cpu_info().cpu_usage() as f64;
-        }
+        let mut sys = sysinfo::System::new_all();
+        sys.refresh_cpu_all();
+        metrics.cpu_usage_percent = sys.global_cpu_usage() as f64;
     }
 
     pub async fn get_metrics_summary(&self) -> HashMap<String, serde_json::Value> {

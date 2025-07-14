@@ -1,15 +1,16 @@
 use actix_web::{
-    dev::{Service, ServiceRequest, ServiceResponse, Transform},
-    Error, HttpResponse,
+    dev::{Service, Transform},
+    Error,
 };
-use futures::future::{ready, Ready};
-use std::future::Future;
-use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::sync::RwLock;
-use actix_web::dev::EitherBody;
+use std::time::Instant;
+use futures_util::future::{LocalBoxFuture, Ready};
+use actix_web::body::BoxBody;
+use actix_web::dev::{ServiceRequest, ServiceResponse};
+use futures_util::future::ready;
 use crate::monitoring::MonitoringManager;
+use std::marker::PhantomData;
 
 pub struct MetricsMiddleware {
     monitoring_manager: Arc<MonitoringManager>,
@@ -21,13 +22,12 @@ impl MetricsMiddleware {
     }
 }
 
-impl<S, B> Transform<S, ServiceRequest> for MetricsMiddleware
+impl<S> Transform<S, actix_web::dev::ServiceRequest> for MetricsMiddleware
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static + Clone,
+    S: Service<actix_web::dev::ServiceRequest, Response = actix_web::dev::ServiceResponse<BoxBody>, Error = Error> + Clone + 'static,
     S::Future: 'static,
-    B: 'static,
 {
-    type Response = ServiceResponse<EitherBody<B, actix_web::body::BoxBody>>;
+    type Response = actix_web::dev::ServiceResponse<BoxBody>;
     type Error = Error;
     type Transform = MetricsService<S>;
     type InitError = ();
@@ -35,33 +35,34 @@ where
 
     fn new_transform(&self, service: S) -> Self::Future {
         ready(Ok(MetricsService {
-            service: Arc::new(service),
+            service,
             monitoring_manager: Arc::clone(&self.monitoring_manager),
+            _phantom: PhantomData,
         }))
     }
 }
 
 pub struct MetricsService<S> {
-    service: Arc<S>,
+    service: S,
     monitoring_manager: Arc<MonitoringManager>,
+    _phantom: PhantomData<BoxBody>,
 }
 
-impl<S, B> Service<ServiceRequest> for MetricsService<S>
+impl<S> Service<actix_web::dev::ServiceRequest> for MetricsService<S>
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static + Clone,
+    S: Service<actix_web::dev::ServiceRequest, Response = actix_web::dev::ServiceResponse<BoxBody>, Error = Error> + Clone + 'static,
     S::Future: 'static,
-    B: 'static,
 {
-    type Response = ServiceResponse<EitherBody<B, actix_web::body::BoxBody>>;
+    type Response = actix_web::dev::ServiceResponse<BoxBody>;
     type Error = Error;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
+    type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
 
-    fn poll_ready(&self, cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+    fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.service.poll_ready(cx)
     }
 
-    fn call(&self, req: ServiceRequest) -> Self::Future {
-        let service = Arc::clone(&self.service);
+    fn call(&self, req: actix_web::dev::ServiceRequest) -> Self::Future {
+        let service = self.service.clone();
         let monitoring_manager = Arc::clone(&self.monitoring_manager);
         let start_time = Instant::now();
 
@@ -86,58 +87,48 @@ where
             match res {
                 Ok(res) => {
                     let status = res.status();
-                    
                     // Increment appropriate metrics based on status
                     if status.is_success() {
                         monitoring_manager.increment_metric("requests_successful").await;
                     } else {
                         monitoring_manager.increment_metric("requests_failed").await;
                     }
-
                     // Increment specific metrics based on path
                     if path.contains("/transaction") || path.contains("/submit") {
                         monitoring_manager.increment_metric("transactions_received").await;
                     }
-
                     if path.contains("/ble") {
                         monitoring_manager.increment_metric("ble_connections").await;
                     }
-
                     if path.contains("/auth") {
                         if !status.is_success() {
                             monitoring_manager.increment_metric("auth_failures").await;
                         }
                     }
-
                     if path.contains("/compress") {
                         monitoring_manager.increment_metric("compression_operations").await;
                     }
-
                     if path.contains("/database") {
                         monitoring_manager.increment_metric("database_operations").await;
                         if !status.is_success() {
                             monitoring_manager.increment_metric("database_errors").await;
                         }
                     }
-
                     // Log request details for monitoring
                     log::info!(
                         "Request processed: {} {} - Status: {} - Time: {}ms - IP: {}",
                         method, path, status, response_time_ms, client_ip
                     );
-
-                    Ok(res.map_into_left_body())
+                    Ok(res)
                 }
                 Err(e) => {
                     // Increment error metrics
                     monitoring_manager.increment_metric("requests_failed").await;
                     monitoring_manager.increment_metric("network_errors").await;
-
                     log::error!(
                         "Request failed: {} {} - Error: {} - Time: {}ms - IP: {}",
                         method, path, e, response_time_ms, client_ip
                     );
-
                     Err(e)
                 }
             }
@@ -146,6 +137,7 @@ where
 }
 
 // Metrics collection utilities
+#[derive(Debug, Clone)]
 pub struct MetricsCollector {
     monitoring_manager: Arc<MonitoringManager>,
 }
