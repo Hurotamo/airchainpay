@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_variables)]
 use anyhow::{Result, anyhow};
 use prost::Message;
 use serde::{Deserialize, Serialize};

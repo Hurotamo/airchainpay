@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_variables)]
 use crate::ble::manager::BLETransaction;
 use crate::config::Config;
 use anyhow::{Result, anyhow};
@@ -11,7 +12,7 @@ pub struct ValidationResult {
     pub warnings: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ChainValidationRules {
     pub min_gas_limit: u64,
     pub max_gas_limit: u64,
@@ -19,6 +20,7 @@ pub struct ChainValidationRules {
     pub allowed_contract_addresses: Vec<String>,
 }
 
+#[allow(dead_code)]
 pub struct TransactionValidator {
     config: Config,
     supported_chains: HashMap<u64, ChainValidationRules>,
@@ -273,6 +275,7 @@ impl TransactionValidator {
         Some(84532) // Default to Base Sepolia testnet
     }
 
+    #[allow(dead_code)]
     pub fn validate_device_id(&self, device_id: &str) -> Result<()> {
         if device_id.is_empty() {
             return Err(anyhow!("Device ID cannot be empty"));

@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_variables)]
 use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};

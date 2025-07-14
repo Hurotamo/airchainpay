@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_variables)]
 use tracing::{info, warn, error, debug, trace, Level};
 use tracing_subscriber::{
     layer::SubscriberExt, 
@@ -11,7 +12,9 @@ use tracing_appender::{non_blocking, rolling, rolling::Rotation};
 use serde::{Serialize, Deserialize};
 use std::sync::Once;
 use std::collections::HashMap;
+#[allow(unused_imports)]
 use std::sync::Arc;
+#[allow(unused_imports)]
 use tokio::sync::RwLock;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
@@ -187,14 +190,17 @@ impl EnhancedLogger {
         });
     }
 
+    #[allow(dead_code)]
     pub async fn set_context(&self, context: LogContext) {
         // This function is no longer needed as context is removed from EnhancedLogger
     }
 
+    #[allow(dead_code)]
     pub async fn update_context(&self, updates: HashMap<String, serde_json::Value>) {
         // This function is no longer needed as context is removed from EnhancedLogger
     }
 
+    #[allow(dead_code)]
     pub async fn log_with_context(&self, level: Level, message: &str, additional_context: Option<HashMap<String, serde_json::Value>>) {
         // This function is no longer needed as context is removed from EnhancedLogger
         let log_entry = LogEntry {
@@ -247,22 +253,27 @@ impl EnhancedLogger {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn info(&self, message: &str) {
         self.log_with_context(Level::INFO, message, None).await;
     }
 
+    #[allow(dead_code)]
     pub async fn warn(&self, message: &str) {
         self.log_with_context(Level::WARN, message, None).await;
     }
 
+    #[allow(dead_code)]
     pub async fn error(&self, message: &str) {
         self.log_with_context(Level::ERROR, message, None).await;
     }
 
+    #[allow(dead_code)]
     pub async fn debug(&self, message: &str) {
         self.log_with_context(Level::DEBUG, message, None).await;
     }
 
+    #[allow(dead_code)]
     pub async fn trace(&self, message: &str) {
         self.log_with_context(Level::TRACE, message, None).await;
     }

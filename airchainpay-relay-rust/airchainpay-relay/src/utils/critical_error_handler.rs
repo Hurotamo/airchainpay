@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_variables)]
 use std::collections::HashMap;
 use std::time::SystemTime;
 

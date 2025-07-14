@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_variables)]
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -146,6 +147,7 @@ pub struct ErrorStatistics {
     pub last_error_time: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+#[allow(dead_code)]
 pub struct EnhancedErrorHandler {
     errors: Arc<RwLock<Vec<ErrorRecord>>>,
     path_configs: Arc<RwLock<HashMap<CriticalPath, PathConfig>>>,

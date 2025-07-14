@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_variables)]
 use actix_web::{
     dev::{Service, ServiceRequest, ServiceResponse, Transform},
     Error, HttpResponse,

@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_variables)]
 use actix_web::{
     dev::{Service, Transform, ServiceRequest, ServiceResponse},
     Error, HttpResponse,
@@ -205,6 +206,7 @@ where
 }
 
 impl<S> SecurityMiddlewareService<S> {
+    #[allow(dead_code)]
     fn is_suspicious_request(_ip: &str, user_agent: &str, path: &str) -> bool {
         // Check for suspicious patterns
         let suspicious_patterns = [
@@ -221,6 +223,7 @@ impl<S> SecurityMiddlewareService<S> {
         })
     }
 
+    #[allow(dead_code)]
     fn log_security_event(
         _req: &ServiceRequest,
         _security_config: &SecurityConfig,
@@ -243,6 +246,7 @@ impl<S> SecurityMiddlewareService<S> {
         }
     }
 
+    #[allow(dead_code)]
     fn validate_input(input: &str) -> Result<(), String> {
         // Check for SQL injection patterns
         let sql_patterns = [
@@ -273,6 +277,7 @@ impl<S> SecurityMiddlewareService<S> {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn sanitize_input(input: &str) -> String {
         // HTML entity encoding
         input
@@ -283,6 +288,7 @@ impl<S> SecurityMiddlewareService<S> {
             .replace("'", "&#x27;")
     }
 
+    #[allow(dead_code)]
     fn apply_security_headers_to_response<B>(
         mut res: ServiceResponse<B>,
         config: &SecurityConfig,
