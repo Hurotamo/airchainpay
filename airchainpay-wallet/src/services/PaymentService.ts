@@ -9,6 +9,7 @@ import { MultiChainWalletManager } from '../wallet/MultiChainWalletManager';
 import { TransactionService } from './TransactionService';
 import { Transaction } from '../types/transaction';
 import { ethers } from 'ethers';
+import { TokenInfo } from '../wallet/TokenWalletManager';
 
 export interface PaymentRequest {
   to: string;
@@ -233,6 +234,9 @@ export class PaymentService {
    */
   private async processManualTransaction(request: PaymentRequest): Promise<PaymentResult> {
     try {
+      // Check network status for the target chain
+      const isOnline = await this.checkNetworkStatus(request.chainId);
+
       // Create transaction object for signing
       const transaction = {
         to: request.to,
@@ -244,43 +248,96 @@ export class PaymentService {
           : undefined
       };
 
-      // Sign transaction offline
+      // Sign transaction
       const signedTx = await this.walletManager.signTransaction(transaction, request.chainId);
-      
-      // Add to offline queue
-      const transactionId = Date.now().toString();
-      await TxQueue.addTransaction({
-        id: transactionId,
-        to: request.to,
-        amount: request.amount,
-        status: 'pending',
-        chainId: request.chainId,
-        timestamp: Date.now(),
-        signedTx: signedTx,
-        transport: 'manual',
-        metadata: {
-          token: request.token,
-          paymentReference: request.paymentReference,
-          merchant: request.metadata?.merchant,
-          location: request.metadata?.location
+
+      if (isOnline) {
+        // Send immediately using TokenWalletManager
+        const privateKey = await this.walletManager.exportPrivateKey();
+        if (!privateKey) {
+          throw new Error('No private key found in wallet storage');
         }
-      });
-
-      logger.info('[PaymentService] Manual transaction queued', {
-        transactionId,
-        to: request.to,
-        amount: request.amount,
-        chainId: request.chainId
-      });
-
-      return {
-        status: 'queued',
-        transport: 'manual',
-        transactionId: transactionId,
-        message: 'Transaction signed and queued for processing when online',
-        timestamp: Date.now()
-      };
-
+        // Always get chain config for merging
+        const chainConfig = (await import('../constants/AppConfig')).SUPPORTED_CHAINS[request.chainId];
+        if (!chainConfig) {
+          throw new Error(`Unsupported chain: ${request.chainId}`);
+        }
+        let tokenInfo: TokenInfo;
+        if (request.token) {
+          // Merge request.token with chain config to ensure all fields are present
+          tokenInfo = {
+            symbol: request.token.symbol || chainConfig.nativeCurrency.symbol,
+            name: (request.token as any).name || chainConfig.nativeCurrency.name,
+            decimals: request.token.decimals || chainConfig.nativeCurrency.decimals,
+            address: request.token.address || '',
+            chainId: String(request.chainId),
+            isNative: request.token.isNative !== undefined ? request.token.isNative : true,
+            logoUri: (request.token as any).logoUri,
+            isStablecoin: (request.token as any).isStablecoin
+          };
+        } else {
+          tokenInfo = {
+            symbol: chainConfig.nativeCurrency.symbol,
+            name: chainConfig.nativeCurrency.name,
+            decimals: chainConfig.nativeCurrency.decimals,
+            address: '',
+            chainId: String(request.chainId),
+            isNative: true,
+            logoUri: undefined,
+            isStablecoin: undefined
+          };
+        }
+        // Use TokenWalletManager to send
+        const TokenWalletManager = (await import('../wallet/TokenWalletManager')).default;
+        const result = await TokenWalletManager.sendTokenTransaction(
+          privateKey,
+          request.to,
+          request.amount,
+          tokenInfo,
+          request.paymentReference
+        );
+        logger.info('[PaymentService] Manual transaction sent immediately', { hash: result.hash, to: request.to, amount: request.amount, chainId: request.chainId });
+        return {
+          status: 'sent',
+          transport: 'manual',
+          transactionId: result.hash,
+          message: 'Transaction sent immediately (manual mode)',
+          timestamp: Date.now(),
+          metadata: result
+        };
+      } else {
+        // Offline: queue as before
+        const transactionId = Date.now().toString();
+        await TxQueue.addTransaction({
+          id: transactionId,
+          to: request.to,
+          amount: request.amount,
+          status: 'pending',
+          chainId: request.chainId,
+          timestamp: Date.now(),
+          signedTx: signedTx,
+          transport: 'manual',
+          metadata: {
+            token: request.token,
+            paymentReference: request.paymentReference,
+            merchant: request.metadata?.merchant,
+            location: request.metadata?.location
+          }
+        });
+        logger.info('[PaymentService] Manual transaction queued (offline)', {
+          transactionId,
+          to: request.to,
+          amount: request.amount,
+          chainId: request.chainId
+        });
+        return {
+          status: 'queued',
+          transport: 'manual',
+          transactionId: transactionId,
+          message: 'Transaction signed and queued for processing when online',
+          timestamp: Date.now()
+        };
+      }
     } catch (error) {
       logger.error('[PaymentService] Manual transaction failed:', error);
       throw error;

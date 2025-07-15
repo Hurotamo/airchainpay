@@ -1,11 +1,5 @@
-# Recent Improvements
 
-- **Refactored Middleware Structure:** Improved modularity and maintainability of security, rate limiting, and input validation middleware. Unused code and dead code warnings have been addressed for a cleaner codebase.
-- **Enhanced Transaction Processor:** Introduced a more robust transaction processor with multi-worker support for better performance and reliability.
-- **Improved Error Handling:** Centralized and extended error handling for BLE, storage, validation, authentication, and rate limiting, making the system more resilient and easier to debug.
-- **Security & Monitoring:** Continued focus on security best practices, including JWT authentication, per-device/IP rate limiting, and comprehensive metrics collection.
 
----
 
 # AirChainPay Relay Server (Rust)
 
@@ -61,12 +55,12 @@ src/
 - Bluetooth adapter with BLE support
 - Network access for blockchain RPC endpoints
 
-## Installation
+ Installation
 
 1. **Clone the repository**:
    ```bash
-   git clone <repository-url>
-   cd airchainpay-relay-rust/airchainpa-relay
+   git clone https://github.com/Hurotamo/airchainpay.git
+   cd airchainpay-relay-rust/airchainpay-relay
    ```
 
 2. **Install dependencies**:
