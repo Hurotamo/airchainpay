@@ -220,7 +220,7 @@ mod tests {
         assert!(secrets.contains_key("ENCRYPTION_KEY"));
         
         assert_eq!(secrets["JWT_SECRET"].len(), 128);
-        assert_eq!(secrets["API_KEY"].len(), 32); // Changed from 64 to 32
+        assert_eq!(secrets["API_KEY"].len(), 32); 
         assert_eq!(secrets["DATABASE_PASSWORD"].len(), 16);
         assert_eq!(secrets["REDIS_PASSWORD"].len(), 16);
         assert_eq!(secrets["ENCRYPTION_KEY"].len(), 32);

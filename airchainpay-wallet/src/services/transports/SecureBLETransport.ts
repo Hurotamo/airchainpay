@@ -1,7 +1,10 @@
-// SecureBLETransport for encrypted BLE payments
+// Enhanced Secure BLETransport implementing the complete BLE payment flow with encryption:
+// Actor → Scan → Connect → Send Payment → Get Transaction Hash → Advertiser Receives Token → Advertiser Advertises
 import { logger } from '../../utils/Logger';
 import { BluetoothManager, AIRCHAINPAY_SERVICE_UUID, AIRCHAINPAY_CHARACTERISTIC_UUID } from '../../bluetooth/BluetoothManager';
 import { BLESecurity } from '../../utils/crypto/BLESecurity';
+import { MultiChainWalletManager } from '../../wallet/MultiChainWalletManager';
+import { TransactionService } from '../TransactionService';
 import { IPaymentTransport } from './BLETransport';
 
 export interface SecurePaymentRequest {
@@ -15,28 +18,36 @@ export interface SecurePaymentRequest {
 }
 
 export interface SecurePaymentResult {
-  status: 'sent' | 'failed' | 'key_exchange_required';
+  status: 'sent' | 'failed' | 'key_exchange_required' | 'pending' | 'confirmed' | 'advertising';
   transport: 'secure_ble';
   sessionId?: string;
   deviceId?: string;
   deviceName?: string;
+  transactionHash?: string;
+  paymentConfirmed?: boolean;
+  advertiserAdvertising?: boolean;
   message?: string;
   timestamp: number;
+  metadata?: any;
 }
 
 export class SecureBLETransport implements IPaymentTransport {
   private bluetoothManager: BluetoothManager;
   private bleSecurity: BLESecurity;
+  private walletManager: MultiChainWalletManager;
+  private transactionService: TransactionService;
   private keyExchangeInProgress: Map<string, boolean> = new Map();
 
   constructor() {
-    this.bluetoothManager = new BluetoothManager();
+    this.bluetoothManager = BluetoothManager.getInstance();
     this.bleSecurity = BLESecurity.getInstance();
+    this.walletManager = MultiChainWalletManager.getInstance();
+    this.transactionService = TransactionService.getInstance();
   }
 
-  async send(txData: any): Promise<any> {
+  async send(txData: any): Promise<SecurePaymentResult> {
     try {
-      logger.info('[SecureBLETransport] Processing secure BLE payment', txData);
+      logger.info('[SecureBLETransport] Starting enhanced secure BLE payment flow', txData);
       
       const { to, amount, chainId, paymentReference, device } = txData;
       
@@ -48,25 +59,13 @@ export class SecureBLETransport implements IPaymentTransport {
         throw new Error('Missing BLE device information');
       }
 
-      // Check if BLE is available
-      if (!this.bluetoothManager.isBleAvailable()) {
-        throw new Error('BLE not available on this device');
-      }
+      // Step 1: Check BLE availability and Bluetooth state
+      await this.checkBLEAvailability();
 
-      // Check if Bluetooth is enabled
-      const isBluetoothEnabled = await this.bluetoothManager.isBluetoothEnabled();
-      if (!isBluetoothEnabled) {
-        throw new Error('Bluetooth is not enabled');
-      }
+      // Step 2: Connect to device (if not already connected)
+      await this.connectToDevice(device);
 
-      // Connect to device if not already connected
-      const isConnected = this.bluetoothManager.isDeviceConnected(device.id);
-      if (!isConnected) {
-        logger.info('[SecureBLETransport] Connecting to device:', device.id);
-        await this.bluetoothManager.connectToDevice(device);
-      }
-
-      // Check if we have a valid session
+      // Step 3: Check if we have a valid session
       const existingSession = this.findExistingSession(device.id);
       if (!existingSession || !this.bleSecurity.isSessionValid(existingSession)) {
         // Need to perform key exchange
@@ -74,12 +73,52 @@ export class SecureBLETransport implements IPaymentTransport {
         return await this.performKeyExchange(device);
       }
 
-      // Send encrypted payment
-      return await this.sendEncryptedPayment(existingSession, txData);
+      // Step 4: Send encrypted payment data
+      const paymentResult = await this.sendEncryptedPayment(existingSession, txData);
+      
+      // Step 5: Listen for transaction hash and confirmation
+      const transactionResult = await this.waitForTransactionConfirmation(device);
+      
+      // Step 6: Wait for advertiser to start advertising (receipt confirmation)
+      const advertisingResult = await this.waitForAdvertiserConfirmation(device);
+      
+      logger.info('[SecureBLETransport] Complete secure BLE payment flow finished', {
+        deviceId: device.id,
+        transactionHash: transactionResult.transactionHash,
+        paymentConfirmed: transactionResult.paymentConfirmed,
+        advertiserAdvertising: advertisingResult.advertiserAdvertising
+      });
+      
+      return {
+        status: 'confirmed',
+        transport: 'secure_ble',
+        deviceId: device.id,
+        deviceName: device.name || device.localName,
+        sessionId: existingSession,
+        transactionHash: transactionResult.transactionHash,
+        paymentConfirmed: transactionResult.paymentConfirmed,
+        advertiserAdvertising: advertisingResult.advertiserAdvertising,
+        message: 'Secure payment completed and advertiser confirmed receipt',
+        timestamp: Date.now(),
+        metadata: {
+          ...txData,
+          transactionHash: transactionResult.transactionHash,
+          paymentConfirmed: transactionResult.paymentConfirmed,
+          advertiserAdvertising: advertisingResult.advertiserAdvertising
+        }
+      };
 
     } catch (error) {
-      logger.error('[SecureBLETransport] Failed to send secure BLE payment:', error);
-      throw new Error(`Secure BLE payment failed: ${error instanceof Error ? error.message : String(error)}`);
+      logger.error('[SecureBLETransport] Enhanced secure BLE payment failed:', error);
+      return {
+        status: 'failed',
+        transport: 'secure_ble',
+        deviceId: txData.device?.id,
+        deviceName: txData.device?.name || txData.device?.localName,
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: Date.now(),
+        metadata: txData
+      };
     }
   }
 
@@ -191,6 +230,135 @@ export class SecureBLETransport implements IPaymentTransport {
       logger.error('[SecureBLETransport] Failed to handle key exchange response:', error);
       throw error;
     }
+  }
+
+  /**
+   * Step 1: Check BLE availability and Bluetooth state
+   */
+  private async checkBLEAvailability(): Promise<void> {
+    if (!this.bluetoothManager.isBleAvailable()) {
+      throw new Error('BLE not available on this device');
+    }
+    
+    const isBluetoothEnabled = await this.bluetoothManager.isBluetoothEnabled();
+    if (!isBluetoothEnabled) {
+      throw new Error('Bluetooth is not enabled');
+    }
+    
+    logger.info('[SecureBLETransport] BLE availability check passed');
+  }
+
+  /**
+   * Step 2: Connect to device
+   */
+  private async connectToDevice(device: any): Promise<void> {
+    const isConnected = this.bluetoothManager.isDeviceConnected(device.id);
+    if (!isConnected) {
+      logger.info('[SecureBLETransport] Connecting to device:', device.id);
+      await this.bluetoothManager.connectToDevice(device);
+      logger.info('[SecureBLETransport] Successfully connected to device:', device.id);
+    } else {
+      logger.info('[SecureBLETransport] Already connected to device:', device.id);
+    }
+  }
+
+  /**
+   * Step 4: Wait for transaction hash and confirmation
+   */
+  private async waitForTransactionConfirmation(device: any): Promise<{
+    transactionHash?: string;
+    paymentConfirmed: boolean;
+  }> {
+    return new Promise((resolve, reject) => {
+      let timeout: NodeJS.Timeout;
+      let listener: { remove: () => void } | null = null;
+      
+      // Set up timeout
+      timeout = setTimeout(() => {
+        if (listener) listener.remove();
+        reject(new Error('Timeout waiting for transaction confirmation'));
+      }, 60000); // 60 second timeout
+      
+      // Set up listener for transaction confirmation
+      this.bluetoothManager.listenForData(
+        device.id,
+        AIRCHAINPAY_SERVICE_UUID,
+        AIRCHAINPAY_CHARACTERISTIC_UUID,
+        async (data: string) => {
+          try {
+            const response = JSON.parse(data);
+            
+            if (response.type === 'transaction_confirmation') {
+              clearTimeout(timeout);
+              if (listener) listener.remove();
+              
+              logger.info('[SecureBLETransport] Received transaction confirmation:', response);
+              
+              resolve({
+                transactionHash: response.transactionHash,
+                paymentConfirmed: response.confirmed === true
+              });
+            }
+          } catch (error) {
+            logger.warn('[SecureBLETransport] Error parsing transaction confirmation:', error);
+          }
+        }
+      ).then((listenerRef) => {
+        listener = listenerRef;
+      }).catch((error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+    });
+  }
+
+  /**
+   * Step 5: Wait for advertiser to start advertising (receipt confirmation)
+   */
+  private async waitForAdvertiserConfirmation(device: any): Promise<{
+    advertiserAdvertising: boolean;
+  }> {
+    return new Promise((resolve, reject) => {
+      let timeout: NodeJS.Timeout;
+      let listener: { remove: () => void } | null = null;
+      
+      // Set up timeout
+      timeout = setTimeout(() => {
+        if (listener) listener.remove();
+        // Don't reject, just resolve with false - advertiser might not advertise
+        resolve({ advertiserAdvertising: false });
+      }, 30000); // 30 second timeout
+      
+      // Set up listener for advertiser confirmation
+      this.bluetoothManager.listenForData(
+        device.id,
+        AIRCHAINPAY_SERVICE_UUID,
+        AIRCHAINPAY_CHARACTERISTIC_UUID,
+        async (data: string) => {
+          try {
+            const response = JSON.parse(data);
+            
+            if (response.type === 'advertiser_confirmation') {
+              clearTimeout(timeout);
+              if (listener) listener.remove();
+              
+              logger.info('[SecureBLETransport] Received advertiser confirmation:', response);
+              
+              resolve({
+                advertiserAdvertising: response.advertising === true
+              });
+            }
+          } catch (error) {
+            logger.warn('[SecureBLETransport] Error parsing advertiser confirmation:', error);
+          }
+        }
+      ).then((listenerRef) => {
+        listener = listenerRef;
+      }).catch((error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+    });
   }
 
   /**

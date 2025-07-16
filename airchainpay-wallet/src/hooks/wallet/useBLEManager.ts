@@ -23,7 +23,7 @@ export function useBLEManager() {
         setIsInitializing(true);
         setError(null);
         
-        const bleManager = new BluetoothManager();
+        const bleManager = BluetoothManager.getInstance();
         
         if (mounted) {
           setManager(bleManager);

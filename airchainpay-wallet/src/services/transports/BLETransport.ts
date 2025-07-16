@@ -1,22 +1,42 @@
-// BLETransport for sending payments via Bluetooth Low Energy with compression
+// Enhanced BLETransport implementing the complete BLE payment flow:
+// Actor → Scan → Connect → Send Payment → Get Transaction Hash → Advertiser Receives Token → Advertiser Advertises
 import { logger } from '../../utils/Logger';
 import { BluetoothManager, AIRCHAINPAY_SERVICE_UUID, AIRCHAINPAY_CHARACTERISTIC_UUID } from '../../bluetooth/BluetoothManager';
 import { TransactionBuilder } from '../../utils/TransactionBuilder';
+import { MultiChainWalletManager } from '../../wallet/MultiChainWalletManager';
+import { TransactionService } from '../TransactionService';
 
 export interface IPaymentTransport {
   send(txData: any): Promise<any>;
 }
 
+export interface EnhancedPaymentResult {
+  status: 'sent' | 'failed' | 'pending' | 'confirmed' | 'advertising';
+  transport: 'ble';
+  deviceId?: string;
+  deviceName?: string;
+  transactionHash?: string;
+  paymentConfirmed?: boolean;
+  advertiserAdvertising?: boolean;
+  message?: string;
+  timestamp: number;
+  metadata?: any;
+}
+
 export class BLETransport implements IPaymentTransport {
   private bluetoothManager: BluetoothManager;
+  private walletManager: MultiChainWalletManager;
+  private transactionService: TransactionService;
 
   constructor() {
-    this.bluetoothManager = new BluetoothManager();
+    this.bluetoothManager = BluetoothManager.getInstance();
+    this.walletManager = MultiChainWalletManager.getInstance();
+    this.transactionService = TransactionService.getInstance();
   }
 
-  async send(txData: any): Promise<any> {
+  async send(txData: any): Promise<EnhancedPaymentResult> {
     try {
-      logger.info('[BLETransport] Sending payment via BLE', txData);
+      logger.info('[BLETransport] Starting enhanced BLE payment flow', txData);
       
       // Extract payment data
       const { to, amount, chainId, paymentReference, device, token, metadata } = txData;
@@ -29,73 +49,257 @@ export class BLETransport implements IPaymentTransport {
         throw new Error('Missing BLE device information');
       }
       
-      // Check if BLE is available
-      if (!this.bluetoothManager.isBleAvailable()) {
-        throw new Error('BLE not available on this device');
-      }
+      // Step 1: Check BLE availability and Bluetooth state
+      await this.checkBLEAvailability();
       
-      // Check if Bluetooth is enabled
-      const isBluetoothEnabled = await this.bluetoothManager.isBluetoothEnabled();
-      if (!isBluetoothEnabled) {
-        throw new Error('Bluetooth is not enabled');
-      }
+      // Step 2: Connect to device (if not already connected)
+      await this.connectToDevice(device);
       
-      // Connect to the device if not already connected
-      const isConnected = this.bluetoothManager.isDeviceConnected(device.id);
-      if (!isConnected) {
-        logger.info('[BLETransport] Connecting to device:', device.id);
-        await this.bluetoothManager.connectToDevice(device);
-      }
+      // Step 3: Send payment data
+      const paymentData = await this.sendPaymentData(device, txData);
       
-      // Prepare payment data for BLE transmission with compression
-      const paymentData = {
-        type: 'payment',
-        to: to,
-        amount: amount,
-        chainId: chainId,
-        paymentReference: paymentReference,
-        timestamp: Date.now(),
-        token: token,
-        metadata: metadata
-      };
+      // Step 4: Listen for transaction hash and confirmation
+      const transactionResult = await this.waitForTransactionConfirmation(device);
       
-      // Compress payment data using protobuf + CBOR
-      const compressedData = await TransactionBuilder.serializeBLEPayment(paymentData);
+      // Step 5: Wait for advertiser to start advertising (receipt confirmation)
+      const advertisingResult = await this.waitForAdvertiserConfirmation(device);
       
-      // Convert compressed data to base64 for BLE transmission
-      const base64Data = compressedData.toString('base64');
-      
-      // Send compressed payment data via BLE
-      await this.bluetoothManager.sendDataToDevice(
-        device.id,
-        AIRCHAINPAY_SERVICE_UUID,
-        AIRCHAINPAY_CHARACTERISTIC_UUID,
-        base64Data
-      );
-      
-      logger.info('[BLETransport] Compressed payment sent successfully via BLE', {
+      logger.info('[BLETransport] Complete BLE payment flow finished', {
         deviceId: device.id,
-        amount,
-        chainId,
-        compressedSize: compressedData.length
+        transactionHash: transactionResult.transactionHash,
+        paymentConfirmed: transactionResult.paymentConfirmed,
+        advertiserAdvertising: advertisingResult.advertiserAdvertising
       });
       
       return {
-        status: 'sent',
+        status: 'confirmed',
         transport: 'ble',
         deviceId: device.id,
         deviceName: device.name || device.localName,
-        amount,
-        chainId,
+        transactionHash: transactionResult.transactionHash,
+        paymentConfirmed: transactionResult.paymentConfirmed,
+        advertiserAdvertising: advertisingResult.advertiserAdvertising,
+        message: 'Payment completed and advertiser confirmed receipt',
         timestamp: Date.now(),
-        compressionUsed: true,
-        compressedSize: compressedData.length,
-        ...txData
+        metadata: {
+          ...txData,
+          transactionHash: transactionResult.transactionHash,
+          paymentConfirmed: transactionResult.paymentConfirmed,
+          advertiserAdvertising: advertisingResult.advertiserAdvertising
+        }
       };
       
     } catch (error) {
-      logger.error('[BLETransport] Failed to send BLE payment:', error);
-      throw new Error(`BLE payment failed: ${error instanceof Error ? error.message : String(error)}`);
+      logger.error('[BLETransport] Enhanced BLE payment failed:', error);
+      return {
+        status: 'failed',
+        transport: 'ble',
+        deviceId: txData.device?.id,
+        deviceName: txData.device?.name || txData.device?.localName,
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: Date.now(),
+        metadata: txData
+      };
+    }
+  }
+
+  /**
+   * Step 1: Check BLE availability and Bluetooth state
+   */
+  private async checkBLEAvailability(): Promise<void> {
+    if (!this.bluetoothManager.isBleAvailable()) {
+      throw new Error('BLE not available on this device');
+    }
+    
+    const isBluetoothEnabled = await this.bluetoothManager.isBluetoothEnabled();
+    if (!isBluetoothEnabled) {
+      throw new Error('Bluetooth is not enabled');
+    }
+    
+    logger.info('[BLETransport] BLE availability check passed');
+  }
+
+  /**
+   * Step 2: Connect to device
+   */
+  private async connectToDevice(device: any): Promise<void> {
+    const isConnected = this.bluetoothManager.isDeviceConnected(device.id);
+    if (!isConnected) {
+      logger.info('[BLETransport] Connecting to device:', device.id);
+      await this.bluetoothManager.connectToDevice(device);
+      logger.info('[BLETransport] Successfully connected to device:', device.id);
+    } else {
+      logger.info('[BLETransport] Already connected to device:', device.id);
+    }
+  }
+
+  /**
+   * Step 3: Send payment data
+   */
+  private async sendPaymentData(device: any, txData: any): Promise<any> {
+    const { to, amount, chainId, paymentReference, token, metadata } = txData;
+    
+    // Prepare payment data for BLE transmission
+    const paymentData = {
+      type: 'payment_request',
+      to: to,
+      amount: amount,
+      chainId: chainId,
+      paymentReference: paymentReference,
+      timestamp: Date.now(),
+      token: token,
+      metadata: metadata
+    };
+    
+    // Compress payment data using protobuf + CBOR
+    const compressedData = await TransactionBuilder.serializeBLEPayment(paymentData);
+    const base64Data = compressedData.toString('base64');
+    
+    // Send compressed payment data via BLE
+    await this.bluetoothManager.sendDataToDevice(
+      device.id,
+      AIRCHAINPAY_SERVICE_UUID,
+      AIRCHAINPAY_CHARACTERISTIC_UUID,
+      base64Data
+    );
+    
+    logger.info('[BLETransport] Payment data sent successfully', {
+      deviceId: device.id,
+      amount,
+      chainId,
+      compressedSize: compressedData.length
+    });
+    
+    return { sent: true, compressedSize: compressedData.length };
+  }
+
+  /**
+   * Step 4: Wait for transaction hash and confirmation
+   */
+  private async waitForTransactionConfirmation(device: any): Promise<{
+    transactionHash?: string;
+    paymentConfirmed: boolean;
+  }> {
+    return new Promise((resolve, reject) => {
+      let timeout: NodeJS.Timeout;
+      let listener: { remove: () => void } | null = null;
+      
+      // Set up timeout
+      timeout = setTimeout(() => {
+        if (listener) listener.remove();
+        reject(new Error('Timeout waiting for transaction confirmation'));
+      }, 60000); // 60 second timeout
+      
+      // Set up listener for transaction confirmation
+      this.bluetoothManager.listenForData(
+        device.id,
+        AIRCHAINPAY_SERVICE_UUID,
+        AIRCHAINPAY_CHARACTERISTIC_UUID,
+        async (data: string) => {
+          try {
+            const response = JSON.parse(data);
+            
+            if (response.type === 'transaction_confirmation') {
+              clearTimeout(timeout);
+              if (listener) listener.remove();
+              
+              logger.info('[BLETransport] Received transaction confirmation:', response);
+              
+              resolve({
+                transactionHash: response.transactionHash,
+                paymentConfirmed: response.confirmed === true
+              });
+            }
+          } catch (error) {
+            logger.warn('[BLETransport] Error parsing transaction confirmation:', error);
+          }
+        }
+      ).then((listenerRef) => {
+        listener = listenerRef;
+      }).catch((error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+    });
+  }
+
+  /**
+   * Step 5: Wait for advertiser to start advertising (receipt confirmation)
+   */
+  private async waitForAdvertiserConfirmation(device: any): Promise<{
+    advertiserAdvertising: boolean;
+  }> {
+    return new Promise((resolve, reject) => {
+      let timeout: NodeJS.Timeout;
+      let listener: { remove: () => void } | null = null;
+      
+      // Set up timeout
+      timeout = setTimeout(() => {
+        if (listener) listener.remove();
+        // Don't reject, just resolve with false - advertiser might not advertise
+        resolve({ advertiserAdvertising: false });
+      }, 30000); // 30 second timeout
+      
+      // Set up listener for advertiser confirmation
+      this.bluetoothManager.listenForData(
+        device.id,
+        AIRCHAINPAY_SERVICE_UUID,
+        AIRCHAINPAY_CHARACTERISTIC_UUID,
+        async (data: string) => {
+          try {
+            const response = JSON.parse(data);
+            
+            if (response.type === 'advertiser_confirmation') {
+              clearTimeout(timeout);
+              if (listener) listener.remove();
+              
+              logger.info('[BLETransport] Received advertiser confirmation:', response);
+              
+              resolve({
+                advertiserAdvertising: response.advertising === true
+              });
+            }
+          } catch (error) {
+            logger.warn('[BLETransport] Error parsing advertiser confirmation:', error);
+          }
+        }
+      ).then((listenerRef) => {
+        listener = listenerRef;
+      }).catch((error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+    });
+  }
+
+  /**
+   * Start advertising as a payment receiver (for the advertiser side)
+   */
+  async startAdvertisingAsReceiver(): Promise<void> {
+    try {
+      if (!this.bluetoothManager.isAdvertisingSupported()) {
+        throw new Error('BLE advertising not supported on this device');
+      }
+      
+      await this.bluetoothManager.startAdvertising();
+      logger.info('[BLETransport] Started advertising as payment receiver');
+      
+    } catch (error) {
+      logger.error('[BLETransport] Failed to start advertising:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Stop advertising
+   */
+  async stopAdvertising(): Promise<void> {
+    try {
+      await this.bluetoothManager.stopAdvertising();
+      logger.info('[BLETransport] Stopped advertising');
+    } catch (error) {
+      logger.error('[BLETransport] Failed to stop advertising:', error);
+      throw error;
     }
   }
 } 

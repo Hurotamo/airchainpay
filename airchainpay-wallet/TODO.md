@@ -31,12 +31,6 @@ AirChainPay Wallet is a React Native mobile application that provides blockchain
 - [ ] Implement BLE payment timeout handling
 - [ ] Add BLE device whitelist functionality
 
-#### QR Code Payment
-- [ ] Enhance QR code scanner with better error handling
-- [ ] Add QR code generation for receiving payments
-- [ ] Implement QR code format validation
-- [ ] Add QR code payment amount confirmation
-- [ ] Implement QR code payment history
 
 #### Multi-Chain Support
 - [ ] Add support for additional blockchain networks

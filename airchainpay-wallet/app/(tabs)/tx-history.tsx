@@ -11,6 +11,9 @@ import WalletSetupScreen from '../../src/components/WalletSetupScreen';
 import { BlockchainTransactionService, BlockchainTransaction } from '../../src/services/BlockchainTransactionService';
 import { DEFAULT_CHAIN_ID, SUPPORTED_CHAINS } from '../../src/constants/AppConfig';
 import { getChainColor } from '../../constants/Colors';
+import { useThemeContext } from '../../hooks/useThemeContext';
+import { Colors } from '../../constants/Colors';
+import { ThemedView } from '../../components/ThemedView';
 
 export default function TransactionHistoryScreen() {
   const [hasWallet, setHasWallet] = useState(false);
@@ -20,6 +23,9 @@ export default function TransactionHistoryScreen() {
   const [selectedChain, setSelectedChain] = useState(DEFAULT_CHAIN_ID);
 
   const router = useRouter();
+  const { colorScheme } = useThemeContext();
+  const theme = colorScheme || 'light';
+  const colors = Colors[theme];
 
   const checkWalletStatus = useCallback(async () => {
     try {
@@ -78,7 +84,12 @@ export default function TransactionHistoryScreen() {
   };
 
   if (loading) {
-    return <ActivityIndicator style={{ flex: 1, alignSelf: 'center', marginTop: 40 }} />;
+    return (
+      <ThemedView style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
+        <ActivityIndicator size="large" color={colors.tint} />
+        <Text style={{ color: colors.text, marginTop: 16 }}>Loading transactions...</Text>
+      </ThemedView>
+    );
   }
 
   if (!hasWallet) {
@@ -92,23 +103,20 @@ export default function TransactionHistoryScreen() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#f5f5f5' }}>
-      <LinearGradient
-        colors={['#667eea', '#764ba2']}
-        style={{ paddingTop: 50, paddingBottom: 20, paddingHorizontal: 20 }}
-      >
+    <ThemedView style={{ flex: 1, backgroundColor: colors.background }}>
+      <View style={{ paddingTop: 50, paddingBottom: 20, paddingHorizontal: 20, backgroundColor: colors.card }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
           <TouchableOpacity onPress={() => router.back()}>
-            <Ionicons name="arrow-back" size={24} color="white" />
+            <Ionicons name="arrow-back" size={24} color={colors.tint} />
           </TouchableOpacity>
-          <Text style={{ fontSize: 20, fontWeight: 'bold', color: 'white', marginLeft: 15 }}>
+          <Text style={{ fontSize: 20, fontWeight: 'bold', color: colors.tint, marginLeft: 15 }}>
             Transaction History
           </Text>
         </View>
         
         {/* Chain Selector */}
         <View style={{ marginTop: 15 }}>
-          <Text style={{ fontSize: 14, color: 'rgba(255, 255, 255, 0.8)', marginBottom: 8 }}>
+          <Text style={{ fontSize: 14, color: colors.text, marginBottom: 8 }}>
             Select Network:
           </Text>
           <View style={{ flexDirection: 'row', gap: 12 }}>
@@ -124,11 +132,11 @@ export default function TransactionHistoryScreen() {
               onPress={() => changeChain('core_testnet')}
             >
               <Text style={{
-                color: selectedChain === 'core_testnet' ? getChainColor('core_testnet') : 'rgba(255, 255, 255, 0.8)',
+                color: selectedChain === 'core_testnet' ? getChainColor('core_testnet') : colors.text,
                 fontWeight: selectedChain === 'core_testnet' ? 'bold' : 'normal',
                 fontSize: 14,
               }}>
-                Core Testnet {selectedChain === 'core_testnet' ? '✓' : ''}
+                Core Testnet {selectedChain === 'core_testnet' ? '\u2713' : ''}
               </Text>
             </TouchableOpacity>
             
@@ -144,30 +152,30 @@ export default function TransactionHistoryScreen() {
               onPress={() => changeChain('base_sepolia')}
             >
               <Text style={{
-                color: selectedChain === 'base_sepolia' ? getChainColor('base_sepolia') : 'rgba(255, 255, 255, 0.8)',
+                color: selectedChain === 'base_sepolia' ? getChainColor('base_sepolia') : colors.text,
                 fontWeight: selectedChain === 'base_sepolia' ? 'bold' : 'normal',
                 fontSize: 14,
               }}>
-                Base Sepolia {selectedChain === 'base_sepolia' ? '✓' : ''}
+                Base Sepolia {selectedChain === 'base_sepolia' ? '\u2713' : ''}
               </Text>
             </TouchableOpacity>
           </View>
         </View>
-      </LinearGradient>
+      </View>
       
       <ScrollView 
         style={{ flex: 1, padding: 20 }}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={fetchTransactions} />
+          <RefreshControl refreshing={refreshing} onRefresh={fetchTransactions} tintColor={colors.tint} />
         }
       >
         {/* Network Info */}
         <View style={{
-          backgroundColor: 'white',
+          backgroundColor: colors.card,
           padding: 15,
           borderRadius: 10,
           marginBottom: 15,
-          shadowColor: '#000',
+          shadowColor: colors.shadow,
           shadowOffset: { width: 0, height: 2 },
           shadowOpacity: 0.1,
           shadowRadius: 4,
@@ -175,17 +183,17 @@ export default function TransactionHistoryScreen() {
         }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
             <Ionicons name="information-circle" size={20} color={getChainColor(selectedChain)} />
-            <Text style={{ fontSize: 16, fontWeight: '600', color: '#333', marginLeft: 8 }}>
+            <Text style={{ fontSize: 16, fontWeight: '600', color: colors.text, marginLeft: 8 }}>
               {SUPPORTED_CHAINS[selectedChain]?.name || selectedChain}
             </Text>
           </View>
-          <Text style={{ fontSize: 14, color: '#666' }}>
+          <Text style={{ fontSize: 14, color: colors.icon }}>
             Showing transactions for {SUPPORTED_CHAINS[selectedChain]?.name || selectedChain} network
           </Text>
         </View>
 
         {transactions.length === 0 && (
-          <Text style={{ textAlign: 'center', color: '#888', marginTop: 40 }}>
+          <Text style={{ textAlign: 'center', color: colors.icon, marginTop: 40 }}>
             No transactions found on {SUPPORTED_CHAINS[selectedChain]?.name || selectedChain}.
           </Text>
         )}
@@ -195,11 +203,11 @@ export default function TransactionHistoryScreen() {
             <View 
               key={key}
               style={{
-                backgroundColor: 'white',
+                backgroundColor: colors.card,
                 padding: 15,
                 borderRadius: 10,
                 marginBottom: 10,
-                shadowColor: '#000',
+                shadowColor: colors.shadow,
                 shadowOffset: { width: 0, height: 2 },
                 shadowOpacity: 0.1,
                 shadowRadius: 4,
@@ -211,13 +219,13 @@ export default function TransactionHistoryScreen() {
                 <Ionicons
                   name={tx.from?.toLowerCase() === tx.to?.toLowerCase() ? 'swap-horizontal' : (tx.from?.toLowerCase() === tx.to?.toLowerCase() ? 'arrow-up-circle' : 'arrow-down-circle')}
                   size={24}
-                  color={tx.from?.toLowerCase() === tx.to?.toLowerCase() ? '#888' : (tx.from?.toLowerCase() === tx.to?.toLowerCase() ? '#ff6b6b' : '#51cf66')}
+                  color={tx.from?.toLowerCase() === tx.to?.toLowerCase() ? colors.icon : (tx.from?.toLowerCase() === tx.to?.toLowerCase() ? colors.error : colors.success)}
                 />
                 <View style={{ marginLeft: 10 }}>
-                  <Text style={{ fontSize: 16, fontWeight: '600', color: '#333' }}>
+                  <Text style={{ fontSize: 16, fontWeight: '600', color: colors.text }}>
                     {tx.from?.toLowerCase() === tx.to?.toLowerCase() ? 'Self' : (tx.from?.toLowerCase() === tx.to?.toLowerCase() ? 'Sent' : 'Received')}
                   </Text>
-                  <Text style={{ fontSize: 14, color: '#666', marginTop: 2 }}>
+                  <Text style={{ fontSize: 14, color: colors.icon, marginTop: 2 }}>
                     {new Date(tx.timestamp).toLocaleString()}
                   </Text>
                 </View>
@@ -226,16 +234,16 @@ export default function TransactionHistoryScreen() {
                 <Text style={{
                   fontSize: 16,
                   fontWeight: '600',
-                  color: tx.from?.toLowerCase() === tx.to?.toLowerCase() ? '#888' : (tx.from?.toLowerCase() === tx.to?.toLowerCase() ? '#ff6b6b' : '#51cf66')
+                  color: tx.from?.toLowerCase() === tx.to?.toLowerCase() ? colors.icon : (tx.from?.toLowerCase() === tx.to?.toLowerCase() ? colors.error : colors.success)
                 }}>
                   {tx.from?.toLowerCase() === tx.to?.toLowerCase() ? '' : (tx.from?.toLowerCase() === tx.to?.toLowerCase() ? '-' : '+')}{tx.amount} {tx.tokenSymbol || ''}
                 </Text>
-                <Text style={{ fontSize: 12, color: tx.status === 'completed' ? '#51cf66' : '#ff6b6b', marginTop: 2 }}>
+                <Text style={{ fontSize: 12, color: tx.status === 'completed' ? colors.success : colors.error, marginTop: 2 }}>
                   {tx.status}
                 </Text>
                 {tx.blockExplorerUrl && (
                   <TouchableOpacity onPress={() => handleOpenExplorer(tx.blockExplorerUrl)}>
-                    <Text style={{ color: '#667eea', fontSize: 12, marginTop: 4 }}>View on Blockchain</Text>
+                    <Text style={{ color: colors.tint, fontSize: 12, marginTop: 4 }}>View on Blockchain</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -244,6 +252,6 @@ export default function TransactionHistoryScreen() {
           );
         })}
       </ScrollView>
-    </View>
+    </ThemedView>
   );
 } 

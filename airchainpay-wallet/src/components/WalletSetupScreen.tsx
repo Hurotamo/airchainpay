@@ -29,8 +29,8 @@ interface WalletSetupScreenProps {
 
 export default function WalletSetupScreen({ 
   onWalletCreated, 
-  title = "🚀 Welcome to AirChainPay",
-  subtitle = "Your Gateway to Multi-Chain Digital Payments"
+  title = "Welcome to AirChainPay",
+  subtitle = "Offline Wallet"
 }: WalletSetupScreenProps) {
   const [loading, setLoading] = useState(false);
   const [showImportSeed, setShowImportSeed] = useState(false);
@@ -76,7 +76,7 @@ export default function WalletSetupScreen({
         Alert.alert('Create Wallet Error', 'Selected network is not supported. Please choose a different network.');
       } else if (errorMessage.includes('RPC URL')) {
         Alert.alert('Create Wallet Error', 'Network RPC URL is not configured. Please check your app settings or network configuration.');
-      } else if (errorMessage.includes('SecureStore')) {
+      } else if (errorMessage.includes('Failed to set item')) {
         Alert.alert('Create Wallet Error', 'Failed to securely store wallet credentials. Please check device permissions.');
       } else if (errorMessage.includes('network') || errorMessage.includes('provider')) {
         Alert.alert('Create Wallet Error', 'Network error: Unable to connect to the blockchain. Please check your internet connection or try again later.');

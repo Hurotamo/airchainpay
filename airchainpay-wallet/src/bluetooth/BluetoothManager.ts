@@ -38,6 +38,7 @@ export class BluetoothError extends Error {
 // BluetoothManager handles BLE scanning, connecting, and permissions using react-native-ble-plx
 // and BLE advertising using react-native-ble-advertiser
 export class BluetoothManager {
+  private static instance: BluetoothManager | null = null;
   private manager: BleManager | null = null;
   private advertiser: any = null;
   private isAdvertising: boolean = false;
@@ -51,7 +52,7 @@ export class BluetoothManager {
   private advertisingSubscription: any = null;
   private advertisingHealthCheckInterval: any = null;
   
-  constructor() {
+  private constructor() {
     // Initialize BLE manager
     logger.info('[BLE] Initializing BluetoothManager with react-native-ble-plx and react-native-ble-advertiser');
     
@@ -117,6 +118,13 @@ export class BluetoothManager {
     if (this.initializationError) {
       console.log('[BLE] Initialization error:', this.initializationError);
     }
+  }
+
+  public static getInstance(): BluetoothManager {
+    if (!BluetoothManager.instance) {
+      BluetoothManager.instance = new BluetoothManager();
+    }
+    return BluetoothManager.instance;
   }
 
   /**
@@ -549,32 +557,23 @@ export class BluetoothManager {
     }
 
     logger.info('[BLE] Connecting to device:', device.id);
-    
-    // Request permissions before connecting
     await this.requestPermissions();
 
     let lastError: Error | null = null;
     const maxRetries = 3;
+    const baseDelay = 1000; // 1 second
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        // Update connection status
         this.connectedDevices.set(device.id, {
           device,
           status: ConnectionStatus.CONNECTING
         });
         this.notifyConnectionChange(device.id, ConnectionStatus.CONNECTING);
 
-        // Connect using react-native-ble-plx
         const connectedDevice = await device.connect();
-        
-        // Discover services and characteristics
         const discoveredDevice = await connectedDevice.discoverAllServicesAndCharacteristics();
-        
-        // Get services
         const services = await discoveredDevice.services();
-        
-        // Update connection status
         this.connectedDevices.set(device.id, {
           device: discoveredDevice,
           status: ConnectionStatus.CONNECTED,
@@ -584,19 +583,19 @@ export class BluetoothManager {
 
         logger.info('[BLE] Connected successfully to device:', device.id);
         return discoveredDevice;
-
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
         logger.warn(`[BLE] Connection attempt ${attempt} failed:`, error);
-        
         if (attempt < maxRetries) {
-          // Wait before retrying
-          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+          // Exponential backoff with jitter
+          const delay = baseDelay * Math.pow(2, attempt - 1);
+          const jitter = Math.floor(Math.random() * 400); // up to 400ms random jitter
+          const totalDelay = delay + jitter;
+          logger.info(`[BLE] Waiting ${totalDelay}ms before retrying connection (attempt ${attempt + 1})`);
+          await new Promise(resolve => setTimeout(resolve, totalDelay));
         }
       }
     }
-
-    // All attempts failed
     this.connectedDevices.delete(device.id);
     this.notifyConnectionChange(device.id, ConnectionStatus.ERROR);
     throw new BluetoothError(

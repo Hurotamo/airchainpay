@@ -4,15 +4,32 @@ This is the React Native (Expo) mobile wallet for AirChainPay, supporting offlin
 
 ## Features
 - Bluetooth (BLE) peer-to-peer transfer (react-native-ble-plx)
-- Secure key storage (expo-secure-store)
+- **Hybrid secure key storage** (React Native Keychain + expo-secure-store fallback)
 - Offline transaction queue (expo-sqlite)
 - EVM wallet and signing (ethers.js)
+
+## Secure Key Storage (Hybrid Approach)
+
+AirChainPay Wallet uses a hybrid approach for secure storage of sensitive wallet data (private key, seed phrase, password):
+
+- **Primary:** [React Native Keychain](https://github.com/oblador/react-native-keychain) is used for maximum security, supporting biometrics and device authentication.
+- **Fallback:** [expo-secure-store](https://docs.expo.dev/versions/latest/sdk/securestore/) is used if Keychain is unavailable or not supported on the device.
+
+**How it works:**
+- When storing or retrieving wallet secrets, the app tries Keychain first (with biometrics/device PIN if available).
+- If Keychain is not available, it falls back to SecureStore.
+- This ensures maximum compatibility and security across all devices.
+
+**Benefits:**
+- Maximum security for wallet secrets (biometrics, device PIN, hardware-backed storage)
+- Works on all devices, even if Keychain is not available
+- No secrets are ever synced to the cloud or leave the device
 
 ## Folder Structure
 ```
 src/
   bluetooth/   # BLE logic
-  storage/     # SecureStore/SQLite logic
+  storage/     # Secure/key storage logic
   wallet/      # EVM wallet logic (ethers)
   screens/     # App screens
   components/  # Shared UI components

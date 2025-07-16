@@ -35,7 +35,7 @@ export interface PaymentRequest {
 }
 
 export interface PaymentResult {
-  status: 'sent' | 'failed' | 'queued' | 'key_exchange_required' | 'generated';
+  status: 'sent' | 'failed' | 'queued' | 'key_exchange_required' | 'generated' | 'pending' | 'confirmed' | 'advertising';
   transport: 'ble' | 'secure_ble' | 'qr' | 'manual' | 'onchain';
   transactionId?: string;
   deviceId?: string;
@@ -194,6 +194,8 @@ export class PaymentService {
       throw error;
     }
   }
+
+
 
   /**
    * Process QR transaction (offline QR code exchange)

@@ -6,7 +6,6 @@ import { Platform, ActivityIndicator, View, Alert } from 'react-native';
 import { initializeCameraModule } from '../src/utils/CameraModule';
 
 import { StatusBar } from 'expo-status-bar';
-import 'react-native-reanimated';
 // Import AsyncStorage with a fallback mechanism
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFonts } from 'expo-font';
