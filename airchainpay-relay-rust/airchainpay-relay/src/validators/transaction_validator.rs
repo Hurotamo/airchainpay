@@ -160,8 +160,20 @@ impl TransactionValidator {
     }
 
     fn validate_gas_limits(&self, signed_tx: &str, chain_id: u64) -> Result<()> {
-        // Use per-chain max gas limit if available, otherwise fallback
-        let default_max_gas_limit: u64 = 12_500_000;
+        // Set chain-specific default max gas limits
+        // Base (ETH): much lower, Core (non-ETH): higher
+        let base_eth_chain_ids = [84532u64]; // Add more Base/ETH chain IDs as needed
+        let core_chain_ids = [1114u64];     // Add more Core chain IDs as needed
+
+        let default_max_gas_limit: u64 = if base_eth_chain_ids.contains(&chain_id) {
+            500_000 // Cheaper, lower limit for Base/ETH
+        } else if core_chain_ids.contains(&chain_id) {
+            2_000_000 // Reasonable limit for Core
+        } else {
+            1_000_000 // Fallback for unknown chains
+        };
+
+        // Use per-chain config if set, otherwise use the above default
         let max_gas_limit = self.config.supported_chains.get(&chain_id)
             .and_then(|chain_cfg| chain_cfg.max_gas_limit)
             .unwrap_or(default_max_gas_limit);
