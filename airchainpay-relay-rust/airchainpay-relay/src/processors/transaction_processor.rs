@@ -4,7 +4,7 @@ use anyhow::Result;
 use std::sync::Arc;
 use tokio::sync::{RwLock, Mutex};
 use tokio::time::{Duration};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::cmp::Ordering;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -112,14 +112,18 @@ impl Default for TransactionProcessorConfig {
 }
 
 pub struct TransactionQueue {
-    _phantom: std::marker::PhantomData<()>,
+    queue: VecDeque<QueuedTransaction>,
 }
 
 impl TransactionQueue {
     pub fn new(_max_size: usize) -> Self {
         Self {
-            _phantom: std::marker::PhantomData,
+            queue: VecDeque::new(),
         }
+    }
+
+    pub fn pop(&mut self) -> Option<QueuedTransaction> {
+        self.queue.pop_front()
     }
 }
 
@@ -179,12 +183,71 @@ impl TransactionProcessor {
         }
     }
 
+    pub async fn enqueue_transaction(&self, tx: QueuedTransaction) {
+        let mut queue_guard = self.queue.lock().await;
+        queue_guard.queue.push_back(tx);
+    }
+
+    async fn process_transaction(&self, tx: QueuedTransaction, worker_name: &str) {
+        println!("{} is processing transaction: {:?}", worker_name, tx);
+        let max_retries = 3;
+        let mut attempt = 0;
+        let tx_id = tx.metadata.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let mut last_err = None;
+        while attempt < max_retries {
+            match self.blockchain_manager.send_transaction(&tx).await {
+                Ok(tx_hash) => {
+                    println!("{} successfully sent transaction: {:?}, hash: {}", worker_name, tx, tx_hash);
+                    let _ = self.storage.update_transaction_status(&tx_id, "completed", Some(format!("{:?}", tx_hash)));
+                    return;
+                }
+                Err(e) => {
+                    println!("{} failed to send transaction (attempt {}): {:?}, error: {:?}", worker_name, attempt + 1, tx, e);
+                    last_err = Some(e);
+                    attempt += 1;
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                }
+            }
+        }
+        // If we reach here, all attempts failed
+        let _ = self.storage.update_transaction_status(&tx_id, "failed", None);
+        println!("{} permanently failed to send transaction: {:?}, last error: {:?}", worker_name, tx, last_err);
+    }
+
     pub async fn start(&self) -> Result<()> {
         let mut running = self.running.write().await;
         *running = true;
         drop(running);
 
         println!("Transaction processor started");
+
+        let mut workers_map = self.workers.write().await;
+        for i in 0..10 {
+            let running = Arc::clone(&self.running);
+            let queue = Arc::clone(&self.queue);
+            let processor = self.clone();
+            let worker_name = format!("worker-{}", i);
+            let worker_name_for_task = worker_name.clone();
+            let handle = tokio::spawn(async move {
+                loop {
+                    if !*running.read().await {
+                        break;
+                    }
+                    let maybe_tx = {
+                        let mut queue_guard = queue.lock().await;
+                        queue_guard.pop()
+                    };
+                    if let Some(tx) = maybe_tx {
+                        processor.process_transaction(tx, &worker_name_for_task).await;
+                    } else {
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    }
+                }
+                println!("{} stopped.", worker_name_for_task);
+            });
+            workers_map.insert(worker_name, handle);
+        }
+        drop(workers_map);
 
         Ok(())
     }

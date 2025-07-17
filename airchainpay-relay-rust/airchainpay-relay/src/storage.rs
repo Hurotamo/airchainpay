@@ -117,8 +117,17 @@ impl Storage {
         transactions.iter().rev().take(limit).cloned().collect()
     }
     
-
-    
+    pub fn update_transaction_status(&self, id: &str, status: &str, tx_hash: Option<String>) -> Result<()> {
+        let mut transactions = self.transactions.lock().unwrap();
+        if let Some(tx) = transactions.iter_mut().find(|t| t.id == id) {
+            tx.status = status.to_string();
+            tx.tx_hash = tx_hash;
+            self.save_data()?;
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Transaction not found: {}", id))
+        }
+    }
 
     
     pub fn update_metrics(&self, field: &str, value: u64) -> Result<()> {

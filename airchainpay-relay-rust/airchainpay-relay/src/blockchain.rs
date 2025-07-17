@@ -8,6 +8,8 @@ use ethers::{
     core::types::{Address, U256, H256, Log},
     prelude::*,
 };
+use ethers::types::Bytes;
+use crate::processors::transaction_processor::QueuedTransaction;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GasEstimate {
@@ -84,6 +86,20 @@ impl BlockchainManager {
         status.insert("total_chains".to_string(), self.providers.len().to_string());
         status.insert("timestamp".to_string(), chrono::Utc::now().to_rfc3339());
         Ok(status)
+    }
+
+    pub async fn send_transaction(&self, tx: &QueuedTransaction) -> Result<H256> {
+        let chain_id = tx.chain_id;
+        let signed_tx_hex = match &tx.metadata.get("signedTx") {
+            Some(val) => val.as_str().ok_or_else(|| anyhow!("signedTx is not a string"))?,
+            None => return Err(anyhow!("No signedTx in transaction metadata")),
+        };
+        let provider = self.providers.get(&chain_id)
+            .ok_or_else(|| anyhow!("No provider for chain_id {}", chain_id))?;
+        let raw_tx_bytes = hex::decode(signed_tx_hex.trim_start_matches("0x"))?;
+        let pending_tx = provider.send_raw_transaction(Bytes::from(raw_tx_bytes)).await?;
+        let receipt = pending_tx.await?;
+        Ok(receipt.unwrap().transaction_hash)
     }
 }
  

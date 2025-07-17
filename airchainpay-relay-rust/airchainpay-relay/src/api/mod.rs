@@ -14,6 +14,8 @@ use std::collections::HashMap;
 use std::env;
 use actix_web::web::{Json, Query, Path};
 use chrono::{DateTime, Utc};
+use crate::processors::transaction_processor::{QueuedTransaction, TransactionProcessor};
+use serde_json::json;
 
 #[get("/health")]
 async fn health(
@@ -262,17 +264,6 @@ async fn handle_transaction_submission(
 // Update process_transaction to call the helper
 #[post("/send_tx")]
 async fn process_transaction(
-    req: web::Json<SendTxRequest>,
-    storage: Data<Arc<Storage>>,
-    blockchain_manager: Data<Arc<BlockchainManager>>,
-    error_handler: Data<Arc<EnhancedErrorHandler>>,
-) -> impl Responder {
-    handle_transaction_submission(req, storage, blockchain_manager, error_handler).await
-}
-
-// Update submit_transaction and legacy_submit_transaction to call the helper
-#[post("/submit-transaction")]
-pub async fn submit_transaction(
     req: web::Json<SendTxRequest>,
     storage: Data<Arc<Storage>>,
     blockchain_manager: Data<Arc<BlockchainManager>>,
@@ -1988,5 +1979,14 @@ async fn health_metrics(
             },
         }
     }))
+}
+
+#[post("/submit_transaction")]
+pub async fn submit_transaction(
+    tx: web::Json<QueuedTransaction>,
+    processor: web::Data<std::sync::Arc<TransactionProcessor>>,
+) -> impl Responder {
+    processor.enqueue_transaction(tx.into_inner()).await;
+    HttpResponse::Ok().json(json!({ "status": "queued" }))
 }
 
