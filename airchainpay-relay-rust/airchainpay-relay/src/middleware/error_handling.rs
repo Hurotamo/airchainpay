@@ -4,8 +4,7 @@ use actix_web::{
     dev::{Service, Transform, ServiceRequest, ServiceResponse},
 };
 use std::sync::Arc;
-use crate::utils::error_handler::{ErrorType, ErrorSeverity, ErrorRecord, EnhancedErrorHandler};
-use crate::utils::error_handler::CriticalPath;
+use crate::utils::error_handler::{ErrorType, ErrorSeverity, ErrorRecord, EnhancedErrorHandler, CriticalPath};
 use futures_util::future::{LocalBoxFuture, Ready, ready};
 use serde_json::json;
 use chrono::Utc;
@@ -64,7 +63,7 @@ where
     }
 
     fn call(&self, req: ServiceRequest) -> Self::Future {
-        let error_handler = Arc::clone(&self.error_handler);
+        let error_handler: std::sync::Arc<EnhancedErrorHandler> = Arc::clone(&self.error_handler);
         let service = Arc::clone(&self.service);
         let path = req.path().to_string();
         let method = req.method().to_string();

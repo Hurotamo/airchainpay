@@ -7,7 +7,7 @@ use futures::future::{ready, Ready};
 use std::sync::Arc;
 use std::collections::HashMap;
 use crate::middleware::metrics::MetricsCollector;
-use crate::monitoring::MonitoringManager;
+use crate::infrastructure::monitoring::manager::MonitoringManager;
 use std::marker::PhantomData;
 use futures_util::future::LocalBoxFuture;
 use futures::task::{Context, Poll};

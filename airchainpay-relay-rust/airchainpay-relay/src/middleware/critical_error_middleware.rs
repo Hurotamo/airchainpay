@@ -57,7 +57,7 @@ where
     forward_ready!(service);
 
     fn call(&self, req: ServiceRequest) -> Self::Future {
-        let critical_error_handler = Arc::clone(&self.critical_error_handler);
+        let critical_error_handler: std::sync::Arc<EnhancedErrorHandler> = Arc::clone(&self.critical_error_handler);
         let service = self.service.clone();
         let path = req.path().to_string();
         let method = req.method().to_string();

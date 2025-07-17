@@ -1,5 +1,5 @@
-use crate::blockchain::BlockchainManager;
-use crate::storage::Storage;
+use crate::infrastructure::blockchain::manager::BlockchainManager;
+use crate::infrastructure::storage::file_storage::Storage;
 use anyhow::Result;
 use std::sync::Arc;
 use tokio::sync::{RwLock, Mutex};

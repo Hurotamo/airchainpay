@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::infrastructure::config::Config;
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

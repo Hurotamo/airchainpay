@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use anyhow::Error;
 use std::time::{Duration, Instant};
-use crate::error::RelayError;
+use crate::domain::error::RelayError;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum CriticalPath {

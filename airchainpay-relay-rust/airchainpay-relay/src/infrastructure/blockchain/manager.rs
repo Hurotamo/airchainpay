@@ -1,4 +1,4 @@
-use crate::config::{Config};
+use crate::infrastructure::config::Config;
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -9,7 +9,7 @@ use ethers::{
     prelude::*,
 };
 use ethers::types::Bytes;
-use crate::processors::transaction_processor::QueuedTransaction;
+use crate::app::transaction_service::QueuedTransaction;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GasEstimate {
@@ -52,7 +52,7 @@ impl BlockchainManager {
                     .map_err(|e| anyhow!("Invalid contract address for chain {}: {}", chain_id, e))?;
                 
                 // Fix ABI usage by converting bytes to ABI
-                let abi_bytes = include_bytes!("abi/AirChainPay.json");
+                let abi_bytes = include_bytes!("../../abi/AirChainPay.json");
                 let abi_value: serde_json::Value = serde_json::from_slice(abi_bytes).unwrap();
                 let abi: ethers::abi::Abi = serde_json::from_value(abi_value).unwrap();
                 let contract = Contract::new(contract_address, abi, Arc::new(provider));

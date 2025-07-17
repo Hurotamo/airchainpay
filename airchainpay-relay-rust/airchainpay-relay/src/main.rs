@@ -1,56 +1,23 @@
-mod api;
-mod blockchain;
-mod security;
-mod storage;
-mod auth;
-mod config;
-mod error;
-mod logger;
-mod processors;
-mod validators;
-mod utils;
-mod scheduler;
-mod middleware;
-mod monitoring;
-
 use actix_web::{App, HttpServer, web};
 
 use std::sync::Arc;
-use crate::config::DynamicConfigManager;
-use crate::storage::Storage;
-use crate::blockchain::BlockchainManager;
-use crate::auth::AuthManager;
-use crate::monitoring::MonitoringManager;
-use crate::utils::error_handler::EnhancedErrorHandler;
-use crate::utils::backup::BackupManager;
-use crate::utils::audit::AuditLogger;
-use crate::api::{
-    health, 
-    submit_transaction, legacy_submit_transaction,
-    // backup endpoints
-    create_backup, restore_backup, list_backups, get_backup_info, delete_backup, 
-    verify_backup, get_backup_stats, cleanup_backups,
-    // audit endpoints
-    get_audit_events, get_security_events, get_failed_events, get_critical_events,
-    get_events_by_user, get_events_by_device, get_audit_stats, export_audit_events, clear_audit_events,
-    // error endpoints
-    get_error_statistics, reset_error_statistics, get_circuit_breaker_status, reset_circuit_breaker,
-    test_error_handling, get_error_summary,
-    // config endpoints
-    get_configuration, reload_configuration, export_configuration, import_configuration,
-    validate_configuration, get_configuration_summary, update_configuration_field, save_configuration_to_file,
-    // health endpoints
-    detailed_health, component_health, health_alerts, resolve_alert, health_metrics,
-    // transaction endpoints
-    process_transaction, get_transactions, get_metrics, get_devices,
-};
-use crate::utils::backup::BackupConfig;
-use crate::logger::Logger;
+use airchainpay_relay::infrastructure::config::DynamicConfigManager;
+use airchainpay_relay::infrastructure::storage::file_storage::Storage;
+use airchainpay_relay::infrastructure::blockchain::manager::BlockchainManager;
+use airchainpay_relay::domain::auth::AuthManager;
+use airchainpay_relay::infrastructure::monitoring::manager::MonitoringManager;
+use airchainpay_relay::utils::error_handler::EnhancedErrorHandler;
+use airchainpay_relay::utils::backup::BackupManager;
+use airchainpay_relay::utils::audit::AuditLogger;
+use airchainpay_relay::infrastructure::logger::Logger;
+use airchainpay_relay::app::transaction_service::TransactionProcessor;
+use airchainpay_relay::utils::backup::BackupConfig;
+use airchainpay_relay::middleware::metrics::MetricsMiddleware;
+use airchainpay_relay::middleware::error_handling::ErrorHandlingMiddleware;
+use airchainpay_relay::middleware::rate_limiting::RateLimitingMiddleware;
+use airchainpay_relay::middleware::ComprehensiveSecurityMiddleware;
+use airchainpay_relay::api::*;
 use std::env;
-use crate::middleware::metrics::MetricsMiddleware;
-use crate::middleware::error_handling::ErrorHandlingMiddleware;
-use crate::middleware::rate_limiting::RateLimitingMiddleware;
-use crate::middleware::ComprehensiveSecurityMiddleware;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -94,7 +61,7 @@ async fn main() -> std::io::Result<()> {
     let error_handler = Arc::new(EnhancedErrorHandler::new());
     
     // Initialize enhanced transaction processor
-    let transaction_processor = Arc::new(processors::TransactionProcessor::new(
+    let transaction_processor = Arc::new(TransactionProcessor::new(
         Arc::clone(&blockchain_manager),
         Arc::clone(&storage),
         None, // Use default config
@@ -133,7 +100,7 @@ async fn main() -> std::io::Result<()> {
             .service(
                 web::scope("/api")
                     .wrap(ComprehensiveSecurityMiddleware::new(
-                        crate::middleware::EnhancedSecurityConfig::default()
+                        airchainpay_relay::middleware::EnhancedSecurityConfig::default()
                     ))
                     .wrap(MetricsMiddleware::new(
                         Arc::clone(&monitoring_manager)

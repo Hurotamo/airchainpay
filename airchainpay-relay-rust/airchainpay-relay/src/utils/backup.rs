@@ -11,6 +11,7 @@ use tokio::time::{interval, Duration};
 use std::process::Command;
 use sha2::{Sha256, Digest};
 use std::io::Read;
+use crate::infrastructure::monitoring::manager::MonitoringManager;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackupMetadata {
@@ -68,7 +69,7 @@ pub struct BackupManager {
     config: BackupConfig,
     backups: Arc<RwLock<HashMap<String, BackupMetadata>>>,
     data_dir: String,
-    monitoring_manager: Option<Arc<crate::monitoring::MonitoringManager>>,
+    monitoring_manager: Option<Arc<MonitoringManager>>,
 }
 
 impl BackupManager {
@@ -81,7 +82,7 @@ impl BackupManager {
         }
     }
 
-    pub fn with_monitoring(mut self, monitoring_manager: Arc<crate::monitoring::MonitoringManager>) -> Self {
+    pub fn with_monitoring(mut self, monitoring_manager: Arc<MonitoringManager>) -> Self {
         self.monitoring_manager = Some(monitoring_manager);
         self
     }

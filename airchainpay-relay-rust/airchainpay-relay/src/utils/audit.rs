@@ -8,6 +8,7 @@ use uuid::Uuid;
 // Remove logger import and replace with simple logging
 // use crate::logger::Logger;
 use std::time::{SystemTime, UNIX_EPOCH};
+use crate::infrastructure::monitoring::manager::MonitoringManager;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditEvent {
@@ -776,7 +777,7 @@ impl AuditLogger {
         self.enabled
     }
 
-    pub fn with_monitoring(self, _monitoring: Arc<crate::monitoring::MonitoringManager>) -> Self {
+    pub fn with_monitoring(self, _monitoring: Arc<MonitoringManager>) -> Self {
         // Monitoring integration is a no-op for now
         self
     }

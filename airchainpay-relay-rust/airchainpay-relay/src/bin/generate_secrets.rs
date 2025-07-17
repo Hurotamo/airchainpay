@@ -1,4 +1,4 @@
-use airchainpay_relay::auth::generate_production_secrets;
+use airchainpay_relay::domain::auth::generate_production_secrets;
 
 use base64::Engine;
 

@@ -3,6 +3,10 @@ name = "airchainpay-relay"
 version = "1.0.0"
 edition = "2021"
 
+[lib]
+name = "airchainpay_relay"
+path = "src/lib.rs"
+
 [[bin]]
 name = "generate_secrets"
 path = "src/bin/generate_secrets.rs"

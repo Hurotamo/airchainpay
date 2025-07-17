@@ -8,7 +8,7 @@ use std::time::Instant;
 use futures_util::future::{LocalBoxFuture, Ready};
 use actix_web::body::BoxBody;
 use futures_util::future::ready;
-use crate::monitoring::MonitoringManager;
+use crate::infrastructure::monitoring::manager::MonitoringManager;
 use std::marker::PhantomData;
 
 #[derive(Clone)]
@@ -64,7 +64,7 @@ where
 
     fn call(&self, req: actix_web::dev::ServiceRequest) -> Self::Future {
         let service = Arc::clone(&self.service);
-        let monitoring_manager = Arc::clone(&self.monitoring_manager);
+        let monitoring_manager: Arc<MonitoringManager> = Arc::clone(&self.monitoring_manager);
         let start_time = Instant::now();
 
         Box::pin(async move {
@@ -145,4 +145,4 @@ impl MetricsCollector {
     pub fn new(monitoring_manager: Arc<MonitoringManager>) -> Self {
         Self { monitoring_manager }
     }
-} 
+}
