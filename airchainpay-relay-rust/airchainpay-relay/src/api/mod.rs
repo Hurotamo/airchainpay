@@ -16,6 +16,7 @@ use actix_web::web::{Json, Query, Path};
 use chrono::{DateTime, Utc};
 use crate::processors::transaction_processor::{QueuedTransaction, TransactionProcessor};
 use serde_json::json;
+use crate::validators::transaction_validator::TransactionValidator;
 
 #[get("/health")]
 async fn health(
@@ -192,6 +193,7 @@ async fn handle_transaction_submission(
     storage: Data<Arc<Storage>>,
     _blockchain_manager: Data<Arc<BlockchainManager>>,
     error_handler: Data<Arc<EnhancedErrorHandler>>,
+    config_manager: Data<Arc<DynamicConfigManager>>,
 ) -> impl Responder {
     // Validate input using sanitizer
     use crate::utils::sanitizer::InputSanitizer;
@@ -216,6 +218,18 @@ async fn handle_transaction_submission(
             "timestamp": chrono::Utc::now().to_rfc3339(),
         }));
     }
+
+    // --- TransactionValidator integration ---
+    let config = config_manager.get_config().await;
+    let validator = TransactionValidator::new(Arc::new(config));
+    let validation_result = validator.validate_transaction(&req.signed_tx).await.unwrap();
+    if !validation_result.valid {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "error": validation_result.errors,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        }));
+    }
+    // --- End TransactionValidator integration ---
     
     // Create transaction record
     let transaction = Transaction::new(
@@ -268,8 +282,9 @@ async fn process_transaction(
     storage: Data<Arc<Storage>>,
     blockchain_manager: Data<Arc<BlockchainManager>>,
     error_handler: Data<Arc<EnhancedErrorHandler>>,
+    config_manager: Data<Arc<DynamicConfigManager>>,
 ) -> impl Responder {
-    handle_transaction_submission(req, storage, blockchain_manager, error_handler).await
+    handle_transaction_submission(req, storage, blockchain_manager, error_handler, config_manager).await
 }
 
 #[post("/api/v1/submit-transaction")]
@@ -278,8 +293,9 @@ async fn legacy_submit_transaction(
     storage: Data<Arc<Storage>>,
     blockchain_manager: Data<Arc<BlockchainManager>>,
     error_handler: Data<Arc<EnhancedErrorHandler>>,
+    config_manager: Data<Arc<DynamicConfigManager>>,
 ) -> impl Responder {
-    handle_transaction_submission(req, storage, blockchain_manager, error_handler).await
+    handle_transaction_submission(req, storage, blockchain_manager, error_handler, config_manager).await
 }
 
 #[get("/contract/payments")]

@@ -20,6 +20,7 @@ pub struct ChainConfig {
     pub contract_address: String,
     pub explorer: String,
     pub currency_symbol: Option<String>,
+    pub max_gas_limit: Option<u64>,
 }
 
 impl Default for ChainConfig {
@@ -30,6 +31,7 @@ impl Default for ChainConfig {
             contract_address: "".to_string(),
             explorer: "https://scan.test2.btcs.network".to_string(),
             currency_symbol: Some("TCORE2".to_string()),
+            max_gas_limit: None,
         }
     }
 }
@@ -603,6 +605,7 @@ impl Config {
             contract_address: env::var("CORE_TESTNET2_CONTRACT_ADDRESS").unwrap_or_else(|_| "".to_string()),
             explorer: env::var("CORE_TESTNET2_BLOCK_EXPLORER").unwrap_or_else(|_| "https://scan.test2.btcs.network".to_string()),
             currency_symbol: Some(env::var("CORE_TESTNET2_CURRENCY_SYMBOL").unwrap_or_else(|_| "TCORE2".to_string())),
+            max_gas_limit: None,
         });
         
         // Base Sepolia Testnet (Secondary)
@@ -612,6 +615,7 @@ impl Config {
             contract_address: env::var("BASE_SEPOLIA_CONTRACT_ADDRESS").unwrap_or_else(|_| "".to_string()),
             explorer: env::var("BASE_SEPOLIA_BLOCK_EXPLORER").unwrap_or_else(|_| "https://sepolia.basescan.org".to_string()),
             currency_symbol: Some(env::var("BASE_SEPOLIA_CURRENCY_SYMBOL").unwrap_or_else(|_| "ETH".to_string())),
+            max_gas_limit: None,
         });
         
         chains

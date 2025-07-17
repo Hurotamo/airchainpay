@@ -50,7 +50,8 @@ log = "0.4.27"
 actix-service = "2.0.3"
 notify = "8.1.0"
 base64 = "0.22.1"
-aes-gcm = "0.10"
+aes-gcm = "0.10.3"
+rlp = "0.6.1"
 
 [build-dependencies]
 prost-build = "0.14.1"
