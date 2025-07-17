@@ -12,10 +12,6 @@ pub struct PrometheusMetrics {
     pub transactions_processed: u64,
     pub transactions_failed: u64,
     pub transactions_broadcasted: u64,
-    pub ble_connections: u64,
-    pub ble_disconnections: u64,
-    pub ble_authentications: u64,
-    pub ble_key_exchanges: u64,
     pub rpc_errors: u64,
     pub gas_price_updates: u64,
     pub contract_events: u64,
@@ -25,7 +21,6 @@ pub struct PrometheusMetrics {
     pub uptime_seconds: f64,
     pub memory_usage_bytes: u64,
     pub cpu_usage_percent: f64,
-    // Additional metrics for comprehensive monitoring
     pub requests_total: u64,
     pub requests_successful: u64,
     pub requests_failed: u64,
@@ -178,13 +173,6 @@ impl MonitoringManager {
                 enabled: true,
             },
             AlertRule {
-                name: "low_ble_connections".to_string(),
-                condition: "ble_connections < 1".to_string(),
-                threshold: 1.0,
-                severity: AlertSeverity::Info,
-                enabled: true,
-            },
-            AlertRule {
                 name: "high_memory_usage".to_string(),
                 condition: "memory_usage_bytes > 1073741824".to_string(), // 1GB
                 threshold: 1073741824.0,
@@ -225,10 +213,6 @@ impl MonitoringManager {
             "transactions_processed" => metrics.transactions_processed += 1,
             "transactions_failed" => metrics.transactions_failed += 1,
             "transactions_broadcasted" => metrics.transactions_broadcasted += 1,
-            "ble_connections" => metrics.ble_connections += 1,
-            "ble_disconnections" => metrics.ble_disconnections += 1,
-            "ble_authentications" => metrics.ble_authentications += 1,
-            "ble_key_exchanges" => metrics.ble_key_exchanges += 1,
             "rpc_errors" => metrics.rpc_errors += 1,
             "gas_price_updates" => metrics.gas_price_updates += 1,
             "contract_events" => metrics.contract_events += 1,
@@ -298,7 +282,6 @@ impl MonitoringManager {
                 }
                 "rpc_errors > 100" => metrics.rpc_errors as f64 > rule.threshold,
                 "auth_failures > 50" => metrics.auth_failures as f64 > rule.threshold,
-                "ble_connections < 1" => (metrics.ble_connections as f64) < rule.threshold,
                 "memory_usage_bytes > 1073741824" => metrics.memory_usage_bytes as f64 > rule.threshold,
                 "response_time_avg_ms > 5000" => metrics.response_time_avg_ms > rule.threshold,
                 "rate_limit_hits > 1000" => metrics.rate_limit_hits as f64 > rule.threshold,
@@ -413,14 +396,6 @@ impl MonitoringManager {
         tx_metrics.insert("broadcasted".to_string(), serde_json::Value::Number(serde_json::Number::from(metrics.transactions_broadcasted)));
         health.insert("transactions".to_string(), serde_json::Value::Object(tx_metrics.into_iter().collect::<serde_json::Map<String, serde_json::Value>>()));
         
-        // BLE metrics
-        let mut ble_metrics = HashMap::new();
-        ble_metrics.insert("connections".to_string(), serde_json::Value::Number(serde_json::Number::from(metrics.ble_connections)));
-        ble_metrics.insert("disconnections".to_string(), serde_json::Value::Number(serde_json::Number::from(metrics.ble_disconnections)));
-        ble_metrics.insert("authentications".to_string(), serde_json::Value::Number(serde_json::Number::from(metrics.ble_authentications)));
-        ble_metrics.insert("key_exchanges".to_string(), serde_json::Value::Number(serde_json::Number::from(metrics.ble_key_exchanges)));
-        health.insert("ble".to_string(), serde_json::Value::Object(ble_metrics.into_iter().collect::<serde_json::Map<String, serde_json::Value>>()));
-        
         health
     }
 }
@@ -432,10 +407,6 @@ impl Default for PrometheusMetrics {
             transactions_processed: 0,
             transactions_failed: 0,
             transactions_broadcasted: 0,
-            ble_connections: 0,
-            ble_disconnections: 0,
-            ble_authentications: 0,
-            ble_key_exchanges: 0,
             rpc_errors: 0,
             gas_price_updates: 0,
             contract_events: 0,

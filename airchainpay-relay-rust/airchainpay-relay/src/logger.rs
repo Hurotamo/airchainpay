@@ -26,7 +26,6 @@ static INIT: Once = Once::new();
 pub struct LogContext {
     pub request_id: Option<String>,
     pub user_id: Option<String>,
-    pub device_id: Option<String>,
     pub ip_address: Option<String>,
     pub session_id: Option<String>,
     pub chain_id: Option<u64>,
@@ -211,7 +210,6 @@ impl EnhancedLogger {
             context: LogContext { // This will cause a compilation error as LogContext is removed
                 request_id: None,
                 user_id: None,
-                device_id: None,
                 ip_address: None,
                 session_id: None,
                 chain_id: None,
@@ -332,56 +330,6 @@ impl EnhancedLogger {
         }
         
         self.error_with_context("Transaction failed", context).await;
-    }
-
-    // BLE-specific logging
-    pub async fn ble_device_connected(&self, device_id: &str, device_info: Option<HashMap<String, serde_json::Value>>) {
-        let mut context = HashMap::new();
-        context.insert("device_id".to_string(), serde_json::Value::String(device_id.to_string()));
-        context.insert("operation".to_string(), serde_json::Value::String("ble_device_connected".to_string()));
-        
-        if let Some(info) = device_info {
-            context.extend(info);
-        }
-        
-        self.info_with_context("BLE device connected", context).await;
-    }
-
-    pub async fn ble_device_disconnected(&self, device_id: &str, reason: Option<&str>) {
-        let mut context = HashMap::new();
-        context.insert("device_id".to_string(), serde_json::Value::String(device_id.to_string()));
-        context.insert("operation".to_string(), serde_json::Value::String("ble_device_disconnected".to_string()));
-        
-        if let Some(reason) = reason {
-            context.insert("reason".to_string(), serde_json::Value::String(reason.to_string()));
-        }
-        
-        self.warn_with_context("BLE device disconnected", context).await;
-    }
-
-    pub async fn auth_success(&self, device_id: &str, auth_method: Option<&str>) {
-        let mut context = HashMap::new();
-        context.insert("device_id".to_string(), serde_json::Value::String(device_id.to_string()));
-        context.insert("operation".to_string(), serde_json::Value::String("auth_success".to_string()));
-        
-        if let Some(method) = auth_method {
-            context.insert("auth_method".to_string(), serde_json::Value::String(method.to_string()));
-        }
-        
-        self.info_with_context("Authentication successful", context).await;
-    }
-
-    pub async fn auth_failure(&self, device_id: &str, reason: &str, auth_method: Option<&str>) {
-        let mut context = HashMap::new();
-        context.insert("device_id".to_string(), serde_json::Value::String(device_id.to_string()));
-        context.insert("reason".to_string(), serde_json::Value::String(reason.to_string()));
-        context.insert("operation".to_string(), serde_json::Value::String("auth_failure".to_string()));
-        
-        if let Some(method) = auth_method {
-            context.insert("auth_method".to_string(), serde_json::Value::String(method.to_string()));
-        }
-        
-        self.warn_with_context("Authentication failed", context).await;
     }
 
     // Security-specific logging
@@ -506,7 +454,6 @@ impl EnhancedLogger {
 pub struct LogFilter {
     pub level: Option<String>,
     pub operation: Option<String>,
-    pub device_id: Option<String>,
     pub transaction_hash: Option<String>,
     pub start_time: Option<DateTime<Utc>>,
     pub end_time: Option<DateTime<Utc>>,
@@ -523,12 +470,6 @@ impl LogFilter {
         
         if let Some(operation) = &self.operation {
             if entry.context.operation.as_ref() != Some(operation) {
-                return false;
-            }
-        }
-        
-        if let Some(device_id) = &self.device_id {
-            if entry.context.device_id.as_ref() != Some(device_id) {
                 return false;
             }
         }
@@ -601,22 +542,6 @@ impl Logger {
 
     pub fn transaction_failed(tx_hash: &str, error: &str) {
         error!("Transaction failed: {} - {}", tx_hash, error);
-    }
-
-    pub fn ble_device_connected(device_id: &str) {
-        info!("BLE device connected: {}", device_id);
-    }
-
-    pub fn ble_device_disconnected(device_id: &str) {
-        warn!("BLE device disconnected: {}", device_id);
-    }
-
-    pub fn auth_success(device_id: &str) {
-        info!("Authentication successful for device: {}", device_id);
-    }
-
-    pub fn auth_failure(device_id: &str, reason: &str) {
-        warn!("Authentication failed for device: {} - {}", device_id, reason);
     }
 
     pub fn security_violation(ip: &str, action: &str) {

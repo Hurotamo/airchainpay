@@ -8,7 +8,6 @@ pub enum CriticalPath {
     Authentication,
     Blockchain,
     Database,
-    BLE,
     Health,
 }
 
@@ -71,7 +70,6 @@ impl CriticalErrorHandler {
                     CriticalPath::Authentication => "authentication",
                     CriticalPath::Blockchain => "blockchain",
                     CriticalPath::Database => "database",
-                    CriticalPath::BLE => "ble",
                     CriticalPath::Health => "health",
                 };
                 (path_str.to_string(), *count)

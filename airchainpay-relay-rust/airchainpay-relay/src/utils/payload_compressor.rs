@@ -117,19 +117,10 @@ impl PayloadCompressor {
         self.protobuf_compressor.decompress_transaction_payload(compressed_data).await
     }
 
-    /// Decompress BLE payment data using Protobuf and CBOR (async version)
-    pub async fn decompress_ble_payment_data(&mut self, compressed_data: &[u8]) -> Result<DecompressionResult> {
-        self.protobuf_compressor.decompress_ble_payment_data(compressed_data).await
-    }
-
-    /// Decompress QR payment request using Protobuf and CBOR (async version)
-    pub async fn decompress_qr_payment_request(&mut self, compressed_data: &[u8]) -> Result<DecompressionResult> {
-        self.protobuf_compressor.decompress_qr_payment_request(compressed_data).await
-    }
-
     /// Try to decompress data with fallback to JSON (async version)
     pub async fn decompress_with_fallback(&mut self, compressed_data: &[u8], payload_type: &str) -> Result<serde_json::Value> {
-        self.protobuf_compressor.decompress_with_fallback(compressed_data, payload_type).await
+        let result = self.protobuf_compressor.decompress_with_fallback(compressed_data, payload_type).await?;
+        Ok(result.data)
     }
 
     /// Auto-detect payload format and decompress accordingly (async version)
@@ -140,16 +131,6 @@ impl PayloadCompressor {
     /// Compress transaction payload using Protobuf and CBOR (async version)
     pub async fn compress_transaction_payload(&mut self, transaction_data: &serde_json::Value) -> Result<Vec<u8>> {
         self.protobuf_compressor.compress_transaction_payload(transaction_data).await
-    }
-
-    /// Compress BLE payment data using Protobuf and CBOR (async version)
-    pub async fn compress_ble_payment_data(&mut self, ble_data: &serde_json::Value) -> Result<Vec<u8>> {
-        self.protobuf_compressor.compress_ble_payment_data(ble_data).await
-    }
-
-    /// Compress QR payment request using Protobuf and CBOR (async version)
-    pub async fn compress_qr_payment_request(&mut self, qr_data: &serde_json::Value) -> Result<Vec<u8>> {
-        self.protobuf_compressor.compress_qr_payment_request(qr_data).await
     }
 
     fn compress_gzip(&self, data: &[u8]) -> Result<Vec<u8>> {

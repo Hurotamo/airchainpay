@@ -11,7 +11,6 @@ use crate::error::RelayError;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum CriticalPath {
     BlockchainTransaction,
-    BLEDeviceConnection,
     Authentication,
     DatabaseOperation,
     ConfigurationReload,
@@ -20,6 +19,7 @@ pub enum CriticalPath {
     SecurityValidation,
     MonitoringMetrics,
     HealthCheck,
+    BLEDeviceConnection,
     // General paths for non-critical operations
     GeneralAPI,
     GeneralSystem,
@@ -65,10 +65,10 @@ pub struct ErrorRecord {
     pub resolution_time: Option<DateTime<Utc>>,
     pub stack_trace: Option<String>,
     pub user_id: Option<String>,
-    pub device_id: Option<String>,
     pub transaction_id: Option<String>,
     pub chain_id: Option<u64>,
     pub ip_address: Option<String>,
+    pub device_id: Option<String>,
     pub component: String,
 }
 
@@ -177,18 +177,6 @@ impl EnhancedErrorHandler {
             alert_on_failure: true,
             auto_recovery: true,
             fallback_strategy: FallbackStrategy::Retry,
-            is_critical: true,
-        });
-
-        path_configs.insert(CriticalPath::BLEDeviceConnection, PathConfig {
-            timeout_duration: Duration::from_secs(15),
-            max_retries: 2,
-            retry_delay: Duration::from_secs(3),
-            circuit_breaker_threshold: 3,
-            circuit_breaker_timeout: Duration::from_secs(30),
-            alert_on_failure: true,
-            auto_recovery: true,
-            fallback_strategy: FallbackStrategy::CircuitBreaker,
             is_critical: true,
         });
 
@@ -345,10 +333,10 @@ impl EnhancedErrorHandler {
                     resolution_time: Some(Utc::now()),
                     stack_trace: None,
                     user_id: None,
-                    device_id: None,
                     transaction_id: None,
                     chain_id: None,
                     ip_address: None,
+                    device_id: None,
                     component: format!("{path:?}"),
                 };
                 let _ = self.record_error(success_record).await;
@@ -370,10 +358,10 @@ impl EnhancedErrorHandler {
                     resolution_time: None,
                     stack_trace: Some(format!("{error:?}")),
                     user_id: None,
-                    device_id: None,
                     transaction_id: None,
                     chain_id: None,
                     ip_address: None,
+                    device_id: None,
                     component: format!("{path:?}"),
                 };
                 let _ = self.record_error(error_record.clone()).await;
@@ -417,10 +405,10 @@ impl EnhancedErrorHandler {
                     resolution_time: None,
                     stack_trace: Some(format!("{error:?}")),
                     user_id: None,
-                    device_id: None,
                     transaction_id: None,
                     chain_id: None,
                     ip_address: None,
+                    device_id: None,
                     component: format!("{path:?}"),
                 };
 

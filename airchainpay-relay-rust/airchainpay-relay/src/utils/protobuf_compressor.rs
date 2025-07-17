@@ -1,6 +1,5 @@
 #![allow(dead_code, unused_variables)]
 use anyhow::{Result, anyhow};
-use prost::Message;
 use serde::{Deserialize, Serialize};
 use base64::{engine::general_purpose, Engine as _};
 use std::io::Write;
@@ -10,46 +9,9 @@ pub mod airchainpay {
     tonic::include_proto!("airchainpay");
 }
 
-// TODO: Protobuf message imports commented out for compilation. Implement or generate these types as needed.
-// use airchainpay::{
-//     ble_payment_data::BlePaymentData,
-//     encrypted_transaction_payload::EncryptedTransactionPayload,
-//     payment_metadata::PaymentMetadata,
-//     qr_payment_request::QrPaymentRequest,
-//     token::Token,
-//     transaction_payload::TransactionPayload,
-//     transaction_result::TransactionResult,
-// };
-
-// Stub types for compilation - these should be replaced with actual protobuf types
+// Remove all QR payment and BLE payment compression/decompression logic, types, and comments. Only generic transaction payload compression remains.
 #[derive(Clone, prost::Message)]
 pub struct TransactionPayload {
-    #[prost(string, tag = "1")]
-    pub data: String,
-}
-
-#[derive(Clone, prost::Message)]
-pub struct BlePaymentData {
-    #[prost(string, tag = "1")]
-    pub data: String,
-}
-
-#[derive(Clone, prost::Message)]
-pub struct QrPaymentRequest {
-    #[prost(string, tag = "1")]
-    pub data: String,
-}
-
-#[derive(Clone, prost::Message)]
-pub struct Token {
-    #[prost(string, tag = "1")]
-    pub symbol: String,
-    #[prost(string, tag = "2")]
-    pub address: String,
-}
-
-#[derive(Clone, prost::Message)]
-pub struct PaymentMetadata {
     #[prost(string, tag = "1")]
     pub data: String,
 }
@@ -139,83 +101,6 @@ impl ProtobufCompressor {
         }
     }
 
-    /// Decompress BLE payment data using Protobuf and CBOR
-    pub async fn decompress_ble_payment_data(&mut self, compressed_data: &[u8]) -> Result<DecompressionResult> {
-        self.initialize()?;
-        
-        // Try to decompress using LZ4 first
-        let mut decompressed = Vec::new();
-        let mut decoder = lz4::Decoder::new(compressed_data)
-            .map_err(|e| anyhow::anyhow!("LZ4 decompression failed: {}", e))?;
-        
-        std::io::copy(&mut decoder, &mut decompressed)
-            .map_err(|e| anyhow::anyhow!("Failed to read decompressed data: {}", e))?;
-        
-        // Try to deserialize as CBOR
-        match cbor4ii::serde::from_slice::<serde_json::Value>(&decompressed) {
-            Ok(data) => {
-                Ok(DecompressionResult {
-                    data,
-                    format: "protobuf_cbor".to_string(),
-                    success: true,
-                    error: None,
-                })
-            }
-            Err(e) => {
-                // Fallback to JSON
-                match serde_json::from_slice::<serde_json::Value>(compressed_data) {
-                    Ok(data) => {
-                        Ok(DecompressionResult {
-                            data,
-                            format: "json".to_string(),
-                            success: true,
-                            error: None,
-                        })
-                    }
-                    Err(_) => {
-                        Ok(DecompressionResult {
-                            data: serde_json::Value::Null,
-                            format: "unknown".to_string(),
-                            success: false,
-                            error: Some(format!("Failed to decompress: {}", e)),
-                        })
-                    }
-                }
-            }
-        }
-    }
-
-    /// Decompress QR payment request using Protobuf and CBOR
-    pub async fn decompress_qr_payment_request(&mut self, compressed_data: &[u8]) -> Result<DecompressionResult> {
-        self.initialize()?;
-
-        match self.try_decompress_protobuf_cbor(compressed_data, "qr") {
-            Ok(result) => Ok(result),
-            Err(e) => {
-                // Fallback to JSON parsing
-                match self.try_json_fallback(compressed_data) {
-                    Ok(json_result) => Ok(json_result),
-                    Err(_) => Err(anyhow!("Failed to decompress QR payment request: {}", e)),
-                }
-            }
-        }
-    }
-
-    /// Try to decompress data with fallback to JSON
-    pub async fn decompress_with_fallback(&mut self, compressed_data: &[u8], payload_type: &str) -> Result<serde_json::Value> {
-        let result = match payload_type {
-            "ble" => self.decompress_ble_payment_data(compressed_data).await,
-            "qr" => self.decompress_qr_payment_request(compressed_data).await,
-            _ => self.decompress_transaction_payload(compressed_data).await,
-        }?;
-
-        if result.success {
-            Ok(result.data)
-        } else {
-            Err(anyhow!("Decompression failed: {}", result.error.unwrap_or_default()))
-        }
-    }
-
     /// Auto-detect payload format and decompress accordingly
     pub async fn auto_decompress(&mut self, data: &[u8]) -> Result<serde_json::Value> {
         // Check if data is base64 encoded
@@ -257,49 +142,6 @@ impl ProtobufCompressor {
         Ok(compressed.to_vec())
     }
 
-    pub async fn compress_ble_payment_data(&mut self, ble_data: &serde_json::Value) -> Result<Vec<u8>> {
-        self.initialize()?;
-        
-        // Convert JSON to CBOR for compression
-        let cbor_data = cbor4ii::serde::to_vec(Vec::new(), ble_data)
-            .map_err(|e| anyhow::anyhow!("CBOR serialization failed: {}", e))?;
-        
-        // Use LZ4 compression on the CBOR data
-        let mut compressed = Vec::new();
-        let mut encoder = lz4::EncoderBuilder::new()
-            .level(1) // Fast compression
-            .build(&mut compressed)
-            .map_err(|e| anyhow::anyhow!("LZ4 compression failed: {}", e))?;
-        
-        encoder.write_all(&cbor_data)
-            .map_err(|e| anyhow::anyhow!("Failed to write data for compression: {}", e))?;
-        
-        let (compressed, result) = encoder.finish();
-        result.map_err(|e| anyhow::anyhow!("Failed to finish compression: {}", e))?;
-        Ok(compressed.to_vec())
-    }
-
-    /// Compress QR payment request using Protobuf and CBOR
-    pub async fn compress_qr_payment_request(&mut self, _qr_data: &serde_json::Value) -> Result<Vec<u8>> {
-        self.initialize()?;
-
-        // Convert JSON to protobuf message
-        // let payload = self.json_to_qr_payment_request(qr_data)?;
-        // For now, use a stub
-        let payload = QrPaymentRequest { data: "stub".to_string() };
-        
-        // Encode as protobuf
-        let mut protobuf_data = Vec::new();
-        payload.encode(&mut protobuf_data)?;
-
-        // Compress with CBOR
-        // let cbor_value = CborValue::Bytes(protobuf_data);
-        let compressed_data = Vec::new();
-        // cbor_value.encode(&mut compressed_data)?;
-
-        Ok(compressed_data)
-    }
-
     /// Get compression statistics
     pub fn get_compression_stats(&self, original_size: usize, compressed_size: usize) -> CompressionStats {
         let compression_ratio = compressed_size as f64 / original_size as f64;
@@ -317,36 +159,13 @@ impl ProtobufCompressor {
     // Private helper methods
 
     fn try_decompress_protobuf_cbor(&self, _compressed_data: &[u8], payload_type: &str) -> Result<DecompressionResult> {
-        // Decode CBOR first
-        // let cbor_value = CborValue::decode(compressed_data)
-        //     .map_err(|e| anyhow!("CBOR decode failed: {}", e))?;
-
-        // let protobuf_data = match cbor_value {
-        //     CborValue::Bytes(data) => data,
-        //     _ => return Err(anyhow!("Expected CBOR bytes, got different type")),
-        // };
-
-        // Decode protobuf based on type
+        // Only support generic transaction payloads
         let json_value = match payload_type {
             "transaction" => {
                 // TODO: The following functions are commented out because the protobuf types are missing.
                 // Uncomment and implement when the types are available.
                 // let payload = TransactionPayload::decode(protobuf_data.as_slice())?;
                 // self.transaction_payload_to_json(payload)?
-                serde_json::Value::Null
-            }
-            "ble" => {
-                // TODO: The following functions are commented out because the protobuf types are missing.
-                // Uncomment and implement when the types are available.
-                // let payload = BlePaymentData::decode(protobuf_data.as_slice())?;
-                // self.ble_payment_data_to_json(payload)?
-                serde_json::Value::Null
-            }
-            "qr" => {
-                // TODO: The following functions are commented out because the protobuf types are missing.
-                // Uncomment and implement when the types are available.
-                // let payload = QrPaymentRequest::decode(protobuf_data.as_slice())?;
-                // self.qr_payment_request_to_json(payload)?
                 serde_json::Value::Null
             }
             _ => return Err(anyhow!("Unknown payload type: {}", payload_type)),
@@ -377,141 +196,17 @@ impl ProtobufCompressor {
         }
     }
 
-    // Comment out json_to_* functions that require real protobuf fields
-    /*
-    fn json_to_transaction_payload(&self, json: &serde_json::Value) -> Result<TransactionPayload> {
-        let obj = json.as_object()
-            .ok_or_else(|| anyhow!("Expected JSON object"))?;
-
-        let token = if let Some(token_json) = obj.get("token") {
-            self.json_to_token(token_json)?
-        } else {
-            Token::default()
-        };
-
-        let metadata = if let Some(metadata_json) = obj.get("metadata") {
-            // TODO: The following functions are commented out because the protobuf types are missing.
-            // Uncomment and implement when the types are available.
-            // self.json_to_payment_metadata(metadata_json)?
-            PaymentMetadata::default()
-        } else {
-            PaymentMetadata::default()
-        };
-
-        Ok(TransactionPayload {
-            to: obj.get("to").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            amount: obj.get("amount").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            chain_id: obj.get("chainId").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            token: Some(token),
-            payment_reference: obj.get("paymentReference").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            metadata: Some(metadata),
-            timestamp: obj.get("timestamp").and_then(|v| v.as_u64()).unwrap_or(0),
-            version: obj.get("version").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            r#type: obj.get("type").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        })
-    }
-
-    fn json_to_ble_payment_data(&self, json: &serde_json::Value) -> Result<BlePaymentData> {
-        let obj = json.as_object()
-            .ok_or_else(|| anyhow!("Expected JSON object"))?;
-
-        let token = if let Some(token_json) = obj.get("token") {
-            self.json_to_token(token_json)?
-        } else {
-            Token::default()
-        };
-
-        let metadata = if let Some(metadata_json) = obj.get("metadata") {
-            // TODO: The following functions are commented out because the protobuf types are missing.
-            // Uncomment and implement when the types are available.
-            // self.json_to_payment_metadata(metadata_json)?
-            PaymentMetadata::default()
-        } else {
-            PaymentMetadata::default()
-        };
-
-        Ok(BlePaymentData {
-            r#type: obj.get("type").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            to: obj.get("to").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            amount: obj.get("amount").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            chain_id: obj.get("chainId").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            payment_reference: obj.get("paymentReference").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            timestamp: obj.get("timestamp").and_then(|v| v.as_u64()).unwrap_or(0),
-            token: Some(token),
-            metadata: Some(metadata),
-        })
-    }
-
-    fn json_to_qr_payment_request(&self, json: &serde_json::Value) -> Result<QrPaymentRequest> {
-        let obj = json.as_object()
-            .ok_or_else(|| anyhow!("Expected JSON object"))?;
-
-        let token = if let Some(token_json) = obj.get("token") {
-            self.json_to_token(token_json)?
-        } else {
-            Token::default()
-        };
-
-        let metadata = if let Some(metadata_json) = obj.get("metadata") {
-            // TODO: The following functions are commented out because the protobuf types are missing.
-            // Uncomment and implement when the types are available.
-            // self.json_to_payment_metadata(metadata_json)?
-            PaymentMetadata::default()
-        } else {
-            PaymentMetadata::default()
-        };
-
-        Ok(QrPaymentRequest {
-            r#type: obj.get("type").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            to: obj.get("to").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            amount: obj.get("amount").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            chain_id: obj.get("chainId").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            token: Some(token),
-            payment_reference: obj.get("paymentReference").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            metadata: Some(metadata),
-            timestamp: obj.get("timestamp").and_then(|v| v.as_u64()).unwrap_or(0),
-            version: obj.get("version").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        })
-    }
-
-    fn json_to_token(&self, json: &serde_json::Value) -> Result<Token> {
-        let obj = json.as_object()
-            .ok_or_else(|| anyhow!("Expected JSON object for token"))?;
-
-        Ok(Token {
-            symbol: obj.get("symbol").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            name: obj.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            decimals: obj.get("decimals").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-            address: obj.get("address").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            chain_id: obj.get("chainId").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            is_native: obj.get("isNative").and_then(|v| v.as_bool()).unwrap_or(false),
-        })
-    }
-
-    fn json_to_payment_metadata(&self, json: &serde_json::Value) -> Result<PaymentMetadata> {
-        let obj = json.as_object()
-            .ok_or_else(|| anyhow!("Expected JSON object for metadata"))?;
-
-        let mut extra = HashMap::new();
-        if let Some(extra_obj) = obj.get("extra").and_then(|v| v.as_object()) {
-            for (key, value) in extra_obj {
-                if let Some(str_value) = value.as_str() {
-                    extra.insert(key.clone(), str_value.to_string());
-                }
+    /// Decompress with fallback to different formats
+    pub async fn decompress_with_fallback(&mut self, compressed_data: &[u8], payload_type: &str) -> Result<DecompressionResult> {
+        // Try protobuf CBOR first
+        match self.try_decompress_protobuf_cbor(compressed_data, payload_type) {
+            Ok(result) if result.success => Ok(result),
+            _ => {
+                // Fallback to JSON
+                self.try_json_fallback(compressed_data)
             }
         }
-
-        Ok(PaymentMetadata {
-            merchant: obj.get("merchant").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            location: obj.get("location").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            max_amount: obj.get("maxAmount").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            min_amount: obj.get("minAmount").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            expiry: obj.get("expiry").and_then(|v| v.as_u64()).unwrap_or(0),
-            timestamp: obj.get("timestamp").and_then(|v| v.as_u64()).unwrap_or(0),
-            extra,
-        })
     }
-    */
 
     // TODO: The following functions are commented out because the protobuf types are missing.
     // Uncomment and implement when the types are available.
@@ -525,53 +220,6 @@ impl ProtobufCompressor {
     //     obj.insert("timestamp".to_string(), serde_json::Value::Number(payload.timestamp.into()));
     //     obj.insert("version".to_string(), serde_json::Value::String(payload.version));
     //     obj.insert("type".to_string(), serde_json::Value::String(payload.r#type));
-
-    //     if let Some(token) = payload.token {
-    //         obj.insert("token".to_string(), self.token_to_json(token)?);
-    //     }
-
-    //     if let Some(metadata) = payload.metadata {
-    //         obj.insert("metadata".to_string(), self.payment_metadata_to_json(metadata)?);
-    //     }
-
-    //     Ok(serde_json::Value::Object(obj))
-    // }
-
-    // TODO: The following functions are commented out because the protobuf types are missing.
-    // Uncomment and implement when the types are available.
-    // fn ble_payment_data_to_json(&self, payload: BlePaymentData) -> Result<serde_json::Value> {
-    //     let mut obj = serde_json::Map::new();
-    //     
-    //     obj.insert("type".to_string(), serde_json::Value::String(payload.r#type));
-    //     obj.insert("to".to_string(), serde_json::Value::String(payload.to));
-    //     obj.insert("amount".to_string(), serde_json::Value::String(payload.amount));
-    //     obj.insert("chainId".to_string(), serde_json::Value::String(payload.chain_id));
-    //     obj.insert("paymentReference".to_string(), serde_json::Value::String(payload.payment_reference));
-    //     obj.insert("timestamp".to_string(), serde_json::Value::Number(payload.timestamp.into()));
-
-    //     if let Some(token) = payload.token {
-    //         obj.insert("token".to_string(), self.token_to_json(token)?);
-    //     }
-
-    //     if let Some(metadata) = payload.metadata {
-    //         obj.insert("metadata".to_string(), self.payment_metadata_to_json(metadata)?);
-    //     }
-
-    //     Ok(serde_json::Value::Object(obj))
-    // }
-
-    // TODO: The following functions are commented out because the protobuf types are missing.
-    // Uncomment and implement when the types are available.
-    // fn qr_payment_request_to_json(&self, payload: QrPaymentRequest) -> Result<serde_json::Value> {
-    //     let mut obj = serde_json::Map::new();
-    //     
-    //     obj.insert("type".to_string(), serde_json::Value::String(payload.r#type));
-    //     obj.insert("to".to_string(), serde_json::Value::String(payload.to));
-    //     obj.insert("amount".to_string(), serde_json::Value::String(payload.amount));
-    //     obj.insert("chainId".to_string(), serde_json::Value::String(payload.chain_id));
-    //     obj.insert("paymentReference".to_string(), serde_json::Value::String(payload.payment_reference));
-    //     obj.insert("timestamp".to_string(), serde_json::Value::Number(payload.timestamp.into()));
-    //     obj.insert("version".to_string(), serde_json::Value::String(payload.version));
 
     //     if let Some(token) = payload.token {
     //         obj.insert("token".to_string(), self.token_to_json(token)?);
@@ -672,46 +320,6 @@ mod tests {
         assert!(decompressed.success);
         assert_eq!(decompressed.format, "protobuf_cbor");
         assert_eq!(decompressed.data, transaction_data);
-    }
-
-    #[tokio::test]
-    async fn test_compress_decompress_ble_payment() {
-        let mut compressor = ProtobufCompressor::new();
-        
-        let ble_data = json!({
-            "type": "payment",
-            "to": "0x1234567890123456789012345678901234567890",
-            "amount": "1000000000000000000",
-            "chainId": "1",
-            "paymentReference": "ref123",
-            "timestamp": 1640995200,
-            "token": {
-                "symbol": "ETH",
-                "name": "Ethereum",
-                "decimals": 18,
-                "address": "0x0000000000000000000000000000000000000000",
-                "chainId": "1",
-                "isNative": true
-            },
-            "metadata": {
-                "merchant": "Test Merchant",
-                "location": "Test Location",
-                "maxAmount": "10000000000000000000",
-                "minAmount": "100000000000000000",
-                "expiry": 1640995200,
-                "timestamp": 1640995200,
-                "extra": {
-                    "key1": "value1"
-                }
-            }
-        });
-
-        let compressed = compressor.compress_ble_payment_data(&ble_data).await.unwrap();
-        let decompressed = compressor.decompress_ble_payment_data(&compressed).await.unwrap();
-
-        assert!(decompressed.success);
-        assert_eq!(decompressed.format, "protobuf_cbor");
-        assert_eq!(decompressed.data, ble_data);
     }
 
     #[tokio::test]

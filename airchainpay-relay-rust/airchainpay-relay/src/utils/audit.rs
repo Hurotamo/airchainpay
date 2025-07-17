@@ -15,9 +15,9 @@ pub struct AuditEvent {
     pub timestamp: DateTime<Utc>,
     pub event_type: AuditEventType,
     pub user_id: Option<String>,
-    pub device_id: Option<String>,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
+    pub device_id: Option<String>,
     pub resource: String,
     pub action: String,
     pub details: HashMap<String, serde_json::Value>,
@@ -45,7 +45,6 @@ pub enum AuditEventType {
     Authentication,
     Authorization,
     Transaction,
-    DeviceManagement,
     SystemOperation,
     Security,
     Configuration,
@@ -60,8 +59,8 @@ pub enum AuditEventType {
     Monitoring,
     Database,
     Network,
-    BLE,
     API,
+    DeviceManagement,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -76,7 +75,6 @@ pub enum AuditSeverity {
 pub struct AuditFilter {
     pub event_types: Option<Vec<AuditEventType>>,
     pub user_id: Option<String>,
-    pub device_id: Option<String>,
     pub ip_address: Option<String>,
     pub success: Option<bool>,
     pub severity: Option<AuditSeverity>,
@@ -166,7 +164,6 @@ impl AuditLogger {
         incident_type: &str,
         details: HashMap<String, serde_json::Value>,
         user_id: Option<String>,
-        device_id: Option<String>,
         ip_address: Option<String>,
         request_id: Option<String>,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -175,9 +172,9 @@ impl AuditLogger {
             timestamp: Utc::now(),
             event_type: AuditEventType::Security,
             user_id,
-            device_id,
             ip_address,
             user_agent: None,
+            device_id: None,
             resource: "security".to_string(),
             action: incident_type.to_string(),
             details,
@@ -207,9 +204,9 @@ impl AuditLogger {
             timestamp: Utc::now(),
             event_type: AuditEventType::DataAccess,
             user_id,
-            device_id: None,
             ip_address,
             user_agent: None,
+            device_id: None,
             resource: file.to_string(),
             action: operation.to_string(),
             details,
@@ -239,9 +236,9 @@ impl AuditLogger {
             timestamp: Utc::now(),
             event_type: AuditEventType::Backup,
             user_id: None,
-            device_id: None,
             ip_address: None,
             user_agent: None,
+            device_id: None,
             resource: "backup".to_string(),
             action: operation.to_string(),
             details,
@@ -269,9 +266,9 @@ impl AuditLogger {
             timestamp: Utc::now(),
             event_type: AuditEventType::Integrity,
             user_id: None,
-            device_id: None,
             ip_address: None,
             user_agent: None,
+            device_id: None,
             resource: "integrity".to_string(),
             action: check_type.to_string(),
             details,
@@ -292,7 +289,6 @@ impl AuditLogger {
         endpoint: &str,
         ip_address: Option<String>,
         user_id: Option<String>,
-        device_id: Option<String>,
         request_id: Option<String>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut details = HashMap::new();
@@ -303,9 +299,9 @@ impl AuditLogger {
             timestamp: Utc::now(),
             event_type: AuditEventType::RateLimit,
             user_id,
-            device_id,
             ip_address,
             user_agent: None,
+            device_id: None,
             resource: "rate_limit".to_string(),
             action: "rate_limit_exceeded".to_string(),
             details,
@@ -342,9 +338,9 @@ impl AuditLogger {
             timestamp: Utc::now(),
             event_type: AuditEventType::Compression,
             user_id: None,
-            device_id: None,
             ip_address: None,
             user_agent: None,
+            device_id: None,
             resource: "compression".to_string(),
             action: operation.to_string(),
             details,
@@ -360,44 +356,11 @@ impl AuditLogger {
         self.log_event(event).await
     }
 
-    pub async fn log_ble_operation(
-        &self,
-        operation: &str,
-        device_id: Option<String>,
-        success: bool,
-        error_message: Option<String>,
-        details: HashMap<String, serde_json::Value>,
-        request_id: Option<String>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let event = AuditEvent {
-            id: Uuid::new_v4().to_string(),
-            timestamp: Utc::now(),
-            event_type: AuditEventType::BLE,
-            user_id: None,
-            device_id,
-            ip_address: None,
-            user_agent: None,
-            resource: "ble".to_string(),
-            action: operation.to_string(),
-            details,
-            success,
-            error_message,
-            session_id: None,
-            request_id,
-            severity: if success { AuditSeverity::Medium } else { AuditSeverity::High },
-            metadata: HashMap::new(),
-            server_info: Self::get_server_info(),
-        };
-
-        self.log_event(event).await
-    }
-
     pub async fn log_api_request(
         &self,
         endpoint: &str,
         method: &str,
         user_id: Option<String>,
-        device_id: Option<String>,
         ip_address: Option<String>,
         user_agent: Option<String>,
         success: bool,
@@ -417,9 +380,9 @@ impl AuditLogger {
             timestamp: Utc::now(),
             event_type: AuditEventType::API,
             user_id,
-            device_id,
             ip_address,
             user_agent,
+            device_id: None,
             resource: endpoint.to_string(),
             action: method.to_string(),
             details,
@@ -438,7 +401,6 @@ impl AuditLogger {
     pub async fn log_authentication(
         &self,
         user_id: Option<String>,
-        device_id: Option<String>,
         ip_address: Option<String>,
         user_agent: Option<String>,
         success: bool,
@@ -451,9 +413,9 @@ impl AuditLogger {
             timestamp: Utc::now(),
             event_type: AuditEventType::Authentication,
             user_id,
-            device_id,
             ip_address,
             user_agent,
+            device_id: None,
             resource: "auth".to_string(),
             action: if success { "login_success".to_string() } else { "login_failed".to_string() },
             details: HashMap::new(),
@@ -472,7 +434,6 @@ impl AuditLogger {
     pub async fn log_transaction(
         &self,
         user_id: Option<String>,
-        device_id: Option<String>,
         ip_address: Option<String>,
         user_agent: Option<String>,
         tx_hash: Option<String>,
@@ -494,9 +455,9 @@ impl AuditLogger {
             timestamp: Utc::now(),
             event_type: AuditEventType::Transaction,
             user_id,
-            device_id,
             ip_address,
             user_agent,
+            device_id: None,
             resource: "transaction".to_string(),
             action: if success { "transaction_success".to_string() } else { "transaction_failed".to_string() },
             details,
@@ -515,7 +476,6 @@ impl AuditLogger {
     pub async fn log_security_event(
         &self,
         user_id: Option<String>,
-        device_id: Option<String>,
         ip_address: Option<String>,
         user_agent: Option<String>,
         action: String,
@@ -528,9 +488,9 @@ impl AuditLogger {
             timestamp: Utc::now(),
             event_type: AuditEventType::Security,
             user_id,
-            device_id,
             ip_address,
             user_agent,
+            device_id: None,
             resource: "security".to_string(),
             action,
             details,
@@ -539,40 +499,6 @@ impl AuditLogger {
             session_id: None,
             request_id,
             severity,
-            metadata: HashMap::new(),
-            server_info: Self::get_server_info(),
-        };
-
-        self.log_event(event).await
-    }
-
-    pub async fn log_device_management(
-        &self,
-        user_id: Option<String>,
-        device_id: String,
-        ip_address: Option<String>,
-        user_agent: Option<String>,
-        action: String,
-        success: bool,
-        error_message: Option<String>,
-        request_id: Option<String>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let event = AuditEvent {
-            id: Uuid::new_v4().to_string(),
-            timestamp: Utc::now(),
-            event_type: AuditEventType::DeviceManagement,
-            user_id,
-            device_id: Some(device_id),
-            ip_address,
-            user_agent,
-            resource: "device".to_string(),
-            action,
-            details: HashMap::new(),
-            success,
-            error_message,
-            session_id: None,
-            request_id,
-            severity: if success { AuditSeverity::Medium } else { AuditSeverity::High },
             metadata: HashMap::new(),
             server_info: Self::get_server_info(),
         };
@@ -596,9 +522,9 @@ impl AuditLogger {
             timestamp: Utc::now(),
             event_type: AuditEventType::Performance,
             user_id: None,
-            device_id: None,
             ip_address: None,
             user_agent: None,
+            device_id: None,
             resource: resource.to_string(),
             action: operation.to_string(),
             details,
@@ -630,13 +556,6 @@ impl AuditLogger {
                     // Filter by user ID
                     if let Some(ref user_id) = filter.user_id {
                         if event.user_id.as_ref() != Some(user_id) {
-                            return false;
-                        }
-                    }
-
-                    // Filter by device ID
-                    if let Some(ref device_id) = filter.device_id {
-                        if event.device_id.as_ref() != Some(device_id) {
                             return false;
                         }
                     }
@@ -734,6 +653,20 @@ impl AuditLogger {
         let events = self.events.read().await;
         let filtered: Vec<AuditEvent> = events.iter()
             .filter(|event| event.user_id.as_ref() == Some(&user_id.to_string()))
+            .cloned()
+            .collect();
+
+        if let Some(limit) = limit {
+            filtered.into_iter().rev().take(limit).collect()
+        } else {
+            filtered.into_iter().rev().collect()
+        }
+    }
+
+    pub async fn get_events_by_ip(&self, ip_address: &str, limit: Option<usize>) -> Vec<AuditEvent> {
+        let events = self.events.read().await;
+        let filtered: Vec<AuditEvent> = events.iter()
+            .filter(|event| event.ip_address.as_ref() == Some(&ip_address.to_string()))
             .cloned()
             .collect();
 

@@ -76,7 +76,6 @@ where
                 let component = get_component_from_path(&path);
                 let critical_path = match component.as_str() {
                     "transaction" => CriticalPath::TransactionProcessing,
-                    "ble" => CriticalPath::BLEDeviceConnection,
                     "authentication" => CriticalPath::Authentication,
                     "health" => CriticalPath::HealthCheck,
                     "metrics" => CriticalPath::MonitoringMetrics,
@@ -211,7 +210,6 @@ pub fn is_critical_endpoint(path: &str) -> bool {
         "/transaction/submit",
         "/transaction/send_tx",
         "/compressed/send_compressed_tx",
-        "/ble/scan",
         "/auth",
         "/health",
         "/metrics",
@@ -229,8 +227,6 @@ pub fn get_component_from_path(path: &str) -> String {
         "transaction".to_string()
     } else if path.starts_with("/compressed") {
         "compression".to_string()
-    } else if path.starts_with("/ble") {
-        "ble".to_string()
     } else if path.starts_with("/auth") {
         "authentication".to_string()
     } else if path.starts_with("/health") {
@@ -406,63 +402,6 @@ pub mod error_utils {
 
                 Err(ErrorResponseBuilder::internal_server_error(&format!(
                     "Blockchain operation failed: {error_msg}"
-                )))
-            }
-        }
-    }
-
-    /// Handle BLE-specific errors
-    pub async fn handle_ble_error<T>(
-        result: Result<T, anyhow::Error>,
-        operation: &str,
-        error_handler: &Arc<EnhancedErrorHandler>,
-    ) -> Result<T, HttpResponse> {
-        match result {
-            Ok(value) => Ok(value),
-            Err(error) => {
-                let error_msg = error.to_string();
-                
-                let category = if error_msg.contains("connection") || error_msg.contains("scan") {
-                    ErrorType::Network
-                } else {
-                    ErrorType::System
-                };
-
-                let severity = if error_msg.contains("hardware") || error_msg.contains("permission") {
-                    ErrorSeverity::High
-                } else {
-                    ErrorSeverity::Medium
-                };
-
-                let mut context = std::collections::HashMap::new();
-                context.insert("operation".to_string(), operation.to_string());
-                context.insert("error_type".to_string(), "ble".to_string());
-
-                // Record error
-                let error_record = ErrorRecord {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    timestamp: Utc::now(),
-                    path: CriticalPath::TransactionProcessing,
-                    error_type: category,
-                    error_message: error_msg.clone(),
-                    context: context.clone(),
-                    severity: severity.clone(),
-                    retry_count: 0,
-                    max_retries: 0,
-                    resolved: false,
-                    resolution_time: None,
-                    stack_trace: None,
-                    user_id: None,
-                    device_id: None,
-                    transaction_id: None,
-                    chain_id: None,
-                    ip_address: None,
-                    component: "ble".to_string(),
-                };
-                let _ = error_handler.record_error(error_record).await;
-
-                Err(ErrorResponseBuilder::internal_server_error(&format!(
-                    "BLE operation failed: {error_msg}"
                 )))
             }
         }

@@ -8,9 +8,6 @@ pub enum RelayError {
     // Blockchain errors
     Blockchain(BlockchainError),
     
-    // BLE (Bluetooth Low Energy) errors
-    BLE(BLEError),
-    
     // Validation errors
     Validation(ValidationError),
     
@@ -49,7 +46,6 @@ impl fmt::Display for RelayError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RelayError::Blockchain(e) => write!(f, "Blockchain error: {e}"),
-            RelayError::BLE(e) => write!(f, "BLE error: {e}"),
             RelayError::Validation(e) => write!(f, "Validation error: {e}"),
             RelayError::Storage(e) => write!(f, "Storage error: {e}"),
             RelayError::API(e) => write!(f, "API error: {e}"),
@@ -71,7 +67,6 @@ impl ResponseError for RelayError {
     fn error_response(&self) -> HttpResponse {
         let (status_code, error_response) = match self {
             RelayError::Blockchain(e) => e.to_http_response(),
-            RelayError::BLE(e) => e.to_http_response(),
             RelayError::Validation(e) => e.to_http_response(),
             RelayError::Storage(e) => e.to_http_response(),
             RelayError::API(e) => e.to_http_response(),
@@ -292,67 +287,6 @@ impl BlockchainError {
     }
 
 
-}
-
-// BLE Errors
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum BLEError {
-    DeviceNotFound(String),
-    ConnectionFailed(String),
-    ScanFailed(String),
-    AuthenticationFailed(String),
-    DeviceDisconnected(String),
-    InvalidDeviceId(String),
-    PermissionDenied(String),
-    HardwareError(String),
-    Timeout(String),
-    InvalidData(String),
-}
-
-impl fmt::Display for BLEError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            BLEError::DeviceNotFound(id) => write!(f, "BLE device not found: {id}"),
-            BLEError::ConnectionFailed(msg) => write!(f, "BLE connection failed: {msg}"),
-            BLEError::ScanFailed(msg) => write!(f, "BLE scan failed: {msg}"),
-            BLEError::AuthenticationFailed(msg) => write!(f, "BLE authentication failed: {msg}"),
-            BLEError::DeviceDisconnected(id) => write!(f, "BLE device disconnected: {id}"),
-            BLEError::InvalidDeviceId(id) => write!(f, "Invalid BLE device ID: {id}"),
-            BLEError::PermissionDenied(msg) => write!(f, "BLE permission denied: {msg}"),
-            BLEError::HardwareError(msg) => write!(f, "BLE hardware error: {msg}"),
-            BLEError::Timeout(msg) => write!(f, "BLE timeout: {msg}"),
-            BLEError::InvalidData(msg) => write!(f, "Invalid BLE data: {msg}"),
-        }
-    }
-}
-
-impl BLEError {
-    pub fn to_http_response(&self) -> (actix_web::http::StatusCode, serde_json::Value) {
-        let (status_code, error_type) = match self {
-            BLEError::DeviceNotFound(_) | BLEError::InvalidDeviceId(_) => {
-                (actix_web::http::StatusCode::NOT_FOUND, "DEVICE_NOT_FOUND")
-            }
-            BLEError::ConnectionFailed(_) | BLEError::ScanFailed(_) | BLEError::HardwareError(_) => {
-                (actix_web::http::StatusCode::SERVICE_UNAVAILABLE, "BLE_ERROR")
-            }
-            BLEError::AuthenticationFailed(_) => {
-                (actix_web::http::StatusCode::UNAUTHORIZED, "AUTH_FAILED")
-            }
-            BLEError::PermissionDenied(_) => {
-                (actix_web::http::StatusCode::FORBIDDEN, "PERMISSION_DENIED")
-            }
-            BLEError::Timeout(_) => {
-                (actix_web::http::StatusCode::REQUEST_TIMEOUT, "TIMEOUT")
-            }
-            _ => (actix_web::http::StatusCode::BAD_REQUEST, "BLE_ERROR"),
-        };
-
-        (status_code, serde_json::json!({
-            "error": error_type,
-            "message": self.to_string(),
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        }))
-    }
 }
 
 // Validation Errors

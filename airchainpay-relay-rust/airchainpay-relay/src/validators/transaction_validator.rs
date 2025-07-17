@@ -1,5 +1,4 @@
 #![allow(dead_code, unused_variables)]
-use crate::ble::manager::BLETransaction;
 use crate::config::Config;
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
@@ -67,7 +66,7 @@ impl TransactionValidator {
         }
     }
 
-    pub async fn validate_transaction(&self, transaction: &BLETransaction) -> Result<ValidationResult> {
+    pub async fn validate_transaction(&self, signed_tx: &str) -> Result<ValidationResult> {
         let mut result = ValidationResult {
             valid: true,
             errors: Vec::new(),
@@ -75,55 +74,55 @@ impl TransactionValidator {
         };
         
         // Basic format validation
-        if let Err(e) = self.validate_transaction_format(&transaction.transaction_data) {
+        if let Err(e) = self.validate_transaction_format(signed_tx) {
             result.valid = false;
             result.errors.push(format!("Invalid transaction format: {e}"));
         }
         
         // Chain ID validation - extract from transaction data or use default
-        let chain_id = self.extract_chain_id_from_transaction(&transaction.transaction_data).unwrap_or(84532);
+        let chain_id = self.extract_chain_id_from_transaction(signed_tx).unwrap_or(84532);
         if let Err(e) = self.validate_chain_id(chain_id) {
             result.valid = false;
             result.errors.push(format!("Invalid chain ID: {e}"));
         }
         
         // Transaction size validation
-        if let Err(e) = self.validate_transaction_size(&transaction.transaction_data) {
+        if let Err(e) = self.validate_transaction_size(signed_tx) {
             result.valid = false;
             result.errors.push(format!("Invalid transaction size: {e}"));
         }
         
         // Hex format validation
-        if let Err(e) = self.validate_hex_format(&transaction.transaction_data) {
+        if let Err(e) = self.validate_hex_format(signed_tx) {
             result.valid = false;
             result.errors.push(format!("Invalid hex format: {e}"));
         }
         
         // Signature validation
-        if let Err(e) = self.validate_signature(&transaction.transaction_data).await {
+        if let Err(e) = self.validate_signature(signed_tx).await {
             result.valid = false;
             result.errors.push(format!("Invalid signature: {e}"));
         }
         
         // Gas limit validation
-        if let Err(e) = self.validate_gas_limits(&transaction.transaction_data, chain_id) {
+        if let Err(e) = self.validate_gas_limits(signed_tx, chain_id) {
             result.valid = false;
             result.errors.push(format!("Invalid gas limits: {e}"));
         }
         
         // Nonce validation
-        if let Err(e) = self.validate_nonce(&transaction.transaction_data, chain_id).await {
+        if let Err(e) = self.validate_nonce(signed_tx, chain_id).await {
             result.warnings.push(format!("Nonce validation warning: {e}"));
         }
         
         // Contract interaction validation
-        if let Err(e) = self.validate_contract_interaction(&transaction.transaction_data, chain_id) {
+        if let Err(e) = self.validate_contract_interaction(signed_tx, chain_id) {
             result.valid = false;
             result.errors.push(format!("Invalid contract interaction: {e}"));
         }
         
         // Rate limiting check
-        if let Err(e) = self.check_rate_limits(&transaction.device_id).await {
+        if let Err(e) = self.check_rate_limits().await {
             result.valid = false;
             result.errors.push(format!("Rate limit exceeded: {e}"));
         }
@@ -262,37 +261,17 @@ impl TransactionValidator {
         Ok(())
     }
 
-    async fn check_rate_limits(&self, _device_id: &str) -> Result<()> {
+    async fn check_rate_limits(&self) -> Result<()> {
         // In a real implementation, you would check rate limits for the device
         // For now, we'll assume no rate limiting issues
         Ok(())
     }
 
-    fn extract_chain_id_from_transaction(&self, _transaction_data: &str) -> Option<u64> {
+    fn extract_chain_id_from_transaction(&self, _signed_tx: &str) -> Option<u64> {
         // In a real implementation, you would parse the transaction to extract chain ID
         // For now, we'll use a default chain ID
         // This could be extracted from the transaction data or metadata
         Some(84532) // Default to Base Sepolia testnet
-    }
-
-    #[allow(dead_code)]
-    pub fn validate_device_id(&self, device_id: &str) -> Result<()> {
-        if device_id.is_empty() {
-            return Err(anyhow!("Device ID cannot be empty"));
-        }
-        
-        if device_id.len() > 100 {
-            return Err(anyhow!("Device ID too long"));
-        }
-        
-        // Check for valid characters
-        for c in device_id.chars() {
-            if !c.is_alphanumeric() && c != '-' && c != '_' {
-                return Err(anyhow!("Invalid character in device ID: {}", c));
-            }
-        }
-        
-        Ok(())
     }
 
     pub fn validate_public_key(&self, public_key: &str) -> Result<()> {

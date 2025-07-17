@@ -3,18 +3,17 @@
 
 # AirChainPay Relay Server (Rust)
 
-A high-performance, memory-safe implementation of the AirChainPay relay server written in Rust. This server handles BLE device communication, transaction processing, and blockchain broadcasting for the AirChainPay ecosystem.
+A high-performance, memory-safe implementation of the AirChainPay relay server written in Rust. This server handles HTTP/API transaction processing and blockchain broadcasting for the AirChainPay ecosystem.
 
 ## Features
 
 ### Core Components
 - **Configuration Management**: Environment-specific configuration with validation
-- **BLE Device Management**: Comprehensive Bluetooth Low Energy device handling
 - **Transaction Processing**: Secure transaction validation and blockchain broadcasting
 - **Blockchain Integration**: Multi-chain support with provider management
 - **Security Middleware**: Input validation, rate limiting, and authentication
 - **Logging System**: Structured logging with different levels
-- **Payload Compression**: Data compression for BLE transfers
+- **Payload Compression**: Data compression for HTTP transfers
 - **Scheduler System**: Background task management
 - **Storage Management**: Transaction and device data persistence
 
@@ -31,9 +30,6 @@ src/
 ├── logger.rs              # Structured logging
 ├── api/
 │   └── mod.rs            # REST API endpoints
-├── ble/
-│   ├── mod.rs            # BLE module exports
-│   └── manager.rs        # BLE device management
 ├── blockchain.rs         # Blockchain integration
 ├── storage.rs            # Data persistence
 ├── auth.rs              # Authentication system
@@ -52,7 +48,6 @@ src/
 ## Prerequisites
 
 - Rust 1.70+ (stable)
-- Bluetooth adapter with BLE support
 - Network access for blockchain RPC endpoints
 
  Installation
@@ -145,12 +140,6 @@ docker run -p 4000:4000 airchainpay-relay-rust
 GET /health
 ```
 
-### BLE Operations
-```http
-GET /ble_scan
-POST /auth
-```
-
 ### Transaction Operations
 ```http
 POST /send_tx
@@ -163,25 +152,10 @@ GET /metrics
 GET /devices
 ```
 
-## BLE Device Management
-
-The relay server automatically:
-- Scans for AirChainPay BLE devices
-- Manages device connections and authentication
-- Processes transactions received via BLE
-- Maintains device status and metrics
-
-### Device Authentication Flow
-1. Device connects via BLE
-2. Server generates authentication challenge
-3. Device signs challenge with private key
-4. Server verifies signature and issues JWT token
-5. Device can now send transactions
-
 ## Transaction Processing
 
 ### Transaction Flow
-1. **Receive**: Transaction received via BLE or HTTP
+1. **Receive**: Transaction received via HTTP
 2. **Validate**: Format, signature, and chain-specific validation
 3. **Process**: Queue for blockchain broadcasting
 4. **Broadcast**: Send to appropriate blockchain network
@@ -214,12 +188,10 @@ The relay server automatically:
 
 ### Built-in Metrics
 - Transaction counts (received, processed, failed)
-- BLE device statistics
 - Blockchain connection health
 - System performance metrics
 
 ### Health Checks
-- BLE adapter status
 - Blockchain RPC connectivity
 - Storage system health
 - Background task status
@@ -228,7 +200,6 @@ The relay server automatically:
 
 The scheduler runs the following tasks:
 
-- **Device Cleanup** (5 min): Remove old disconnected devices
 - **Transaction Retry** (1 min): Retry failed transactions
 - **Blockchain Health Check** (2 min): Verify RPC connections
 - **Metrics Collection** (30 sec): Collect system metrics
@@ -261,13 +232,12 @@ cargo build --release
 ### Optimizations
 - Async/await for non-blocking I/O
 - Connection pooling for blockchain RPC
-- Efficient BLE scanning with filters
+- Efficient HTTP payload transmission
 - Compressed payload transmission
 - Memory-efficient data structures
 
 ### Benchmarks
 - Transaction processing: ~1000 TPS
-- BLE device handling: 100+ concurrent devices
 - Memory usage: <50MB typical
 - Startup time: <2 seconds
 
@@ -275,17 +245,12 @@ cargo build --release
 
 ### Common Issues
 
-1. **BLE Adapter Not Found**
-   - Ensure Bluetooth is enabled
-   - Check system permissions
-   - Verify adapter supports BLE
-
-2. **Blockchain Connection Failed**
+1. **Blockchain Connection Failed**
    - Check RPC URL configuration
    - Verify network connectivity
    - Check rate limits on RPC provider
 
-3. **Transaction Failures**
+2. **Transaction Failures**
    - Verify gas limits
    - Check account balance
    - Validate chain ID
@@ -294,7 +259,6 @@ cargo build --release
 Logs are written to stdout with structured format:
 ```
 [2024-01-01T12:00:00Z INFO] Transaction processed: 0x1234... on chain 1114
-[2024-01-01T12:00:01Z DEBUG] BLE device connected: device_001
 ```
 
 ## Contributing

@@ -64,17 +64,6 @@ pub struct MonitoringConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct BLEConfig {
-    pub scan_timeout: u64,
-    pub connection_timeout: u64,
-    pub service_uuid: String,
-    pub characteristic_uuid: String,
-    pub max_connections: u32,
-    pub max_tx_per_minute: u32,
-    pub max_connects_per_minute: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DatabaseConfig {
     pub data_dir: String,
     pub backup_interval: u64,
@@ -97,7 +86,6 @@ pub struct Config {
     pub rate_limits: RateLimitConfig,
     pub security: SecurityConfig,
     pub monitoring: MonitoringConfig,
-    pub ble: BLEConfig,
     pub database: DatabaseConfig,
     pub supported_chains: HashMap<u64, ChainConfig>,
     pub config_file_path: Option<String>,
@@ -120,7 +108,6 @@ impl Default for Config {
             rate_limits: RateLimitConfig::default(),
             security: SecurityConfig::default(),
             monitoring: MonitoringConfig::default(),
-            ble: BLEConfig::default(),
             database: DatabaseConfig::default(),
             supported_chains: HashMap::new(),
             config_file_path: None,
@@ -295,15 +282,6 @@ impl DynamicConfigManager {
             errors.push("At least one supported chain must be configured".to_string());
         }
         
-        // Validate BLE configuration
-        if config.ble.service_uuid.is_empty() {
-            errors.push("BLE service UUID is required".to_string());
-        }
-        
-        if config.ble.characteristic_uuid.is_empty() {
-            errors.push("BLE characteristic UUID is required".to_string());
-        }
-        
         Ok(errors)
     }
     
@@ -327,11 +305,6 @@ impl DynamicConfigManager {
                 "metrics": config.monitoring.enable_metrics,
                 "health_checks": config.monitoring.enable_health_checks,
                 "alerting": config.monitoring.enable_alerting,
-            },
-            "ble_config": {
-                "max_connections": config.ble.max_connections,
-                "max_tx_per_minute": config.ble.max_tx_per_minute,
-                "scan_timeout": config.ble.scan_timeout,
             },
             "database_config": {
                 "data_dir": config.database.data_dir,
@@ -511,15 +484,6 @@ impl Config {
                 metrics_interval: 60,
                 health_check_interval: 30,
             },
-            ble: BLEConfig {
-                scan_timeout: 10000,
-                connection_timeout: 5000,
-                service_uuid: "6ba1b218-15a8-461f-9fa8-5dcae273eafd".to_string(),
-                characteristic_uuid: "6ba1b219-15a8-461f-9fa8-5dcae273eafd".to_string(),
-                max_connections: 10,
-                max_tx_per_minute: 10,
-                max_connects_per_minute: 5,
-            },
             database: DatabaseConfig {
                 data_dir: env::var("DATA_DIR").unwrap_or_else(|_| "./data".to_string()),
                 backup_interval: 3600,
@@ -568,15 +532,6 @@ impl Config {
                 metrics_interval: 60,
                 health_check_interval: 30,
             },
-            ble: BLEConfig {
-                scan_timeout: 10000,
-                connection_timeout: 5000,
-                service_uuid: "6ba1b218-15a8-461f-9fa8-5dcae273eafd".to_string(),
-                characteristic_uuid: "6ba1b219-15a8-461f-9fa8-5dcae273eafd".to_string(),
-                max_connections: 10,
-                max_tx_per_minute: 10,
-                max_connects_per_minute: 5,
-            },
             database: DatabaseConfig {
                 data_dir: env::var("DATA_DIR").unwrap_or_else(|_| "./data".to_string()),
                 backup_interval: 3600,
@@ -624,15 +579,6 @@ impl Config {
                 log_requests: env::var("LOG_REQUESTS").unwrap_or_else(|_| "true".to_string()) == "true",
                 metrics_interval: 60,
                 health_check_interval: 30,
-            },
-            ble: BLEConfig {
-                scan_timeout: 10000,
-                connection_timeout: 5000,
-                service_uuid: "6ba1b218-15a8-461f-9fa8-5dcae273eafd".to_string(),
-                characteristic_uuid: "6ba1b219-15a8-461f-9fa8-5dcae273eafd".to_string(),
-                max_connections: 10,
-                max_tx_per_minute: 10,
-                max_connects_per_minute: 5,
             },
             database: DatabaseConfig {
                 data_dir: env::var("DATA_DIR").unwrap_or_else(|_| "./data".to_string()),
@@ -702,9 +648,7 @@ impl Config {
         Ok(())
     }
     
-    pub fn get_chain_config(&self, chain_id: u64) -> Option<&ChainConfig> {
-        self.supported_chains.get(&chain_id)
-    }
+
     
     
 } 
