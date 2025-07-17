@@ -1,5 +1,4 @@
 mod api;
-mod ble;
 mod blockchain;
 mod security;
 mod storage;
@@ -25,24 +24,25 @@ use crate::monitoring::MonitoringManager;
 use crate::utils::error_handler::EnhancedErrorHandler;
 use crate::utils::backup::BackupManager;
 use crate::utils::audit::AuditLogger;
-use crate::utils::error_handler::CriticalErrorHandler;
-use crate::ble::manager::BLEManager;
 use crate::api::{
-    health, send_compressed_tx, compress_transaction, 
-    compress_ble_payment, compress_qr_payment, submit_transaction, legacy_submit_transaction,
+    health, 
+    submit_transaction, legacy_submit_transaction,
+    // backup endpoints
     create_backup, restore_backup, list_backups, get_backup_info, delete_backup, 
     verify_backup, get_backup_stats, cleanup_backups,
+    // audit endpoints
     get_audit_events, get_security_events, get_failed_events, get_critical_events,
     get_events_by_user, get_events_by_device, get_audit_stats, export_audit_events, clear_audit_events,
+    // error endpoints
     get_error_statistics, reset_error_statistics, get_circuit_breaker_status, reset_circuit_breaker,
     test_error_handling, get_error_summary,
+    // config endpoints
     get_configuration, reload_configuration, export_configuration, import_configuration,
     validate_configuration, get_configuration_summary, update_configuration_field, save_configuration_to_file,
+    // health endpoints
     detailed_health, component_health, health_alerts, resolve_alert, health_metrics,
-    add_transaction_to_processor, get_processor_status, get_processor_metrics, get_failed_transactions,
-    retry_failed_transaction, clear_processor_queue, get_transaction_status,
-    get_critical_errors, get_critical_errors_by_path, get_critical_metrics, reset_critical_circuit_breaker,
-    get_critical_health, test_critical_error_handling
+    // transaction endpoints
+    process_transaction, get_transactions, get_metrics, get_devices,
 };
 use crate::utils::backup::BackupConfig;
 use crate::logger::Logger;
@@ -90,9 +90,6 @@ async fn main() -> std::io::Result<()> {
     let audit_logger = Arc::new(AuditLogger::new("audit.log".to_string(), 10000)
         .with_monitoring(Arc::clone(&monitoring_manager)));
     
-    // Initialize critical error handler for production-critical paths
-    let critical_error_handler = Arc::new(CriticalErrorHandler::new());
-    
     // Initialize enhanced error handler
     let error_handler = Arc::new(EnhancedErrorHandler::new());
     
@@ -105,14 +102,6 @@ async fn main() -> std::io::Result<()> {
     
     // Start the transaction processor
     transaction_processor.start().await.expect("Failed to start transaction processor");
-    
-    // Create channel for BLE transactions
-    let (_tx_sender, _tx_receiver) = tokio::sync::mpsc::channel::<String>(100);
-    
-    // Initialize BLE manager
-    let ble_manager = Arc::new(BLEManager::new()
-        .await
-        .expect("Failed to initialize BLE manager"));
     
     // Get port from environment or use default
     let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string()).parse::<u16>().unwrap_or(8080);
@@ -131,9 +120,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(Arc::clone(&monitoring_manager)))
             .app_data(web::Data::new(Arc::clone(&backup_manager)))
             .app_data(web::Data::new(Arc::clone(&audit_logger)))
-            .app_data(web::Data::new(Arc::clone(&critical_error_handler)))
             .app_data(web::Data::new(Arc::clone(&transaction_processor)))
-            .app_data(web::Data::new(Arc::clone(&ble_manager)))
             .app_data(web::Data::new(Arc::clone(&config_manager)))
             // Health endpoints (no custom middleware)
             .service(health)
@@ -159,10 +146,6 @@ async fn main() -> std::io::Result<()> {
                         10,  // 10 burst requests
                         std::time::Duration::from_secs(60) // 1 minute window
                     ))
-                    .service(send_compressed_tx)
-                    .service(compress_transaction)
-                    .service(compress_ble_payment)
-                    .service(compress_qr_payment)
                     .service(submit_transaction)
                     .service(legacy_submit_transaction)
                     .service(create_backup)
@@ -196,19 +179,10 @@ async fn main() -> std::io::Result<()> {
                     .service(get_configuration_summary)
                     .service(update_configuration_field)
                     .service(save_configuration_to_file)
-                    .service(add_transaction_to_processor)
-                    .service(get_processor_status)
-                    .service(get_processor_metrics)
-                    .service(get_failed_transactions)
-                    .service(retry_failed_transaction)
-                    .service(clear_processor_queue)
-                    .service(get_transaction_status)
-                    .service(get_critical_errors)
-                    .service(get_critical_errors_by_path)
-                    .service(get_critical_metrics)
-                    .service(reset_critical_circuit_breaker)
-                    .service(get_critical_health)
-                    .service(test_critical_error_handling)
+                    .service(process_transaction)
+                    .service(get_transactions)
+                    .service(get_metrics)
+                    .service(get_devices)
             )
     })
     .bind(("0.0.0.0", port))?

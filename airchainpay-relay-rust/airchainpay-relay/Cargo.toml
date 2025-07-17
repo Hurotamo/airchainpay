@@ -25,8 +25,6 @@ flate2 = "1.1.2"
 tar = "0.4.44"
 reqwest = { version = "0.12.22", features = ["json"] }
 ethers = { version = "2.0.14", features = ["celo", "ws", "rustls"] }
-utoipa = { version = "5.4.0" }
-utoipa-swagger-ui = "9.0.2"
 futures-util = "0.3.31"
 jsonwebtoken = "9.3.1"
 # Protobuf and CBOR dependencies
@@ -48,11 +46,11 @@ tracing = "0.1.41"
 tonic = "0.13.1"
 sysinfo = "0.36.0"
 hostname = "0.4.1"
-btleplug = "0.11.8"
 log = "0.4.27"
 actix-service = "2.0.3"
 notify = "8.1.0"
 base64 = "0.22.1"
+aes-gcm = "0.10"
 
 [build-dependencies]
 prost-build = "0.14.1"

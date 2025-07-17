@@ -1,15 +1,10 @@
-use actix_web::{get, post, delete, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{get, post, delete, web, HttpResponse, Responder};
 use actix_web::web::Data;
 use serde::{Deserialize, Serialize};
-use crate::auth::{AuthManager, AuthRequest};
-
-use crate::storage::{Storage, Transaction, Device};
+use crate::storage::{Storage, Transaction, };
 use crate::blockchain::BlockchainManager;
 use crate::monitoring::MonitoringManager;
-use crate::processors::transaction_processor::TransactionPriority;
-use crate::processors::TransactionProcessor;
-use crate::ble::manager::{BLETransaction, BLEManager};
-use crate::utils::error_handler::{EnhancedErrorHandler, CriticalErrorHandler};
+use crate::utils::error_handler::{EnhancedErrorHandler};
 use crate::config::DynamicConfigManager;
 use crate::middleware::error_handling::{ErrorResponseBuilder, error_utils};
 use crate::utils::audit::{AuditLogger, AuditSeverity, AuditFilter, AuditEventType};
@@ -17,18 +12,14 @@ use crate::utils::backup::{BackupType, BackupFilter, BackupManager, RestoreOptio
 use std::sync::Arc;
 use std::collections::HashMap;
 use std::env;
-use base64::{Engine, engine::general_purpose::STANDARD};
 use actix_web::web::{Json, Query, Path};
 use chrono::{DateTime, Utc};
-use crate::utils::error_handler::CriticalPath;
-use crate::utils::error_handler::CriticalError;
 
 #[get("/health")]
 async fn health(
     monitoring_manager: Data<Arc<MonitoringManager>>,
     storage: Data<Arc<Storage>>,
     blockchain_manager: Data<Arc<BlockchainManager>>,
-    ble_manager: Data<Arc<BLEManager>>,
     config_manager: Data<Arc<DynamicConfigManager>>,
 ) -> impl Responder {
     let start_time = std::time::Instant::now();
@@ -37,9 +28,6 @@ async fn health(
     let health_status = monitoring_manager.get_health_status().await;
     let system_metrics = monitoring_manager.get_system_metrics().await;
     let alerts = monitoring_manager.get_alerts(10).await;
-    
-    // Check BLE status
-    let ble_status = ble_manager.get_status().await;
     
     // Check database health
     let db_health = storage.check_health().await;
@@ -90,18 +78,6 @@ async fn health(
             "heap_used_bytes": system_metrics.heap_used_bytes,
         },
         
-        // BLE status
-        "ble": {
-            "enabled": ble_status.enabled,
-            "initialized": ble_status.initialized,
-            "is_advertising": ble_status.is_advertising,
-            "connected_devices": ble_status.connected_devices,
-            "authenticated_devices": ble_status.authenticated_devices,
-            "blocked_devices": ble_status.blocked_devices,
-            "last_scan_time": ble_status.last_scan_time,
-            "scan_duration_ms": ble_status.scan_duration_ms,
-        },
-        
         // Database health
         "database": {
             "is_healthy": db_health.is_healthy,
@@ -150,12 +126,6 @@ async fn health(
                 "failed": health_status.get("transactions").and_then(|t| t.get("failed")).and_then(|v| v.as_u64()).unwrap_or(0),
                 "broadcasted": health_status.get("transactions").and_then(|t| t.get("broadcasted")).and_then(|v| v.as_u64()).unwrap_or(0),
             },
-            "ble": {
-                "connections": health_status.get("ble").and_then(|b| b.get("connections")).and_then(|v| v.as_u64()).unwrap_or(0),
-                "disconnections": health_status.get("ble").and_then(|b| b.get("disconnections")).and_then(|v| v.as_u64()).unwrap_or(0),
-                "authentications": health_status.get("ble").and_then(|b| b.get("authentications")).and_then(|v| v.as_u64()).unwrap_or(0),
-                "key_exchanges": health_status.get("ble").and_then(|b| b.get("key_exchanges")).and_then(|v| v.as_u64()).unwrap_or(0),
-            },
             "system": {
                 "uptime_seconds": health_status.get("uptime_seconds").and_then(|v| v.as_f64()).unwrap_or(0.0),
                 "memory_usage_bytes": health_status.get("memory_usage_bytes").and_then(|v| v.as_u64()).unwrap_or(0),
@@ -201,7 +171,6 @@ async fn health(
             "system": overall_status == "healthy",
             "database": db_health.is_healthy,
             "blockchain": blockchain_status.get("is_healthy").and_then(|v| v.parse::<bool>().ok()).unwrap_or(false),
-            "ble": ble_status.enabled && ble_status.initialized,
             "configuration": config_status.is_valid,
         },
     }))
@@ -209,19 +178,10 @@ async fn health(
 
 #[derive(Deserialize)]
 pub struct SendTxRequest {
-    pub signed_tx: String, // hex-encoded
+    pub signed_tx: String,
     pub rpc_url: String,
     pub chain_id: u64,
-    pub device_id: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct CompressedPayloadRequest {
-    compressed_data: String, // base64-encoded compressed payload
-    payload_type: String, // "transaction", "ble", "qr"
-    rpc_url: String,
-    chain_id: u64,
-    device_id: Option<String>,
+ 
 }
 
 // Add this helper function before process_transaction
@@ -255,23 +215,10 @@ async fn handle_transaction_submission(
         }));
     }
     
-    // Validate device ID if provided
-    if let Some(device_id) = &req.device_id {
-        let device_validation = sanitizer.sanitize_device_id(device_id);
-        if device_validation.data.is_none() {
-            return HttpResponse::BadRequest().json(serde_json::json!({
-                "error": "Invalid device ID format",
-                "field": "device_id",
-                "timestamp": chrono::Utc::now().to_rfc3339(),
-            }));
-        }
-    }
-    
     // Create transaction record
     let transaction = Transaction::new(
         req.signed_tx.clone(),
         req.chain_id,
-        req.device_id.clone(),
     );
     
     // Save to storage
@@ -344,351 +291,6 @@ async fn legacy_submit_transaction(
     handle_transaction_submission(req, storage, blockchain_manager, error_handler).await
 }
 
-/// New endpoint for handling compressed payloads with enhanced validation
-#[post("/send_compressed_tx")]
-async fn send_compressed_tx(
-    req: web::Json<CompressedPayloadRequest>,
-    storage: Data<Arc<Storage>>,
-    blockchain_manager: Data<Arc<BlockchainManager>>,
-) -> impl Responder {
-    // Enhanced validation using sanitizer
-    use crate::utils::sanitizer::InputSanitizer;
-    let sanitizer = InputSanitizer::new();
-    
-    // Validate chain ID
-    let chain_validation = sanitizer.sanitize_chain_id(&req.chain_id.to_string());
-    if chain_validation.data.is_none() {
-        return HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "Invalid chain ID",
-            "field": "chain_id",
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        }));
-    }
-
-    // Validate device ID if provided
-    if let Some(device_id) = &req.device_id {
-        let device_validation = sanitizer.sanitize_device_id(device_id);
-        if device_validation.data.is_none() {
-            return HttpResponse::BadRequest().json(serde_json::json!({
-                "error": "Invalid device ID format",
-                "field": "device_id",
-                "timestamp": chrono::Utc::now().to_rfc3339(),
-            }));
-        }
-    }
-
-    // Validate payload type
-    let payload_type_validation = sanitizer.sanitize_string(&req.payload_type, Some(20));
-    if payload_type_validation.data.is_none() {
-        return HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "Invalid payload type",
-            "field": "payload_type",
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        }));
-    }
-
-    // Decode base64 compressed data
-    let compressed_data = match STANDARD.decode(&req.compressed_data) {
-        Ok(data) => data,
-        Err(_) => return HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "Invalid base64 encoded compressed data",
-            "field": "compressed_data",
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        })),
-    };
-
-    // Create transaction processor
-    let transaction_processor = TransactionProcessor::new(
-        blockchain_manager.as_ref().clone(),
-        storage.as_ref().clone(),
-        None, // Use default config
-    );
-
-    // Process compressed payload based on type
-    let decompressed_data = match req.payload_type.as_str() {
-        "transaction" => {
-            match transaction_processor.process_compressed_ble_payment(&compressed_data).await {
-                Ok(data) => data,
-                Err(e) => return HttpResponse::BadRequest().json(serde_json::json!({
-                    "error": format!("Failed to decompress transaction payload: {}", e),
-                    "timestamp": chrono::Utc::now().to_rfc3339(),
-                })),
-            }
-        }
-        "ble" => {
-            match transaction_processor.process_compressed_ble_payment(&compressed_data).await {
-                Ok(data) => data,
-                Err(e) => return HttpResponse::BadRequest().json(serde_json::json!({
-                    "error": format!("Failed to decompress BLE payment data: {}", e),
-                    "timestamp": chrono::Utc::now().to_rfc3339(),
-                })),
-            }
-        }
-        "qr" => {
-            match transaction_processor.process_compressed_qr_payment(&compressed_data).await {
-                Ok(data) => data,
-                Err(e) => return HttpResponse::BadRequest().json(serde_json::json!({
-                    "error": format!("Failed to decompress QR payment request: {}", e),
-                    "timestamp": chrono::Utc::now().to_rfc3339(),
-                })),
-            }
-        }
-        _ => return HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "Invalid payload type. Must be 'transaction', 'ble', or 'qr'",
-            "field": "payload_type",
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        })),
-    };
-
-    // Extract transaction data from decompressed payload
-    let signed_tx = match decompressed_data.get("signedTx") {
-        Some(tx) => tx.as_str().unwrap_or("").to_string(),
-        None => return HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "Missing signedTx in decompressed payload",
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        })),
-    };
-
-    // Validate the extracted signed transaction
-    let tx_validation = sanitizer.sanitize_hash(&signed_tx);
-    if tx_validation.data.is_none() {
-        return HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "Invalid signed transaction in decompressed payload",
-            "field": "signedTx",
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        }));
-    }
-
-    // Create transaction record
-    let transaction = Transaction::new(
-        signed_tx.clone(),
-        req.chain_id,
-        req.device_id.clone(),
-    );
-    
-    // Save to storage
-    if let Err(e) = storage.save_transaction(transaction.clone()) {
-        return HttpResponse::InternalServerError().json(serde_json::json!({
-            "error": format!("Storage error: {e}"),
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        }));
-    }
-    
-    // Update metrics
-    let _ = storage.update_metrics("transactions_received", 1);
-    
-    // Broadcast transaction
-    let tx_bytes = match hex::decode(signed_tx.trim_start_matches("0x")) {
-        Ok(b) => b,
-        Err(_) => return HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "Invalid hex for signed_tx",
-            "field": "signed_tx",
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        })),
-    };
-    
-    match crate::utils::blockchain::send_transaction(tx_bytes, &req.rpc_url).await {
-        Ok(hash) => {
-            let _ = storage.update_metrics("transactions_processed", 1);
-            
-            // Calculate compression stats
-            let stats = transaction_processor.get_compression_stats(
-                compressed_data.len(),
-                compressed_data.len() // For now, using same size
-            );
-            
-            HttpResponse::Ok().json(serde_json::json!({
-                "success": true,
-                "hash": format!("0x{:x}", hash),
-                "transaction_id": transaction.id,
-                "decompressed_data": decompressed_data,
-                "compression_stats": {
-                    "original_size": stats.original_size,
-                    "compressed_size": stats.compressed_size,
-                    "compression_ratio": stats.compression_ratio,
-                    "space_saved_percent": stats.space_saved_percent,
-                    "format": stats.format,
-                }
-            }))
-        },
-        Err(e) => {
-            let _ = storage.update_metrics("transactions_failed", 1);
-            HttpResponse::InternalServerError().json(serde_json::json!({
-                "success": false,
-                "error": format!("Broadcast error: {e}"),
-            }))
-        },
-    }
-}
-
-/// Endpoint to compress transaction data with validation
-#[post("/compress_transaction")]
-async fn compress_transaction(
-    req: web::Json<serde_json::Value>,
-    storage: Data<Arc<Storage>>,
-) -> impl Responder {
-    // Validate input using sanitizer
-    use crate::utils::sanitizer::InputSanitizer;
-    let sanitizer = InputSanitizer::new();
-    
-    // Validate the request data
-    let validation_result = sanitizer.validate_request(&req, &HashMap::new(), &HashMap::new());
-    if !validation_result.valid {
-        return HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "Input validation failed",
-            "errors": validation_result.errors,
-            "warnings": validation_result.warnings,
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        }));
-    }
-
-    let config = crate::config::Config::development_config().unwrap_or_default();
-    let transaction_processor = TransactionProcessor::new(
-        Arc::new(BlockchainManager::new(config.clone()).unwrap()),
-        storage.as_ref().clone(),
-        None, // Use default config
-    );
-
-    let req_data = req.into_inner();
-    match transaction_processor.compress_transaction_data(&req_data).await {
-        Ok(compressed_data) => {
-            let base64_data = STANDARD.encode(&compressed_data);
-            let stats = transaction_processor.get_compression_stats(
-                serde_json::to_string(&req_data).unwrap().len(),
-                compressed_data.len()
-            );
-            
-            HttpResponse::Ok().json(serde_json::json!({
-                "success": true,
-                "compressed_data": base64_data,
-                "compression_stats": {
-                    "original_size": stats.original_size,
-                    "compressed_size": stats.compressed_size,
-                    "compression_ratio": stats.compression_ratio,
-                    "space_saved_percent": stats.space_saved_percent,
-                    "format": stats.format,
-                }
-            }))
-        },
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "success": false,
-            "error": format!("Compression failed: {}", e),
-        })),
-    }
-}
-
-/// Endpoint to compress BLE payment data with validation
-#[post("/compress_ble_payment")]
-async fn compress_ble_payment(
-    req: web::Json<serde_json::Value>,
-    storage: Data<Arc<Storage>>,
-) -> impl Responder {
-    // Validate input using sanitizer
-    use crate::utils::sanitizer::InputSanitizer;
-    let sanitizer = InputSanitizer::new();
-    
-    // Validate the request data
-    let validation_result = sanitizer.validate_request(&req, &HashMap::new(), &HashMap::new());
-    if !validation_result.valid {
-        return HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "Input validation failed",
-            "errors": validation_result.errors,
-            "warnings": validation_result.warnings,
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        }));
-    }
-
-    let config = crate::config::Config::development_config().unwrap_or_default();
-    let transaction_processor = TransactionProcessor::new(
-        Arc::new(BlockchainManager::new(config.clone()).unwrap()),
-        storage.as_ref().clone(),
-        None, // Use default config
-    );
-
-    let req_data = req.into_inner();
-    match transaction_processor.compress_ble_payment_data(&req_data).await {
-        Ok(compressed_data) => {
-            let base64_data = STANDARD.encode(&compressed_data);
-            let stats = transaction_processor.get_compression_stats(
-                serde_json::to_string(&req_data).unwrap().len(),
-                compressed_data.len()
-            );
-            
-            HttpResponse::Ok().json(serde_json::json!({
-                "success": true,
-                "compressed_data": base64_data,
-                "compression_stats": {
-                    "original_size": stats.original_size,
-                    "compressed_size": stats.compressed_size,
-                    "compression_ratio": stats.compression_ratio,
-                    "space_saved_percent": stats.space_saved_percent,
-                    "format": stats.format,
-                }
-            }))
-        },
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "success": false,
-            "error": format!("Compression failed: {}", e),
-        })),
-    }
-}
-
-/// Endpoint to compress QR payment request with validation
-#[post("/compress_qr_payment")]
-async fn compress_qr_payment(
-    req: web::Json<serde_json::Value>,
-    storage: Data<Arc<Storage>>,
-) -> impl Responder {
-    // Validate input using sanitizer
-    use crate::utils::sanitizer::InputSanitizer;
-    let sanitizer = InputSanitizer::new();
-    
-    // Validate the request data
-    let validation_result = sanitizer.validate_request(&req, &HashMap::new(), &HashMap::new());
-    if !validation_result.valid {
-        return HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "Input validation failed",
-            "errors": validation_result.errors,
-            "warnings": validation_result.warnings,
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        }));
-    }
-
-    let config = crate::config::Config::development_config().unwrap_or_default();
-    let transaction_processor = TransactionProcessor::new(
-        Arc::new(BlockchainManager::new(config.clone()).unwrap()),
-        storage.as_ref().clone(),
-        None, // Use default config
-    );
-
-    let req_data = req.into_inner();
-    match transaction_processor.compress_qr_payment_request(&req_data).await {
-        Ok(compressed_data) => {
-            let base64_data = STANDARD.encode(&compressed_data);
-            let stats = transaction_processor.get_compression_stats(
-                serde_json::to_string(&req_data).unwrap().len(),
-                compressed_data.len()
-            );
-            
-            HttpResponse::Ok().json(serde_json::json!({
-                "success": true,
-                "compressed_data": base64_data,
-                "compression_stats": {
-                    "original_size": stats.original_size,
-                    "compressed_size": stats.compressed_size,
-                    "compression_ratio": stats.compression_ratio,
-                    "space_saved_percent": stats.space_saved_percent,
-                    "format": stats.format,
-                }
-            }))
-        },
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "success": false,
-            "error": format!("Compression failed: {}", e),
-        })),
-    }
-}
-
 #[get("/contract/payments")]
 async fn get_contract_payments(
     _blockchain_manager: Data<Arc<BlockchainManager>>,
@@ -745,373 +347,8 @@ async fn generate_token(
 
 #[derive(Deserialize)]
 #[allow(dead_code)]
-struct BLEProcessRequest {
-    device_id: String,
-    transaction_data: serde_json::Value,
-}
-
-#[post("/ble/process-transaction")]
-async fn process_ble_transaction(
-    req: web::Json<BLEProcessRequest>,
-    _storage: Data<Arc<Storage>>,
-) -> impl Responder {
-    // Validate device ID
-    if !crate::security::validate_device_id(&req.device_id) {
-        return HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "Invalid device ID format",
-            "field": "device_id",
-        }));
-    }
-    
-    // BLE transaction processing removed - function not available
-    HttpResponse::NotImplemented().json(serde_json::json!({
-        "success": false,
-        "error": "BLE transaction processing not implemented",
-    }))
-}
-
-#[post("/ble/key-exchange/initiate/{device_id}")]
-async fn initiate_key_exchange(
-    path: web::Path<String>,
-) -> impl Responder {
-    let device_id = path.into_inner();
-    
-    if !crate::security::validate_device_id(&device_id) {
-        return HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "Invalid device ID format",
-        }));
-    }
-    
-    match crate::ble::initiate_key_exchange(&device_id).await {
-        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
-            "success": true,
-            "message": "Key exchange initiated successfully"
-        })),
-        Err(e) => HttpResponse::BadRequest().json(serde_json::json!({
-            "error": format!("Key exchange initiation failed: {e}")
-        })),
-    }
-}
-
-#[post("/ble/key-exchange/rotate/{device_id}")]
-async fn rotate_session_key(
-    path: web::Path<String>,
-) -> impl Responder {
-    let device_id = path.into_inner();
-    
-    if !crate::security::validate_device_id(&device_id) {
-        return HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "Invalid device ID format",
-        }));
-    }
-    
-    match crate::ble::rotate_session_key(&device_id).await {
-        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
-            "success": true,
-            "message": "Session key rotation initiated successfully"
-        })),
-        Err(e) => HttpResponse::BadRequest().json(serde_json::json!({
-            "error": format!("Key rotation failed: {e}")
-        })),
-    }
-}
-
-#[derive(Deserialize)]
 struct BlockDeviceRequest {
     reason: Option<String>,
-}
-
-#[post("/ble/key-exchange/block/{device_id}")]
-async fn block_device(
-    path: web::Path<String>,
-    req: web::Json<BlockDeviceRequest>,
-) -> impl Responder {
-    let device_id = path.into_inner();
-    
-    if !crate::security::validate_device_id(&device_id) {
-        return HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "Invalid device ID format",
-        }));
-    }
-    
-    match crate::ble::block_device(&device_id, req.reason.as_deref()).await {
-        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
-            "success": true,
-            "message": "Device blocked from key exchange successfully"
-        })),
-        Err(e) => HttpResponse::BadRequest().json(serde_json::json!({
-            "error": format!("Failed to block device: {e}")
-        })),
-    }
-}
-
-#[post("/ble/key-exchange/unblock/{device_id}")]
-async fn unblock_device(
-    path: web::Path<String>,
-) -> impl Responder {
-    let device_id = path.into_inner();
-    
-    if !crate::security::validate_device_id(&device_id) {
-        return HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "Invalid device ID format",
-        }));
-    }
-    
-    match crate::ble::unblock_device(&device_id).await {
-        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
-            "success": true,
-            "message": "Device unblocked from key exchange successfully"
-        })),
-        Err(e) => HttpResponse::BadRequest().json(serde_json::json!({
-            "error": format!("Failed to unblock device: {e}")
-        })),
-    }
-}
-
-#[get("/ble/key-exchange/devices")]
-async fn get_key_exchange_devices() -> impl Responder {
-    match crate::ble::manager::BLEManager::get_key_exchange_devices().await {
-        Ok(devices) => HttpResponse::Ok().json(serde_json::json!({
-            "devices": devices
-        })),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "error": format!("Failed to get key exchange devices: {}", e)
-        })),
-    }
-}
-
-// Database API endpoints
-#[get("/api/database/transactions")]
-async fn get_database_transactions(
-    storage: Data<Arc<Storage>>,
-    query: web::Query<std::collections::HashMap<String, String>>,
-) -> impl Responder {
-    let limit = query.get("limit")
-        .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(100);
-    let offset = query.get("offset")
-        .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(0);
-    
-    let transactions = storage.get_transactions(limit);
-    let total = storage.get_transactions(10000).len();
-    
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "data": {
-            "transactions": transactions,
-            "pagination": {
-                "limit": limit,
-                "offset": offset,
-                "total": total,
-                "has_more": offset + limit < total,
-            },
-        },
-    }))
-}
-
-#[get("/api/database/transactions/{id}")]
-async fn get_transaction_by_id(
-    path: web::Path<String>,
-    storage: Data<Arc<Storage>>,
-) -> impl Responder {
-    let id = path.into_inner();
-    
-    match storage.get_transaction(&id).await {
-        Ok(Some(transaction)) => HttpResponse::Ok().json(serde_json::json!({
-            "success": true,
-            "data": transaction,
-        })),
-        Ok(None) => HttpResponse::NotFound().json(serde_json::json!({
-            "error": "Transaction not found"
-        })),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "error": format!("Database error: {}", e)
-        })),
-    }
-}
-
-#[get("/api/database/transactions/device/{device_id}")]
-async fn get_transactions_by_device(
-    path: web::Path<String>,
-    storage: Data<Arc<Storage>>,
-    query: web::Query<std::collections::HashMap<String, String>>,
-) -> impl Responder {
-    let device_id = path.into_inner();
-    let limit = query.get("limit")
-        .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(50);
-    
-    let transactions = storage.get_transactions_by_device(&device_id, limit);
-    
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "data": {
-            "transactions": transactions,
-            "device_id": device_id,
-            "count": transactions.len(),
-        },
-    }))
-}
-
-#[post("/api/database/backup")]
-async fn create_database_backup(
-    storage: Data<Arc<Storage>>,
-) -> impl Responder {
-    // Create a simple backup by saving data
-    match storage.save_data() {
-        Ok(backup_path) => HttpResponse::Ok().json(serde_json::json!({
-            "success": true,
-            "data": {
-                "backup_path": backup_path,
-                "message": "Backup created successfully",
-            },
-        })),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "error": format!("Failed to create backup: {e}")
-        })),
-    }
-}
-
-#[get("/api/database/stats")]
-async fn get_database_stats(
-    storage: Data<Arc<Storage>>,
-) -> impl Responder {
-    let transactions = storage.get_transactions(10000);
-    let devices = storage.get_all_devices();
-    let _metrics = storage.get_metrics();
-    
-    let stats = serde_json::json!({
-        "transactions": {
-            "total": transactions.len(),
-            "recent": transactions.iter().rev().take(10).count(),
-            "by_chain": {
-                // TODO: Implement chain grouping
-                "unknown": transactions.len(),
-            },
-        },
-        "devices": {
-            "total": devices.len(),
-            "active": devices.iter().filter(|d| d.status == "active").count(),
-            "inactive": devices.iter().filter(|d| d.status == "inactive").count(),
-        },
-        "metrics": {
-            "total": 5, // Number of metric fields
-            "time_range": "24h",
-        },
-        "storage": {
-            "data_directory": "./data",
-            "backup_directory": "./data/backups",
-        },
-    });
-    
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "data": stats,
-    }))
-}
-
-#[get("/api/database/security")]
-async fn get_database_security(
-    storage: Data<Arc<Storage>>,
-) -> impl Responder {
-    let security_status = storage.get_security_status();
-    let recent_audit_logs = storage.get_recent_audit_logs(20);
-    
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "data": {
-            "security_status": security_status,
-            "recent_audit_logs": recent_audit_logs,
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        },
-    }))
-}
-
-#[get("/networks/status")]
-async fn get_networks_status(
-    _blockchain_manager: Data<Arc<BlockchainManager>>,
-) -> impl Responder {
-    let networks = vec![
-        serde_json::json!({
-            "chain_id": 84532,
-            "name": "Base Sepolia",
-            "rpc_url": "https://sepolia.base.org",
-            "contract_address": "0x7B79117445C57eea1CEAb4733020A55e1D503934",
-            "explorer": "https://sepolia.basescan.org",
-            "currency": "ETH",
-        }),
-        serde_json::json!({
-            "chain_id": 1114,
-            "name": "Core Testnet 2",
-            "rpc_url": "https://rpc.test2.btcs.network",
-            "contract_address": "0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB",
-            "explorer": "https://scan.test2.btcs.network",
-            "currency": "TCORE2",
-        }),
-    ];
-
-    let mut network_status = Vec::new();
-
-    for network in &networks {
-        let mut status = network.as_object().unwrap().clone();
-        status.insert("status".to_string(), serde_json::Value::String("online".to_string()));
-        status.insert("last_checked".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
-        network_status.push(serde_json::Value::Object(status));
-    }
-
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "data": {
-            "networks": network_status,
-            "total_networks": networks.len(),
-            "online_networks": network_status.len(),
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        },
-    }))
-}
-
-#[post("/auth")]
-async fn authenticate_device(
-    req: web::Json<AuthRequest>,
-    auth_manager: Data<AuthManager>,
-    storage: Data<Arc<Storage>>,
-) -> impl Responder {
-    // Validate device ID
-    if !crate::security::validate_device_id(&req.device_id) {
-        return HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "Invalid device ID format",
-            "field": "device_id",
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        }));
-    }
-    
-    // Create or update device record
-    let mut device = Device::new(req.device_id.clone());
-    device.public_key = Some(req.public_key.clone());
-    device.status = "authenticated".to_string();
-    
-    if let Err(e) = storage.save_device(device) {
-        return HttpResponse::InternalServerError().json(serde_json::json!({
-            "error": format!("Storage error: {e}"),
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        }));
-    }
-    
-    // Generate authentication token
-    match auth_manager.authenticate_device(&req) {
-        Ok(auth_response) => {
-            let _ = storage.update_metrics("ble_connections", 1);
-            HttpResponse::Ok().json(auth_response)
-        },
-        Err(e) => {
-            let _ = storage.update_metrics("auth_failures", 1);
-            HttpResponse::Unauthorized().json(serde_json::json!({
-                "error": format!("Authentication failed: {e}"),
-                "timestamp": chrono::Utc::now().to_rfc3339(),
-            }))
-        },
-    }
 }
 
 #[get("/transactions")]
@@ -1151,22 +388,6 @@ airchainpay_transactions_failed_total {}
 # HELP airchainpay_transactions_broadcasted_total Total number of transactions broadcasted
 # TYPE airchainpay_transactions_broadcasted_total counter
 airchainpay_transactions_broadcasted_total {}
-
-# HELP airchainpay_ble_connections_total Total number of BLE connections
-# TYPE airchainpay_ble_connections_total counter
-airchainpay_ble_connections_total {}
-
-# HELP airchainpay_ble_disconnections_total Total number of BLE disconnections
-# TYPE airchainpay_ble_disconnections_total counter
-airchainpay_ble_disconnections_total {}
-
-# HELP airchainpay_ble_authentications_total Total number of BLE authentications
-# TYPE airchainpay_ble_authentications_total counter
-airchainpay_ble_authentications_total {}
-
-# HELP airchainpay_ble_key_exchanges_total Total number of BLE key exchanges
-# TYPE airchainpay_ble_key_exchanges_total counter
-airchainpay_ble_key_exchanges_total {}
 
 # HELP airchainpay_rpc_errors_total Total number of RPC errors
 # TYPE airchainpay_rpc_errors_total counter
@@ -1280,10 +501,6 @@ airchainpay_system_thread_count {}
         metrics.transactions_processed,
         metrics.transactions_failed,
         metrics.transactions_broadcasted,
-        metrics.ble_connections,
-        metrics.ble_disconnections,
-        metrics.ble_authentications,
-        metrics.ble_key_exchanges,
         metrics.rpc_errors,
         metrics.auth_failures,
         metrics.rate_limit_hits,
@@ -1320,8 +537,15 @@ airchainpay_system_thread_count {}
 
 #[get("/devices")]
 async fn get_devices(storage: Data<Arc<Storage>>) -> impl Responder {
-    let devices = storage.get_all_devices();
-    HttpResponse::Ok().json(devices)
+    let wallets = storage.get_registered_wallets();
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "data": {
+            "registered_wallets": wallets,
+            "total_count": wallets.len(),
+            "message": "Mobile wallet instances registered with the relay"
+        }
+    }))
 }
 
 // Legacy endpoint for backward compatibility
@@ -1642,7 +866,6 @@ async fn get_audit_events(
                 "monitoring" => AuditEventType::Monitoring,
                 "database" => AuditEventType::Database,
                 "network" => AuditEventType::Network,
-                "ble" => AuditEventType::BLE,
                 "api" => AuditEventType::API,
                 _ => AuditEventType::Error,
             }).collect());
@@ -1662,7 +885,6 @@ async fn get_audit_events(
         Some(AuditFilter {
             event_types,
             user_id: query.user_id.clone(),
-            device_id: query.device_id.clone(),
             ip_address: query.ip_address.clone(),
             success: query.success,
             severity,
@@ -2184,7 +1406,7 @@ async fn test_error_handling(
 
 #[derive(Deserialize)]
 #[allow(dead_code)]
-pub struct ErrorSummaryRequest {
+struct ErrorSummaryRequest {
     pub include_details: Option<bool>,
     pub error_types: Option<Vec<String>>,
 }
@@ -2245,7 +1467,6 @@ async fn get_configuration(
                     "session_timeout": config.security.session_timeout,
                 },
                 "monitoring": config.monitoring,
-                "ble": config.ble,
                 "database": config.database,
                 "supported_chains_count": config.supported_chains.len(),
                 "last_modified": config.last_modified,
@@ -2474,7 +1695,6 @@ async fn detailed_health(
     monitoring_manager: Data<Arc<MonitoringManager>>,
     storage: Data<Arc<Storage>>,
     blockchain_manager: Data<Arc<BlockchainManager>>,
-    ble_manager: Data<Arc<BLEManager>>,
     config_manager: Data<Arc<DynamicConfigManager>>,
 ) -> impl Responder {
     let start_time = std::time::Instant::now();
@@ -2482,7 +1702,6 @@ async fn detailed_health(
     // Get all component statuses
     let system_metrics = monitoring_manager.get_system_metrics().await;
     let alerts = monitoring_manager.get_alerts(50).await;
-    let ble_status = ble_manager.get_status().await;
     let db_health = storage.check_health().await;
     let blockchain_status = blockchain_manager.get_network_status().await.unwrap_or_else(|_| HashMap::new());
     let blockchain_healthy = blockchain_status.get("is_healthy").and_then(|v| v.parse::<bool>().ok()).unwrap_or(false);
@@ -2542,15 +1761,6 @@ async fn detailed_health(
                 "pending_transactions": blockchain_status.get("pending_transactions").and_then(|v| v.parse::<u64>().ok()).unwrap_or(0),
                 "failed_transactions": blockchain_status.get("failed_transactions").and_then(|v| v.parse::<u64>().ok()).unwrap_or(0),
             },
-            "ble": {
-                "status": if ble_status.enabled && ble_status.initialized { "healthy" } else { "unhealthy" },
-                "enabled": ble_status.enabled,
-                "initialized": ble_status.initialized,
-                "connected_devices": ble_status.connected_devices,
-                "authenticated_devices": ble_status.authenticated_devices,
-                "authentication_success_rate": ble_status.authentication_success_rate,
-                "average_response_time_ms": ble_status.average_response_time_ms,
-            },
             "configuration": {
                 "status": if config_status.is_valid { "healthy" } else { "unhealthy" },
                 "environment": config_status.environment,
@@ -2592,7 +1802,6 @@ async fn detailed_health(
             "system": 100,
             "database": if db_health.is_healthy { 100 } else { 25 },
             "blockchain": if blockchain_status.get("is_healthy").and_then(|v| v.parse::<bool>().ok()).unwrap_or(false) { 100 } else { 25 },
-            "ble": if ble_status.enabled && ble_status.initialized { 100 } else { 25 },
             "configuration": if config_status.is_valid { 100 } else { 25 },
         },
     }))
@@ -2604,7 +1813,6 @@ async fn component_health(
     monitoring_manager: Data<Arc<MonitoringManager>>,
     storage: Data<Arc<Storage>>,
     blockchain_manager: Data<Arc<BlockchainManager>>,
-    ble_manager: Data<Arc<BLEManager>>,
     config_manager: Data<Arc<DynamicConfigManager>>,
 ) -> impl Responder {
     let component = path.into_inner();
@@ -2660,24 +1868,6 @@ async fn component_health(
                 }
             }))
         },
-        "ble" => {
-            let ble_status = ble_manager.get_status().await;
-            HttpResponse::Ok().json(serde_json::json!({
-                "component": "ble",
-                "status": if ble_status.enabled && ble_status.initialized { "healthy" } else { "unhealthy" },
-                "timestamp": chrono::Utc::now().to_rfc3339(),
-                "metrics": {
-                    "enabled": ble_status.enabled,
-                    "initialized": ble_status.initialized,
-                    "connected_devices": ble_status.connected_devices,
-                    "authenticated_devices": ble_status.authenticated_devices,
-                    "blocked_devices": ble_status.blocked_devices,
-                    "authentication_success_rate": ble_status.authentication_success_rate,
-                    "average_response_time_ms": ble_status.average_response_time_ms,
-                    "uptime_seconds": ble_status.uptime_seconds,
-                }
-            }))
-        },
         "configuration" => {
             let config_status = config_manager.get_status().await;
             HttpResponse::Ok().json(serde_json::json!({
@@ -2696,7 +1886,7 @@ async fn component_health(
         },
         _ => HttpResponse::NotFound().json(serde_json::json!({
             "error": format!("Unknown component: {}", component),
-            "available_components": ["system", "database", "blockchain", "ble", "configuration"]
+            "available_components": ["system", "database", "blockchain", "configuration"]
         }))
     }
 }
@@ -2769,12 +1959,6 @@ async fn health_metrics(
                 "failed": metrics.transactions_failed,
                 "broadcasted": metrics.transactions_broadcasted,
             },
-            "ble": {
-                "connections": metrics.ble_connections,
-                "disconnections": metrics.ble_disconnections,
-                "authentications": metrics.ble_authentications,
-                "key_exchanges": metrics.ble_key_exchanges,
-            },
             "system": {
                 "uptime_seconds": metrics.uptime_seconds,
                 "memory_usage_bytes": system_metrics.memory_usage_bytes,
@@ -2804,395 +1988,5 @@ async fn health_metrics(
             },
         }
     }))
-}
-
-#[allow(dead_code)]
-pub async fn run_api_server() -> std::io::Result<()> {
-    // Initialize shared components
-    let config = crate::config::Config::development_config().unwrap_or_default();
-    let storage = Arc::new(Storage::new().expect("Failed to initialize storage"));
-    let auth_manager = AuthManager::new();
-
-    let blockchain_manager = Arc::new(BlockchainManager::new(config.clone()).unwrap());
-    let monitoring_manager = Arc::new(MonitoringManager::new());
-    
-    HttpServer::new(move || {
-        App::new()
-            .app_data(Data::new(storage.clone()))
-            .app_data(Data::new(auth_manager.clone()))
-            .app_data(Data::new(blockchain_manager.clone()))
-            .app_data(Data::new(monitoring_manager.clone()))
-            .wrap(actix_cors::Cors::default())
-            .service(health)
-            .service(send_compressed_tx)
-            .service(compress_transaction)
-            .service(compress_ble_payment)
-            .service(compress_qr_payment)
-            .service(legacy_submit_transaction)
-            .service(get_contract_payments)
-            .service(generate_token)
-            .service(process_ble_transaction)
-            .service(initiate_key_exchange)
-            .service(rotate_session_key)
-            .service(block_device)
-            .service(unblock_device)
-            .service(get_database_transactions)
-            .service(get_transaction_by_id)
-            .service(get_transactions_by_device)
-            .service(create_database_backup)
-            .service(get_database_stats)
-            .service(get_database_security)
-            .service(get_networks_status)
-            .service(authenticate_device)
-            .service(get_transactions)
-            .service(get_metrics)
-            .service(get_devices)
-            .service(legacy_tx)
-            .service(create_backup)
-            .service(restore_backup)
-            .service(list_backups)
-            .service(get_backup_info)
-            .service(verify_backup)
-            .service(get_backup_stats)
-            .service(cleanup_backups)
-            .service(get_audit_events)
-            .service(get_security_events)
-            .service(get_failed_events)
-            .service(get_critical_events)
-            .service(get_events_by_user)
-            .service(get_events_by_device)
-            .service(get_audit_stats)
-            .service(export_audit_events)
-            .service(detailed_health)
-            .service(component_health)
-            .service(health_alerts)
-            .service(resolve_alert)
-            .service(health_metrics)
-    })
-    .bind(("0.0.0.0", 4000))?
-    .run()
-    .await
-}
-
-// Enhanced Transaction Processor API Endpoints
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct AddTransactionRequest {
-    pub transaction: BLETransaction,
-    pub priority: Option<String>, // "low", "normal", "high", "critical"
-    pub metadata: Option<HashMap<String, serde_json::Value>>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct AddTransactionResponse {
-    pub success: bool,
-    pub transaction_id: String,
-    pub message: String,
-}
-
-#[post("/processor/add")]
-async fn add_transaction_to_processor(
-    req: Json<AddTransactionRequest>,
-    transaction_processor: Data<Arc<TransactionProcessor>>,
-) -> impl Responder {
-    let priority = match req.priority.as_deref() {
-        Some("low") => TransactionPriority::Low,
-        Some("high") => TransactionPriority::High,
-        Some("critical") => TransactionPriority::Critical,
-        _ => TransactionPriority::Normal,
-    };
-
-    // Add chain_id to metadata if not present
-    let mut metadata = req.metadata.clone().unwrap_or_default();
-    if !metadata.contains_key("chain_id") {
-        metadata.insert("chain_id".to_string(), serde_json::Value::Number(serde_json::Number::from(84532)));
-    }
-
-    match transaction_processor.add_transaction(
-        req.transaction.clone(),
-        priority,
-        Some(metadata),
-    ).await {
-        Ok(_) => HttpResponse::Ok().json(AddTransactionResponse {
-            success: true,
-            transaction_id: req.transaction.id.clone(),
-            message: "Transaction added to processor queue".to_string(),
-        }),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "success": false,
-            "error": format!("Failed to add transaction: {}", e),
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        })),
-    }
-}
-
-#[get("/processor/status")]
-async fn get_processor_status(
-    transaction_processor: Data<Arc<TransactionProcessor>>,
-) -> impl Responder {
-    let queue_status = transaction_processor.get_queue_status().await;
-    let metrics = transaction_processor.get_processing_metrics().await;
-    
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "queue_status": queue_status,
-        "metrics": {
-            "total_processed": metrics.total_processed,
-            "total_successful": metrics.total_successful,
-            "total_failed": metrics.total_failed,
-            "total_retried": metrics.total_retried,
-            "average_processing_time_ms": metrics.average_processing_time_ms,
-            "queue_size": metrics.queue_size,
-            "active_workers": metrics.active_workers,
-            "last_processed_at": metrics.last_processed_at.map(|t| t.to_rfc3339()),
-            "chain_metrics": metrics.chain_metrics,
-        },
-        "timestamp": chrono::Utc::now().to_rfc3339(),
-    }))
-}
-
-#[get("/processor/metrics")]
-async fn get_processor_metrics(
-    transaction_processor: Data<Arc<TransactionProcessor>>,
-) -> impl Responder {
-    let metrics = transaction_processor.get_processing_metrics().await;
-    
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "metrics": metrics,
-        "timestamp": chrono::Utc::now().to_rfc3339(),
-    }))
-}
-
-#[get("/processor/failed")]
-async fn get_failed_transactions(
-    transaction_processor: Data<Arc<TransactionProcessor>>,
-) -> impl Responder {
-    let failed_transactions = transaction_processor.get_failed_transactions().await;
-    
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "failed_transactions": failed_transactions,
-        "count": failed_transactions.len(),
-        "timestamp": chrono::Utc::now().to_rfc3339(),
-    }))
-}
-
-#[post("/processor/retry/{transaction_id}")]
-async fn retry_failed_transaction(
-    path: Path<String>,
-    transaction_processor: Data<Arc<TransactionProcessor>>,
-) -> impl Responder {
-    let transaction_id = path.into_inner();
-    
-    match transaction_processor.retry_failed_transaction(&transaction_id).await {
-        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
-            "success": true,
-            "transaction_id": transaction_id,
-            "message": "Transaction queued for retry",
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        })),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "success": false,
-            "error": format!("Failed to retry transaction: {}", e),
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        })),
-    }
-}
-
-#[post("/processor/clear")]
-async fn clear_processor_queue(
-    transaction_processor: Data<Arc<TransactionProcessor>>,
-) -> impl Responder {
-    match transaction_processor.clear_queue().await {
-        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
-            "success": true,
-            "message": "Transaction queue cleared",
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        })),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "success": false,
-            "error": format!("Failed to clear queue: {}", e),
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        })),
-    }
-}
-
-#[get("/processor/transaction/{transaction_id}")]
-async fn get_transaction_status(
-    path: Path<String>,
-    transaction_processor: Data<Arc<TransactionProcessor>>,
-) -> impl Responder {
-    let transaction_id = path.into_inner();
-    
-    match transaction_processor.get_transaction_status(&transaction_id).await {
-        Some(status) => HttpResponse::Ok().json(serde_json::json!({
-            "success": true,
-            "transaction_id": transaction_id,
-            "status": format!("{:?}", status),
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        })),
-        None => HttpResponse::NotFound().json(serde_json::json!({
-            "success": false,
-            "error": "Transaction not found",
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        })),
-    }
-}
-
-#[get("/critical/errors")]
-async fn get_critical_errors(
-    critical_error_handler: Data<Arc<CriticalErrorHandler>>,
-) -> impl Responder {
-    let errors = critical_error_handler.get_all_errors().await;
-    
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "data": {
-            "errors": errors,
-            "total_count": errors.len(),
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        },
-    }))
-}
-
-#[get("/critical/errors/{path}")]
-async fn get_critical_errors_by_path(
-    path: web::Path<String>,
-    critical_error_handler: Data<Arc<CriticalErrorHandler>>,
-) -> impl Responder {
-    let path_str = path.into_inner();
-    let critical_path = match path_str.as_str() {
-        "blockchain" => CriticalPath::BlockchainTransaction,
-        "ble" => CriticalPath::BLEDeviceConnection,
-        "auth" => CriticalPath::Authentication,
-        "database" => CriticalPath::DatabaseOperation,
-        "config" => CriticalPath::ConfigurationReload,
-        "backup" => CriticalPath::BackupOperation,
-        "transaction" => CriticalPath::TransactionProcessing,
-        "security" => CriticalPath::SecurityValidation,
-        "monitoring" => CriticalPath::MonitoringMetrics,
-        "health" => CriticalPath::HealthCheck,
-        _ => {
-            return HttpResponse::BadRequest().json(serde_json::json!({
-                "error": "Invalid critical path",
-                "message": "Unknown critical path specified",
-                "timestamp": chrono::Utc::now().to_rfc3339(),
-            }));
-        }
-    };
-
-    let errors = critical_error_handler.get_recent_errors_by_path(&critical_path, 100).await;
-    
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "data": {
-            "path": path_str,
-            "errors": errors,
-            "total_count": errors.len(),
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        },
-    }))
-}
-
-#[get("/critical/metrics")]
-async fn get_critical_metrics(
-    critical_error_handler: Data<Arc<CriticalErrorHandler>>,
-) -> impl Responder {
-    let metrics = critical_error_handler.get_all_metrics().await;
-    
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "data": {
-            "metrics": metrics,
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        },
-    }))
-}
-
-#[post("/critical/reset/{path}")]
-async fn reset_critical_circuit_breaker(
-    path: web::Path<String>,
-    critical_error_handler: Data<Arc<CriticalErrorHandler>>,
-) -> impl Responder {
-    let path_str = path.into_inner();
-    let critical_path = match path_str.as_str() {
-        "blockchain" => CriticalPath::BlockchainTransaction,
-        "ble" => CriticalPath::BLEDeviceConnection,
-        "auth" => CriticalPath::Authentication,
-        "database" => CriticalPath::DatabaseOperation,
-        "config" => CriticalPath::ConfigurationReload,
-        "backup" => CriticalPath::BackupOperation,
-        "transaction" => CriticalPath::TransactionProcessing,
-        "security" => CriticalPath::SecurityValidation,
-        "monitoring" => CriticalPath::MonitoringMetrics,
-        "health" => CriticalPath::HealthCheck,
-        _ => {
-            return HttpResponse::BadRequest().json(serde_json::json!({
-                "error": "Invalid critical path",
-                "message": "Unknown critical path specified",
-                "timestamp": chrono::Utc::now().to_rfc3339(),
-            }));
-        }
-    };
-
-    critical_error_handler.reset_circuit_breaker(critical_path).await;
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "message": format!("Circuit breaker reset for {}", path_str),
-        "timestamp": chrono::Utc::now().to_rfc3339(),
-    }))
-}
-
-#[get("/critical/health")]
-async fn get_critical_health(
-    critical_error_handler: Data<Arc<CriticalErrorHandler>>,
-) -> impl Responder {
-    let health_status = critical_error_handler.health_check().await;
-    
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "data": health_status,
-    }))
-}
-
-#[post("/critical/test")]
-async fn test_critical_error_handling(
-    critical_error_handler: Data<Arc<CriticalErrorHandler>>,
-) -> impl Responder {
-    use std::collections::HashMap;
-    
-    let mut context = HashMap::new();
-    context.insert("test".to_string(), "true".to_string());
-    context.insert("endpoint".to_string(), "/critical/test".to_string());
-    
-    // Test critical error handling with a failing operation
-    let result: Result<(), CriticalError> = critical_error_handler.execute_critical_operation(
-        CriticalPath::TransactionProcessing,
-        || async {
-            // Simulate a failure
-            Err(anyhow::anyhow!("Test critical error"))
-        },
-        context,
-    ).await;
-    
-    match result {
-        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
-            "success": true,
-            "message": "Test operation succeeded (unexpected)",
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        })),
-        Err(error) => HttpResponse::Ok().json(serde_json::json!({
-            "success": false,
-            "message": "Test operation failed as expected",
-            "error": {
-                "path": format!("{:?}", error.path),
-                "error_message": error.error,
-                "retry_count": error.retry_count,
-                "circuit_breaker_status": format!("{:?}", error.circuit_breaker_status),
-            },
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        })),
-    }
 }
 

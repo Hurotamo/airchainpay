@@ -27,7 +27,7 @@ pub struct Claims {
 
 #[derive(Debug, Clone)]
 pub struct AuthManager {
-    device_tokens: HashMap<String, String>,
+
 }
 
 impl Default for AuthManager {
@@ -39,7 +39,7 @@ impl Default for AuthManager {
 impl AuthManager {
     pub fn new() -> Self {
         Self {
-            device_tokens: HashMap::new(),
+
         }
     }
 
@@ -98,35 +98,7 @@ impl AuthManager {
         Ok(token_data.claims)
     }
 
-    /// Authenticate a device
-    pub fn authenticate_device(&self, request: &AuthRequest) -> Result<AuthResponse, Box<dyn std::error::Error>> {
-        // Validate device ID
-        if request.device_id.is_empty() {
-            return Err("Device ID is required".into());
-        }
-
-        // Validate public key
-        if request.public_key.is_empty() {
-            return Err("Public key is required".into());
-        }
-
-        // Generate JWT token
-        let token = Self::generate_jwt_token(&request.device_id, "device");
-
-        // Store device token
-        let mut device_tokens = self.device_tokens.clone();
-        device_tokens.insert(request.device_id.clone(), token.clone());
-
-        let expires_at = Utc::now() + Duration::hours(24);
-
-        Ok(AuthResponse {
-            token,
-            expires_at: expires_at.to_rfc3339(),
-            status: "authenticated".to_string(),
-        })
-    }
-
-
+    // Removed authenticate_device method
 
     /// Generate secure secrets for production
     pub fn generate_production_secrets() -> HashMap<String, String> {
