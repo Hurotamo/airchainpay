@@ -143,28 +143,9 @@ impl AnimatedAscii {
     }
 
     pub fn display_final_animation(&mut self) {
-        // Initial typing animation
+        // Only show the typing animation (first logo)
         self.display_typing_animation(50);
-        
-        // Brief pause
-        thread::sleep(Duration::from_millis(500));
-        
-        // Single color cycle (no repetition)
-        self.display_color_cycle(1, 200);
-        
-        // Brief pause
-        thread::sleep(Duration::from_millis(500));
-        
-        // Single pulse effect (no repetition)
-        self.display_pulse_animation(1);
-        
-        // Final static display
-        println!("\n");
-        for line in &self.frames {
-            println!("{}", line.blue());
-        }
-        
-        // Tagline
+        // Only print the tagline after
         println!("\n{}", "Powering the Future of Payments. Fast. Secure. Borderless.".blue());
     }
 
@@ -178,12 +159,7 @@ impl AnimatedAscii {
         // Single color cycle (no repetition)
         self.display_color_cycle(1, 150);
         
-        // Final static display
-        println!("\n");
-        for line in &self.frames {
-            println!("{}", line.blue());
-        }
-        
+        // Do not print the static logo again
         println!("\n{}", "Powering the Future of Payments. Fast. Secure. Borderless.".blue());
     }
 
@@ -208,15 +184,13 @@ pub fn get_animation_style() -> AnimationStyle {
 pub fn display_animated_logo() {
     let style = get_animation_style();
     let mut animator = AnimatedAscii::new();
-    
     match style {
         AnimationStyle::Full => animator.display_final_animation(),
         AnimationStyle::Simple => animator.display_simple_animation(),
         AnimationStyle::Static => animator.display_static(),
         AnimationStyle::Matrix => {
-            // Show matrix effect only once
             animator.display_matrix_effect(1);
-            animator.display_static();
+            // Do not print static logo again
         }
     }
 }
