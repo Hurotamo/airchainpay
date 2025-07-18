@@ -11,6 +11,80 @@ AirChainPay Wallet is a React Native mobile application that provides blockchain
 - ✅ Transaction history
 - ✅ Settings screen
 - ✅ Wallet backup/import functionality
+- ✅ Offline transaction queuing with double-spending prevention
+
+## 🔴 CRITICAL SECURITY VULNERABILITIES TO ADDRESS
+
+### Private Key Storage (CRITICAL)
+- [x] **Replace plain text SecureStore with hardware-backed storage**
+  - Current: Private keys stored in plain text in React Native SecureStore
+  - Risk: Keys can be extracted from device memory
+  - Solution: Implement iOS Keychain Services and Android Keystore
+  - Impact: Complete wallet compromise if device is compromised
+  - **STATUS: FIXED** - Implemented SecureStorageService with hardware-backed storage using react-native-keychain
+
+### Password Security (CRITICAL)
+- [ ] **Implement proper password hashing and salt**
+  - Current: Passwords stored in plain text
+  - Risk: Password exposure leads to wallet compromise
+  - Solution: Use bcrypt or Argon2 with unique salts
+  - Impact: Unauthorized wallet access
+
+### BLE Security (HIGH)
+- [ ] **Implement secure BLE pairing and encryption**
+  - Current: No authentication or encryption for BLE connections
+  - Risk: Man-in-the-middle attacks, device spoofing
+  - Solution: Implement BLE Secure Simple Pairing (SSP)
+  - Impact: Transaction interception and manipulation
+
+### QR Code Tampering (HIGH)
+- [ ] **Add digital signatures to QR code payloads**
+  - Current: QR codes contain unsigned transaction data
+  - Risk: Malicious QR codes can execute unauthorized transactions
+  - Solution: Implement ECDSA signatures for QR code validation
+  - Impact: Unauthorized fund transfers
+
+### Gas Price Manipulation (HIGH)
+- [ ] **Implement gas price validation and limits**
+  - Current: No validation of gas prices in transactions
+  - Risk: Excessive gas fees or front-running attacks
+  - Solution: Add gas price bounds checking and estimation
+  - Impact: Financial loss through high fees
+
+### Network Status Spoofing (HIGH)
+- [ ] **Implement secure network status detection**
+  - Current: Relies on device network status
+  - Risk: Malicious apps can spoof network status
+  - Solution: Implement blockchain node connectivity checks
+  - Impact: Offline transactions processed when online
+
+### Memory Exposure (HIGH)
+- [ ] **Implement secure memory handling for sensitive data**
+  - Current: Private keys may remain in memory
+  - Risk: Memory dumps can expose private keys
+  - Solution: Use secure memory allocation and zeroing
+  - Impact: Key extraction from device memory
+
+### Transaction Replay Attacks (HIGH)
+- [ ] **Implement nonce validation and replay protection**
+  - Current: Basic nonce checking only
+  - Risk: Transaction replay across networks
+  - Solution: Add network-specific nonce tracking
+  - Impact: Double-spending across different networks
+
+### Input Validation (MEDIUM)
+- [ ] **Add comprehensive input sanitization**
+  - Current: Limited input validation
+  - Risk: Injection attacks and malformed data
+  - Solution: Implement strict input validation and sanitization
+  - Impact: App crashes and potential data corruption
+
+### Sensitive Information Logging (MEDIUM)
+- [ ] **Remove sensitive data from logs**
+  - Current: Private keys and addresses may be logged
+  - Risk: Log files expose sensitive information
+  - Solution: Implement secure logging with data masking
+  - Impact: Information disclosure through logs
 
 ## TODO: Core Features
 
@@ -22,6 +96,14 @@ AirChainPay Wallet is a React Native mobile application that provides blockchain
 - [ ] Implement secure key storage using React Native Keychain
 - [ ] Add session timeout and auto-logout functionality
 - [ ] Implement secure random number generation for cryptographic operations
+- [x] **CRITICAL: Replace plain text key storage with hardware-backed storage**
+- [ ] **CRITICAL: Implement proper password hashing with bcrypt/Argon2**
+- [ ] **HIGH: Add BLE Secure Simple Pairing (SSP)**
+- [ ] **HIGH: Implement QR code digital signatures**
+- [ ] **HIGH: Add gas price validation and limits**
+- [ ] **HIGH: Implement secure network status detection**
+- [ ] **HIGH: Add secure memory handling for sensitive data**
+- [ ] **HIGH: Implement cross-network replay protection**
 
 #### BLE Payment System
 - [ ] Improve BLE connection stability and error handling

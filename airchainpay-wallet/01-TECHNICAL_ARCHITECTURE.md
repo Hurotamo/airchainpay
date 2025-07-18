@@ -129,11 +129,14 @@ class BLESecurity {
 ### Secure Storage
 
 ```typescript
-// StorageManager.ts - Secure data persistence
-class StorageManager {
-  async storeSecure(key: string, value: any): Promise<void>
-  async retrieveSecure(key: string): Promise<any>
-  async removeSecure(key: string): Promise<void>
+// SecureStorageService.ts - Hardware-backed secure storage
+class SecureStorageService {
+  async setItem(key: string, value: string, options?: StorageOptions): Promise<void>
+  async getItem(key: string, options?: RetrievalOptions): Promise<string | null>
+  async deleteItem(key: string): Promise<void>
+  async migrateFromSecureStore(keys: string[]): Promise<void>
+  getSecurityLevel(): string
+  isKeychainAvailable(): boolean
 }
 ```
 

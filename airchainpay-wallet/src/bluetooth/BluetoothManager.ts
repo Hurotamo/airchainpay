@@ -248,23 +248,81 @@ export class BluetoothManager {
    * OVERRIDDEN: No-op, never show permission dialog
    */
   async requestPermissions(): Promise<void> {
-    return;
+    if (Platform.OS !== 'android') {
+      return;
+    }
+
+    try {
+      const apiLevel = parseInt(Platform.Version.toString(), 10);
+      console.log('[BLE] Requesting permissions for Android API level:', apiLevel);
+      
+      if (apiLevel >= 31) { // Android 12+
+        const permissions = [
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE
+        ];
+        
+        console.log('[BLE] Requesting permissions:', permissions);
+        
+        const results = await PermissionsAndroid.requestMultiple(permissions);
+        console.log('[BLE] Permission request results:', results);
+        
+        // Check if any permissions were denied
+        const deniedPermissions = Object.entries(results)
+          .filter(([_, status]) => status === 'denied')
+          .map(([permission, _]) => permission);
+        
+        if (deniedPermissions.length > 0) {
+          console.warn('[BLE] Some permissions were denied:', deniedPermissions);
+          throw new BluetoothError(
+            `Required permissions denied: ${deniedPermissions.join(', ')}`,
+            'PERMISSION_DENIED'
+          );
+        }
+      }
+    } catch (error) {
+      console.error('[BLE] Error requesting permissions:', error);
+      throw new BluetoothError(
+        `Failed to request permissions: ${error instanceof Error ? error.message : String(error)}`,
+        'PERMISSION_ERROR'
+      );
+    }
   }
 
   /**
    * Request all required BLE permissions for Android 12+
-   * OVERRIDDEN: Always return true, never show permission dialog
    */
   async requestAllPermissions(): Promise<boolean> {
-    return true;
+    if (Platform.OS !== 'android') {
+      return true;
+    }
+
+    try {
+      await this.requestPermissions();
+      const permissionStatus = await this.checkPermissions();
+      return permissionStatus.granted;
+    } catch (error) {
+      console.error('[BLE] Error requesting all permissions:', error);
+      return false;
+    }
   }
 
   /**
    * Check if all required permissions are granted
-   * OVERRIDDEN: Always return true
    */
   async hasAllPermissions(): Promise<boolean> {
-    return true;
+    if (Platform.OS !== 'android') {
+      return true;
+    }
+
+    try {
+      const permissionStatus = await this.checkPermissions();
+      return permissionStatus.granted;
+    } catch (error) {
+      console.error('[BLE] Error checking all permissions:', error);
+      return false;
+    }
   }
 
   /**

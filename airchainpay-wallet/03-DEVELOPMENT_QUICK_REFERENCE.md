@@ -94,7 +94,8 @@ src/
 │   │   ├── WalletEncryption.ts # Wallet encryption
 │   │   └── BLESecurity.ts      # BLE security
 │   ├── TransactionBuilder.ts   # Transaction building
-│   └── StorageManager.ts       # Secure storage
+│   ├── SecureStorageService.ts # Hardware-backed secure storage
+│   └── StorageMigration.ts     # Migration utility
 └── constants/
     ├── config.ts              # App configuration
     ├── contract.ts            # Contract addresses

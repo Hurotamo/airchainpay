@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, Modal, FlatList, StyleSheet, Animated, Ea
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { SUPPORTED_CHAINS, ChainConfig, STORAGE_KEYS, DEFAULT_CHAIN_ID } from '../constants/AppConfig';
-import { saveToSecureStore, getFromSecureStore } from '../storage/SecureStore';
+import { secureStorage } from '../utils/SecureStorageService';
 import { logger } from '../utils/Logger';
 import { Colors, getChainColor, getChainGradient } from '../../constants/Colors';
 import { useThemeContext } from '../../hooks/useThemeContext';
@@ -39,7 +39,7 @@ export const ChainSelector: React.FC<ChainSelectorProps> = ({
   const handleChainSelect = async (chainId: string) => {
     console.log('[ChainSelector] Selecting chain:', chainId);
     try {
-      await saveToSecureStore(STORAGE_KEYS.SELECTED_CHAIN, chainId);
+      await secureStorage.setItem(STORAGE_KEYS.SELECTED_CHAIN, chainId);
       onChainChange(chainId);
       closeModal();
       logger.info(`[ChainSelector] Chain changed to: ${chainId}`);

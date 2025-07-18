@@ -3,7 +3,7 @@ import { logger } from '../utils/Logger';
 import { SUPPORTED_CHAINS, STORAGE_KEYS } from '../constants/AppConfig';
 import { MultiChainWalletManager } from '../wallet/MultiChainWalletManager';
 import { Transaction } from '../types/transaction';
-import { StorageManager } from '../utils/StorageManager';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface BlockchainTransaction extends Transaction {
   hash: string;
@@ -369,8 +369,9 @@ export class BlockchainTransactionService {
   private async cacheTransactions(chainId: string, transactions: BlockchainTransaction[]): Promise<void> {
     try {
       const key = `${STORAGE_KEYS.TRANSACTION_HISTORY}_${chainId}`;
-      // Use StorageManager which will automatically choose the appropriate storage
-      await StorageManager.setItem(key, JSON.stringify(transactions));
+      // Use AsyncStorage for transaction history (non-sensitive data)
+      await AsyncStorage.setItem(key, JSON.stringify(transactions));
+      logger.info(`[BlockchainTransactionService] Cached ${transactions.length} transactions for chain ${chainId}`);
     } catch (error) {
       logger.error('Failed to cache transactions:', error);
     }
@@ -382,9 +383,14 @@ export class BlockchainTransactionService {
   async getCachedTransactions(chainId: string): Promise<BlockchainTransaction[]> {
     try {
       const key = `${STORAGE_KEYS.TRANSACTION_HISTORY}_${chainId}`;
-      // Use StorageManager which will try SecureStore first, then AsyncStorage
-      const cached = await StorageManager.getItem(key);
-      return cached ? JSON.parse(cached) : [];
+      // Use AsyncStorage for transaction history (non-sensitive data)
+      const cached = await AsyncStorage.getItem(key);
+      if (cached) {
+        const transactions = JSON.parse(cached);
+        logger.info(`[BlockchainTransactionService] Retrieved ${transactions.length} cached transactions for chain ${chainId}`);
+        return transactions;
+      }
+      return [];
     } catch (error) {
       logger.error('Failed to get cached transactions:', error);
       return [];

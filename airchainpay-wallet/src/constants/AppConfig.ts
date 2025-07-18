@@ -126,6 +126,7 @@ export const STORAGE_KEYS = {
   WALLET_TRANSACTIONS: 'wallet_transactions',
   WALLET_SETTINGS: 'wallet_settings',
   SELECTED_CHAIN: 'selected_chain',
+  TRANSACTION_HISTORY: 'transaction_history',
 };
 
 // Transaction configuration

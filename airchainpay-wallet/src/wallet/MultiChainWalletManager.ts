@@ -1,7 +1,7 @@
 import { ethers } from 'ethers';
 import { SUPPORTED_CHAINS } from '../constants/AppConfig';
 import { logger } from '../utils/Logger';
-import * as SecureStore from 'expo-secure-store';
+import { secureStorage } from '../utils/SecureStorageService';
 
 // Storage keys - hardcoded to avoid import issues
 const STORAGE_KEYS = {
@@ -21,87 +21,6 @@ Object.entries(STORAGE_KEYS).forEach(([key, value]) => {
     console.log(`[MultiChain] Valid storage key ${key}:`, value);
   }
 });
-
-// SecureStore wrapper for better type safety
-const SecureStoreWrapper = {
-  // Helper function to check data size
-  checkDataSize(key: string, value: string): void {
-    const sizeInBytes = new Blob([value]).size;
-    if (sizeInBytes > 2048) {
-      console.warn(`[SecureStore] Data for key '${key}' is ${sizeInBytes} bytes, which exceeds the 2048 byte limit. Consider using AsyncStorage for large data.`);
-    }
-  },
-
-  async getItemAsync(key: string): Promise<string | null> {
-    try {
-      console.log('[SecureStore] Getting item with key:', key);
-      
-      // Validate key
-      if (!key || typeof key !== 'string') {
-        console.error('[SecureStore] Invalid key provided:', key);
-        return null;
-      }
-      
-      const value = await SecureStore.getItemAsync(key);
-      return value;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      const errorDetails = error instanceof Error ? {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      } : { message: String(error) };
-      
-      logger.error(`[SecureStore] Failed to get item ${key}:`, errorMessage, errorDetails);
-      return null;
-    }
-  },
-  async setItemAsync(key: string, value: string): Promise<void> {
-    try {
-      // Validate key
-      if (!key || typeof key !== 'string') {
-        console.error('[SecureStore] Invalid key provided for setItem:', key);
-        throw new Error(`Invalid key provided: ${key}`);
-      }
-      
-      // Check data size before storing
-      this.checkDataSize(key, value);
-      
-      await SecureStore.setItemAsync(key, value);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      const errorDetails = error instanceof Error ? {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      } : { message: String(error) };
-      
-      logger.error(`[SecureStore] Failed to set item ${key}:`, errorMessage, errorDetails);
-      throw error;
-    }
-  },
-  async deleteItemAsync(key: string): Promise<void> {
-    try {
-      // Validate key
-      if (!key || typeof key !== 'string') {
-        console.error('[SecureStore] Invalid key provided for deleteItem:', key);
-        throw new Error(`Invalid key provided: ${key}`);
-      }
-      
-      await SecureStore.deleteItemAsync(key);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      const errorDetails = error instanceof Error ? {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      } : { message: String(error) };
-      
-      logger.error(`[SecureStore] Failed to delete item ${key}:`, errorMessage, errorDetails);
-      throw error;
-    }
-  }
-};
 
 export interface WalletInfo {
   address: string;
@@ -142,7 +61,7 @@ export class MultiChainWalletManager {
         return false;
       }
       
-      const privateKey = await SecureStoreWrapper.getItemAsync(STORAGE_KEYS.PRIVATE_KEY);
+      const privateKey = await secureStorage.getItem(STORAGE_KEYS.PRIVATE_KEY);
       const hasWallet = !!privateKey;
       logger.info(`[MultiChain] hasWallet check: ${hasWallet}`);
       return hasWallet;
@@ -161,7 +80,7 @@ export class MultiChainWalletManager {
 
   async hasTemporarySeedPhrase(): Promise<boolean> {
     try {
-      const tempSeedPhrase = await SecureStoreWrapper.getItemAsync(STORAGE_KEYS.TEMP_SEED_PHRASE);
+      const tempSeedPhrase = await secureStorage.getItem(STORAGE_KEYS.TEMP_SEED_PHRASE);
       return !!tempSeedPhrase;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
@@ -178,7 +97,7 @@ export class MultiChainWalletManager {
 
   async clearTemporarySeedPhrase(): Promise<void> {
     try {
-      await SecureStoreWrapper.deleteItemAsync(STORAGE_KEYS.TEMP_SEED_PHRASE);
+      await secureStorage.deleteItem(STORAGE_KEYS.TEMP_SEED_PHRASE);
       logger.info('[MultiChain] Temporary seed phrase cleared');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
@@ -195,18 +114,20 @@ export class MultiChainWalletManager {
 
   async logStorageState(): Promise<void> {
     try {
-      const privateKey = await SecureStoreWrapper.getItemAsync(STORAGE_KEYS.PRIVATE_KEY);
-      const seedPhrase = await SecureStoreWrapper.getItemAsync(STORAGE_KEYS.SEED_PHRASE);
-      const tempSeedPhrase = await SecureStoreWrapper.getItemAsync(STORAGE_KEYS.TEMP_SEED_PHRASE);
-      const password = await SecureStoreWrapper.getItemAsync(STORAGE_KEYS.WALLET_PASSWORD);
-      const backupConfirmed = await SecureStoreWrapper.getItemAsync(STORAGE_KEYS.BACKUP_CONFIRMED);
+      const privateKey = await secureStorage.getItem(STORAGE_KEYS.PRIVATE_KEY);
+      const seedPhrase = await secureStorage.getItem(STORAGE_KEYS.SEED_PHRASE);
+      const tempSeedPhrase = await secureStorage.getItem(STORAGE_KEYS.TEMP_SEED_PHRASE);
+      const password = await secureStorage.getItem(STORAGE_KEYS.WALLET_PASSWORD);
+      const backupConfirmed = await secureStorage.getItem(STORAGE_KEYS.BACKUP_CONFIRMED);
 
       logger.info('[MultiChain] Storage state:', {
         hasPrivateKey: !!privateKey,
         hasSeedPhrase: !!seedPhrase,
         hasTempSeedPhrase: !!tempSeedPhrase,
         hasPassword: !!password,
-        backupConfirmed: backupConfirmed === 'true'
+        backupConfirmed: backupConfirmed === 'true',
+        securityLevel: secureStorage.getSecurityLevel(),
+        keychainAvailable: secureStorage.isKeychainAvailable()
       });
     } catch (error) {
       logger.error('[MultiChain] Failed to log storage state:', error);
@@ -215,8 +136,8 @@ export class MultiChainWalletManager {
 
   async validateWalletConsistency(): Promise<{ isValid: boolean; error?: string }> {
     try {
-      const privateKey = await SecureStoreWrapper.getItemAsync(STORAGE_KEYS.PRIVATE_KEY);
-      const seedPhrase = await SecureStoreWrapper.getItemAsync(STORAGE_KEYS.SEED_PHRASE);
+      const privateKey = await secureStorage.getItem(STORAGE_KEYS.PRIVATE_KEY);
+      const seedPhrase = await secureStorage.getItem(STORAGE_KEYS.SEED_PHRASE);
 
       if (!privateKey) {
         return { isValid: false, error: 'No private key found' };
@@ -262,11 +183,11 @@ export class MultiChainWalletManager {
       }
       
       // Store temporarily until backup is confirmed
-      await SecureStoreWrapper.setItemAsync(STORAGE_KEYS.TEMP_SEED_PHRASE, seedPhrase);
+      await secureStorage.setItem(STORAGE_KEYS.TEMP_SEED_PHRASE, seedPhrase);
       logger.info('[MultiChain] Temporary seed phrase stored successfully');
       
       // Verify storage
-      const storedSeedPhrase = await SecureStoreWrapper.getItemAsync(STORAGE_KEYS.TEMP_SEED_PHRASE);
+      const storedSeedPhrase = await secureStorage.getItem(STORAGE_KEYS.TEMP_SEED_PHRASE);
       if (!storedSeedPhrase) {
         throw new Error('Failed to store temporary seed phrase');
       }
@@ -287,7 +208,7 @@ export class MultiChainWalletManager {
 
   async setWalletPassword(password: string): Promise<void> {
     try {
-      await SecureStoreWrapper.setItemAsync(STORAGE_KEYS.WALLET_PASSWORD, password);
+      await secureStorage.setItem(STORAGE_KEYS.WALLET_PASSWORD, password);
       logger.info('[MultiChain] Wallet password set successfully');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
@@ -308,22 +229,22 @@ export class MultiChainWalletManager {
       await this.logStorageState();
       
       // First check if we already have a wallet with a seed phrase
-      const existingSeedPhrase = await SecureStoreWrapper.getItemAsync(STORAGE_KEYS.SEED_PHRASE);
+      const existingSeedPhrase = await secureStorage.getItem(STORAGE_KEYS.SEED_PHRASE);
       if (existingSeedPhrase) {
         // If we already have a seed phrase stored, just set backup as confirmed
-        await SecureStoreWrapper.setItemAsync(STORAGE_KEYS.BACKUP_CONFIRMED, 'true');
+        await secureStorage.setItem(STORAGE_KEYS.BACKUP_CONFIRMED, 'true');
         logger.info('[MultiChain] Backup confirmed for existing wallet');
         return;
       }
 
       // Check for temporary seed phrase
-      const tempSeedPhrase = await SecureStoreWrapper.getItemAsync(STORAGE_KEYS.TEMP_SEED_PHRASE);
+      const tempSeedPhrase = await secureStorage.getItem(STORAGE_KEYS.TEMP_SEED_PHRASE);
       if (!tempSeedPhrase) {
         // Check if we have a private key but no seed phrase (imported wallet)
-        const privateKey = await SecureStoreWrapper.getItemAsync(STORAGE_KEYS.PRIVATE_KEY);
+        const privateKey = await secureStorage.getItem(STORAGE_KEYS.PRIVATE_KEY);
         if (privateKey) {
           // For imported wallets without seed phrase, just confirm backup
-          await SecureStoreWrapper.setItemAsync(STORAGE_KEYS.BACKUP_CONFIRMED, 'true');
+          await secureStorage.setItem(STORAGE_KEYS.BACKUP_CONFIRMED, 'true');
           logger.info('[MultiChain] Backup confirmed for imported wallet without seed phrase');
           return;
         }
@@ -334,10 +255,10 @@ export class MultiChainWalletManager {
       }
 
       const wallet = ethers.Wallet.fromPhrase(tempSeedPhrase);
-      await SecureStoreWrapper.setItemAsync(STORAGE_KEYS.PRIVATE_KEY, wallet.privateKey);
-      await SecureStoreWrapper.setItemAsync(STORAGE_KEYS.SEED_PHRASE, tempSeedPhrase);
-      await SecureStoreWrapper.deleteItemAsync(STORAGE_KEYS.TEMP_SEED_PHRASE);
-      await SecureStoreWrapper.setItemAsync(STORAGE_KEYS.BACKUP_CONFIRMED, 'true');
+      await secureStorage.setItem(STORAGE_KEYS.PRIVATE_KEY, wallet.privateKey);
+      await secureStorage.setItem(STORAGE_KEYS.SEED_PHRASE, tempSeedPhrase);
+      await secureStorage.deleteItem(STORAGE_KEYS.TEMP_SEED_PHRASE);
+      await secureStorage.setItem(STORAGE_KEYS.BACKUP_CONFIRMED, 'true');
 
       this.wallet = wallet;
       logger.info('[MultiChain] Wallet backup confirmed and stored');
@@ -359,15 +280,15 @@ export class MultiChainWalletManager {
       const wallet = ethers.Wallet.fromPhrase(seedPhrase);
       
       // Check if there's an existing private key and verify it matches
-      const existingPrivateKey = await SecureStoreWrapper.getItemAsync(STORAGE_KEYS.PRIVATE_KEY);
+      const existingPrivateKey = await secureStorage.getItem(STORAGE_KEYS.PRIVATE_KEY);
       if (existingPrivateKey && existingPrivateKey !== wallet.privateKey) {
         throw new Error('Seed phrase does not match the existing private key. Please clear the wallet first.');
       }
       
-      await SecureStoreWrapper.setItemAsync(STORAGE_KEYS.PRIVATE_KEY, wallet.privateKey);
-      await SecureStoreWrapper.setItemAsync(STORAGE_KEYS.SEED_PHRASE, seedPhrase);
+      await secureStorage.setItem(STORAGE_KEYS.PRIVATE_KEY, wallet.privateKey);
+      await secureStorage.setItem(STORAGE_KEYS.SEED_PHRASE, seedPhrase);
       // For imported wallets, we assume the user already has the seed phrase backed up
-      await SecureStoreWrapper.setItemAsync(STORAGE_KEYS.BACKUP_CONFIRMED, 'true');
+      await secureStorage.setItem(STORAGE_KEYS.BACKUP_CONFIRMED, 'true');
 
       this.wallet = wallet;
       logger.info('[MultiChain] Wallet imported from seed phrase');
@@ -395,7 +316,7 @@ export class MultiChainWalletManager {
       const wallet = new ethers.Wallet(normalizedKey);
       
       // Check if there's an existing seed phrase and verify it matches
-      const existingSeedPhrase = await SecureStoreWrapper.getItemAsync(STORAGE_KEYS.SEED_PHRASE);
+      const existingSeedPhrase = await secureStorage.getItem(STORAGE_KEYS.SEED_PHRASE);
       if (existingSeedPhrase) {
         try {
           const seedWallet = ethers.Wallet.fromPhrase(existingSeedPhrase);
@@ -404,16 +325,16 @@ export class MultiChainWalletManager {
           }
         } catch (seedError) {
           // If the existing seed phrase is invalid, clear it
-          await SecureStoreWrapper.deleteItemAsync(STORAGE_KEYS.SEED_PHRASE);
+          await secureStorage.deleteItem(STORAGE_KEYS.SEED_PHRASE);
           logger.warn('[MultiChain] Cleared invalid existing seed phrase');
         }
       }
       
-      await SecureStoreWrapper.setItemAsync(STORAGE_KEYS.PRIVATE_KEY, normalizedKey);
+      await secureStorage.setItem(STORAGE_KEYS.PRIVATE_KEY, normalizedKey);
       // Clear any existing seed phrase since we're importing a private key
-      await SecureStoreWrapper.deleteItemAsync(STORAGE_KEYS.SEED_PHRASE);
+      await secureStorage.deleteItem(STORAGE_KEYS.SEED_PHRASE);
       // For imported wallets with private key, we assume the user already has it backed up
-      await SecureStoreWrapper.setItemAsync(STORAGE_KEYS.BACKUP_CONFIRMED, 'true');
+      await secureStorage.setItem(STORAGE_KEYS.BACKUP_CONFIRMED, 'true');
 
       this.wallet = wallet;
       logger.info('[MultiChain] Wallet imported from private key');
@@ -437,7 +358,7 @@ export class MultiChainWalletManager {
     }
 
     try {
-      const privateKey = await SecureStoreWrapper.getItemAsync(STORAGE_KEYS.PRIVATE_KEY);
+      const privateKey = await secureStorage.getItem(STORAGE_KEYS.PRIVATE_KEY);
       if (privateKey) {
         const wallet = new ethers.Wallet(privateKey);
         this.wallet = wallet;
@@ -446,7 +367,7 @@ export class MultiChainWalletManager {
       }
 
       const wallet = ethers.Wallet.createRandom();
-      await SecureStoreWrapper.setItemAsync(STORAGE_KEYS.PRIVATE_KEY, wallet.privateKey);
+      await secureStorage.setItem(STORAGE_KEYS.PRIVATE_KEY, wallet.privateKey);
       this.wallet = wallet;
       logger.info(`[MultiChain] Created new wallet: ${wallet.address}`);
       return wallet;
@@ -616,7 +537,7 @@ export class MultiChainWalletManager {
   // Add method to check if wallet password exists
   async hasPassword(): Promise<boolean> {
     try {
-      const password = await SecureStoreWrapper.getItemAsync(STORAGE_KEYS.WALLET_PASSWORD);
+      const password = await secureStorage.getItem(STORAGE_KEYS.WALLET_PASSWORD);
       const hasPassword = !!password;
       logger.info(`[MultiChain] hasPassword check: ${hasPassword}`);
       return hasPassword;
@@ -636,7 +557,7 @@ export class MultiChainWalletManager {
   // Add method to check if backup is confirmed
   async isBackupConfirmed(): Promise<boolean> {
     try {
-      const confirmed = await SecureStoreWrapper.getItemAsync(STORAGE_KEYS.BACKUP_CONFIRMED);
+      const confirmed = await secureStorage.getItem(STORAGE_KEYS.BACKUP_CONFIRMED);
       const isConfirmed = confirmed === 'true';
       logger.info(`[MultiChain] isBackupConfirmed check: ${isConfirmed}`);
       return isConfirmed;
@@ -656,7 +577,7 @@ export class MultiChainWalletManager {
   // Add method to set backup confirmation
   async setBackupConfirmed(): Promise<void> {
     try {
-      await SecureStoreWrapper.setItemAsync(STORAGE_KEYS.BACKUP_CONFIRMED, 'true');
+      await secureStorage.setItem(STORAGE_KEYS.BACKUP_CONFIRMED, 'true');
       logger.info('[MultiChain] Backup confirmation set successfully');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
@@ -696,7 +617,7 @@ export class MultiChainWalletManager {
       let deletedCount = 0;
       for (const key of keysToDelete) {
         try {
-          await SecureStoreWrapper.deleteItemAsync(key);
+          await secureStorage.deleteItem(key);
           logger.info(`[MultiChain] Deleted storage key: ${key}`);
           deletedCount++;
         } catch (deleteError) {
@@ -705,68 +626,17 @@ export class MultiChainWalletManager {
         }
       }
       
-      // Clear AsyncStorage keys
-      try {
-        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-        
-        // Clear transaction queue
-        await AsyncStorage.removeItem('tx_queue');
-        logger.info('[MultiChain] Cleared transaction queue');
-        
-        // Clear password attempts
-        await AsyncStorage.removeItem('@password_attempts');
-        logger.info('[MultiChain] Cleared password attempts');
-        
-        // Clear encrypted wallet credentials
-        await AsyncStorage.removeItem('@wallet_credentials_seedphrase');
-        await AsyncStorage.removeItem('@wallet_credentials_privatekey');
-        logger.info('[MultiChain] Cleared encrypted wallet credentials');
-        
-        // Clear user theme preference (optional - keep this if you want to preserve theme)
-        // await AsyncStorage.removeItem('user-theme');
-        
-        // Clear any other wallet-related AsyncStorage keys
-        const walletKeys = [
-          'wallet_private_key',
-          'wallet_mnemonic',
-          'wallet_password',
-          'wallet_address',
-          'wallet_backup',
-          'wallet_encrypted',
-          'wallet_initialized',
-          'wallet_locked',
-          'wallet_network',
-          'wallet_tokens',
-          'wallet_transactions',
-          'wallet_settings'
-        ];
-        
-        for (const key of walletKeys) {
-          try {
-            await AsyncStorage.removeItem(key);
-          } catch (error) {
-            logger.warn(`[MultiChain] Failed to clear AsyncStorage key ${key}:`, error);
-          }
-        }
-        
-        logger.info('[MultiChain] Cleared AsyncStorage wallet keys');
-      } catch (asyncStorageError) {
-        logger.warn('[MultiChain] Failed to clear AsyncStorage keys:', asyncStorageError);
-      }
-      
-      logger.info(`[MultiChain] Logout completed successfully. Deleted ${deletedCount}/${keysToDelete.length} storage keys.`);
-      
-      // Verify logout was successful
-      const hasWalletAfterLogout = await this.hasWallet();
-      if (hasWalletAfterLogout) {
-        logger.warn('[MultiChain] Warning: Wallet data may not have been completely cleared');
-      } else {
-        logger.info('[MultiChain] Logout verification successful - no wallet data found');
-      }
+      logger.info(`[MultiChain] Logout completed. Deleted ${deletedCount} storage keys.`);
     } catch (error) {
-      logger.error('[MultiChain] Failed to logout:', error);
-      // Don't throw the error, just log it and continue
-      // This prevents the empty object error from bubbling up
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      const errorDetails = error instanceof Error ? {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      } : { message: String(error) };
+      
+      logger.error('[MultiChain] Failed to logout:', errorMessage, errorDetails);
+      throw error;
     }
   }
 
@@ -809,7 +679,7 @@ export class MultiChainWalletManager {
   // Add method to verify wallet password
   async verifyWalletPassword(password: string): Promise<boolean> {
     try {
-      const storedPassword = await SecureStoreWrapper.getItemAsync(STORAGE_KEYS.WALLET_PASSWORD);
+      const storedPassword = await secureStorage.getItem(STORAGE_KEYS.WALLET_PASSWORD);
       return storedPassword === password;
     } catch (error) {
       logger.error('[MultiChain] Failed to verify wallet password:', error);
@@ -820,7 +690,7 @@ export class MultiChainWalletManager {
   // Add method to get seed phrase
   async getSeedPhrase(): Promise<string> {
     try {
-      const seedPhrase = await SecureStoreWrapper.getItemAsync(STORAGE_KEYS.SEED_PHRASE);
+      const seedPhrase = await secureStorage.getItem(STORAGE_KEYS.SEED_PHRASE);
       if (!seedPhrase) {
         throw new Error('No seed phrase found. This wallet may have been imported with a private key only.');
       }
@@ -834,7 +704,7 @@ export class MultiChainWalletManager {
   // Add method to export private key
   async exportPrivateKey(): Promise<string> {
     try {
-      const privateKey = await SecureStoreWrapper.getItemAsync(STORAGE_KEYS.PRIVATE_KEY);
+      const privateKey = await secureStorage.getItem(STORAGE_KEYS.PRIVATE_KEY);
       if (!privateKey) {
         throw new Error('No private key found');
       }
