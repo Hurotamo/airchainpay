@@ -3,6 +3,7 @@ import * as CryptoJS from 'crypto-js';
 import { logger } from '../Logger';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../../constants/AppConfig';
+import { PasswordHasher } from './PasswordHasher';
 
 interface EncryptedWallet {
   encryptedData: string;
@@ -208,6 +209,7 @@ export class WalletEncryption {
 
   /**
    * Verify if password is correct without revealing credentials
+   * This method tries to decrypt stored credentials to verify the password
    */
   static async verifyPassword(password: string): Promise<boolean> {
     try {
@@ -234,6 +236,34 @@ export class WalletEncryption {
       await this.updatePasswordAttempts(false);
       return false;
     } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Verify password using the new hashing system
+   * This method is used for wallet password verification
+   */
+  static async verifyPasswordHash(password: string, storedHash: string): Promise<boolean> {
+    try {
+      // Check if this is a legacy plain text password
+      if (!PasswordHasher.isSecureHash(storedHash)) {
+        logger.warn('[WalletEncryption] Legacy plain text password detected');
+        return false; // Don't allow plain text passwords
+      }
+
+      // Verify against the stored hash
+      const isValid = PasswordHasher.verifyPassword(password, storedHash);
+      
+      if (isValid) {
+        logger.info('[WalletEncryption] Password verification successful');
+      } else {
+        logger.warn('[WalletEncryption] Password verification failed');
+      }
+      
+      return isValid;
+    } catch (error) {
+      logger.error('[WalletEncryption] Failed to verify password hash:', error);
       return false;
     }
   }

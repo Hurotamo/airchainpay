@@ -2,6 +2,8 @@ import { ethers } from 'ethers';
 import { SUPPORTED_CHAINS } from '../constants/AppConfig';
 import { logger } from '../utils/Logger';
 import { secureStorage } from '../utils/SecureStorageService';
+import { PasswordHasher } from '../utils/crypto/PasswordHasher';
+import { PasswordMigration } from '../utils/crypto/PasswordMigration';
 
 // Storage keys - hardcoded to avoid import issues
 const STORAGE_KEYS = {
@@ -208,8 +210,10 @@ export class MultiChainWalletManager {
 
   async setWalletPassword(password: string): Promise<void> {
     try {
-      await secureStorage.setItem(STORAGE_KEYS.WALLET_PASSWORD, password);
-      logger.info('[MultiChain] Wallet password set successfully');
+      // Hash the password before storing
+      const hashedPassword = PasswordHasher.hashPassword(password);
+      await secureStorage.setItem(STORAGE_KEYS.WALLET_PASSWORD, hashedPassword);
+      logger.info('[MultiChain] Wallet password hashed and stored successfully');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       const errorDetails = error instanceof Error ? {
@@ -679,11 +683,116 @@ export class MultiChainWalletManager {
   // Add method to verify wallet password
   async verifyWalletPassword(password: string): Promise<boolean> {
     try {
-      const storedPassword = await secureStorage.getItem(STORAGE_KEYS.WALLET_PASSWORD);
-      return storedPassword === password;
+      const storedPasswordHash = await secureStorage.getItem(STORAGE_KEYS.WALLET_PASSWORD);
+      
+      if (!storedPasswordHash) {
+        logger.warn('[MultiChain] No stored password hash found');
+        return false;
+      }
+
+      // Check if this is a legacy plain text password and migrate it
+      if (!PasswordHasher.isSecureHash(storedPasswordHash)) {
+        logger.info('[MultiChain] Migrating legacy plain text password to secure hash');
+        const hashedPassword = PasswordHasher.hashPassword(password);
+        await secureStorage.setItem(STORAGE_KEYS.WALLET_PASSWORD, hashedPassword);
+        return true; // Legacy password was plain text, so if it matches, migration is successful
+      }
+
+      // Verify against the stored hash
+      const isValid = PasswordHasher.verifyPassword(password, storedPasswordHash);
+      
+      if (isValid) {
+        logger.info('[MultiChain] Password verification successful');
+      } else {
+        logger.warn('[MultiChain] Password verification failed');
+      }
+      
+      return isValid;
     } catch (error) {
       logger.error('[MultiChain] Failed to verify wallet password:', error);
       return false;
+    }
+  }
+
+  /**
+   * Check if password migration is needed and handle it
+   */
+  async checkAndMigratePassword(): Promise<{
+    needsMigration: boolean;
+    migrationRequired: boolean;
+    error?: string;
+  }> {
+    try {
+      const needsMigration = await PasswordMigration.isMigrationNeeded();
+      
+      if (!needsMigration) {
+        return {
+          needsMigration: false,
+          migrationRequired: false
+        };
+      }
+
+      // Check if there's a stored password that needs migration
+      const storedPassword = await secureStorage.getItem(STORAGE_KEYS.WALLET_PASSWORD);
+      
+      if (!storedPassword) {
+        // No password to migrate
+        return {
+          needsMigration: true,
+          migrationRequired: false
+        };
+      }
+
+      // Check if it's a legacy plain text password
+      if (!PasswordHasher.isSecureHash(storedPassword)) {
+        return {
+          needsMigration: true,
+          migrationRequired: true,
+          error: 'Password security upgrade required. Please re-enter your password.'
+        };
+      }
+
+      return {
+        needsMigration: true,
+        migrationRequired: false
+      };
+    } catch (error) {
+      logger.error('[MultiChain] Failed to check password migration:', error);
+      return {
+        needsMigration: false,
+        migrationRequired: false,
+        error: 'Failed to check password migration status'
+      };
+    }
+  }
+
+  /**
+   * Migrate a user's password to secure hash format
+   */
+  async migrateUserPassword(plainTextPassword: string): Promise<{
+    success: boolean;
+    error?: string;
+  }> {
+    try {
+      const result = await PasswordMigration.migrateUserPassword(plainTextPassword);
+      
+      if (result.success) {
+        logger.info('[MultiChain] Password migration completed successfully');
+      } else {
+        logger.error('[MultiChain] Password migration failed:', result.errors);
+      }
+      
+      return {
+        success: result.success,
+        error: result.errors.length > 0 ? result.errors[0] : undefined
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      logger.error('[MultiChain] Failed to migrate user password:', errorMessage);
+      return {
+        success: false,
+        error: errorMessage
+      };
     }
   }
 

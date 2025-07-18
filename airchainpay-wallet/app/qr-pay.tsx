@@ -20,6 +20,7 @@ import { getChainColor, getChainGradient } from '../constants/Colors';
 import { AnimatedCard } from '../components/AnimatedComponents';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useThemeContext } from '../hooks/useThemeContext';
+import { QRCodeSigner } from '../src/utils/crypto/QRCodeSigner';
 
 interface PaymentSetup {
   to: string;
@@ -123,6 +124,42 @@ export default function QRPayScreen() {
         parsed = JSON.parse(data);
       } catch {
         parsed = { address: data };
+      }
+      
+      // Check if this is a signed QR payload and verify signature
+      if (QRCodeSigner.isSignedPayload(parsed)) {
+        logger.info('Signed QR payload detected, verifying signature');
+        
+        const verificationResult = await QRCodeSigner.verifyQRPayload(parsed);
+        
+        if (!verificationResult.isValid) {
+          throw new Error(`QR code signature verification failed: ${verificationResult.error}`);
+        }
+        
+        logger.info('QR code signature verified successfully', {
+          signer: verificationResult.signer,
+          chainId: verificationResult.chainId,
+          timestamp: verificationResult.timestamp
+        });
+        
+        // Show signature verification success
+        Alert.alert(
+          'Secure QR Code',
+          `QR code verified successfully!\n\nSigner: ${verificationResult.signer}\nChain: ${verificationResult.chainId}`,
+          [{ text: 'OK' }]
+        );
+      } else {
+        logger.info('Unsigned QR payload detected');
+        
+        // Show warning for unsigned QR codes
+        Alert.alert(
+          'Unverified QR Code',
+          'This QR code is not digitally signed. Proceed with caution.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Continue', onPress: () => {} }
+          ]
+        );
       }
       
       // Extract the recipient address

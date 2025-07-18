@@ -20,6 +20,7 @@ import { ThemedText } from '../components/ThemedText';
 import { useThemeColor } from '../hooks/useThemeColor';
 import { logger } from '../src/utils/Logger';
 import { useSelectedChain } from '../src/components/ChainSelector';
+import { QRCodeSigner } from '../src/utils/crypto/QRCodeSigner';
 
 const { width } = Dimensions.get('window');
 const QR_SIZE = width * 0.7;
@@ -53,7 +54,15 @@ export default function ReceivePaymentScreen() {
         version: '1.0'
       };
       
-      setQrData(JSON.stringify(paymentRequest));
+      // Sign the payment request with digital signature
+      const signedPaymentRequest = await QRCodeSigner.signQRPayload(paymentRequest, selectedChain);
+      
+      setQrData(JSON.stringify(signedPaymentRequest));
+      
+      logger.info('Signed QR code generated successfully', {
+        signer: walletInfo.address,
+        chainId: selectedChain
+      });
     } catch (error) {
       logger.error('Failed to load wallet:', error);
       Alert.alert('Error', 'Failed to load wallet data');

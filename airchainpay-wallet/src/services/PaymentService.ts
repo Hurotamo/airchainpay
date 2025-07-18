@@ -11,6 +11,7 @@ import { Transaction } from '../types/transaction';
 import { ethers } from 'ethers';
 import { TokenInfo } from '../wallet/TokenWalletManager';
 import OfflineSecurityService from './OfflineSecurityService';
+import { GasPriceValidator } from '../utils/GasPriceValidator';
 
 export interface PaymentRequest {
   to: string;
@@ -36,12 +37,16 @@ export interface PaymentRequest {
 }
 
 export interface PaymentResult {
-  status: 'sent' | 'queued' | 'failed';
+  status: 'sent' | 'queued' | 'failed' | 'key_exchange_required' | 'pending' | 'confirmed' | 'advertising';
   transport: string;
   transactionId?: string;
   message?: string;
   timestamp: number;
   metadata?: any;
+  deviceId?: string;
+  deviceName?: string;
+  sessionId?: string;
+  qrData?: string;
 }
 
 export class PaymentService {
@@ -345,23 +350,84 @@ export class PaymentService {
   }
 
   /**
-   * Process on-chain transaction
+   * Process on-chain transaction with gas price validation
    */
   private async processOnChainTransaction(request: PaymentRequest): Promise<PaymentResult> {
     try {
+      // Create transaction object for gas price validation
+      const transaction = {
+        to: request.to,
+        value: request.token?.isNative 
+          ? ethers.parseEther(request.amount) 
+          : ethers.parseUnits(request.amount, request.token?.decimals || 18),
+        data: request.paymentReference 
+          ? ethers.hexlify(ethers.toUtf8Bytes(request.paymentReference)) 
+          : undefined
+      };
+
+      // Get current gas price and validate it
+      const gasPrice = await this.walletManager.getGasPrice(request.chainId);
+      
+      // Comprehensive gas price validation
+      const gasPriceValidation = GasPriceValidator.validateGasPrice(gasPrice, request.chainId);
+      if (!gasPriceValidation.isValid) {
+        throw new Error(`Gas price validation failed: ${gasPriceValidation.error}`);
+      }
+
+      // Check if gas price is reasonable for current network conditions
+      const reasonablenessCheck = await GasPriceValidator.isGasPriceReasonable(gasPrice, request.chainId);
+      if (!reasonablenessCheck.isReasonable && reasonablenessCheck.reasonableness === 'very_high') {
+        throw new Error(`Gas price is unreasonably high: ${reasonablenessCheck.proposedGwei.toFixed(2)} gwei (${reasonablenessCheck.ratio.toFixed(2)}x above current)`);
+      }
+
+      // Log warning for high gas prices
+      if (gasPriceValidation.warningLevel === 'warning' || gasPriceValidation.warningLevel === 'high') {
+        logger.warn('[PaymentService] High gas price detected for onchain transaction', {
+          chainId: request.chainId,
+          gasPrice: gasPrice.toString(),
+          gasPriceGwei: gasPriceValidation.gasPriceGwei,
+          warningLevel: gasPriceValidation.warningLevel,
+          reasonableness: reasonablenessCheck.reasonableness
+        });
+      }
+
+      // Estimate optimal gas price if current price is too high
+      let finalGasPrice = gasPrice;
+      if (gasPriceValidation.warningLevel === 'high') {
+        const optimalEstimate = await GasPriceValidator.estimateOptimalGasPrice(request.chainId, 'normal');
+        if (optimalEstimate.isValid) {
+          finalGasPrice = BigInt(optimalEstimate.gasPrice);
+          logger.info('[PaymentService] Using optimal gas price estimate', {
+            originalPrice: gasPrice.toString(),
+            optimalPrice: finalGasPrice.toString(),
+            chainId: request.chainId
+          });
+        }
+      }
+
+      // Send transaction with validated gas price
       const result = await this.onChainTransport.send({
         to: request.to,
         amount: request.amount,
         chainId: request.chainId,
         token: request.token,
-        paymentReference: request.paymentReference
+        paymentReference: request.paymentReference,
+        gasPrice: finalGasPrice.toString()
       });
 
       return {
         status: 'sent',
         transport: 'onchain',
         timestamp: Date.now(),
-        metadata: result
+        metadata: {
+          ...result,
+          gasPriceValidation: {
+            isValid: gasPriceValidation.isValid,
+            warningLevel: gasPriceValidation.warningLevel,
+            gasPriceGwei: gasPriceValidation.gasPriceGwei,
+            reasonableness: reasonablenessCheck.reasonableness
+          }
+        }
       };
 
     } catch (error) {

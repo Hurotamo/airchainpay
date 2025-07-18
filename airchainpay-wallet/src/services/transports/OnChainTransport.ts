@@ -11,7 +11,7 @@ export class OnChainTransport implements IPaymentTransport {
       logger.info('[OnChainTransport] Sending payment on-chain', txData);
       
       // Extract payment data
-      const { to, amount, chainId, token, paymentReference } = txData;
+      const { to, amount, chainId, token, paymentReference, gasPrice } = txData;
       
       if (!to || !amount || !chainId) {
         throw new Error('Missing required payment fields: to, amount, chainId');
@@ -100,7 +100,8 @@ export class OnChainTransport implements IPaymentTransport {
         to,
         amount,
         tokenInfo,
-        paymentReference
+        paymentReference,
+        gasPrice // Pass gas price if provided
       );
       
       logger.info('[OnChainTransport] Payment sent successfully', result);

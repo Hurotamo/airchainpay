@@ -183,7 +183,8 @@ export class TokenWalletManager {
     toAddress: string,
     amount: string,
     tokenInfo: TokenInfo,
-    paymentReference?: string
+    paymentReference?: string,
+    gasPrice?: string
   ): Promise<TokenTransaction> {
     // Ensure providers are initialized
     this.ensureProvidersInitialized();
@@ -235,12 +236,28 @@ export class TokenWalletManager {
     
     try {
       const wallet = new ethers.Wallet(privateKey, provider);
+      
+      // Prepare transaction options with gas price if provided
+      const txOptions: any = {
+        to: toAddress,
+        data: paymentReference ? ethers.hexlify(new TextEncoder().encode(paymentReference)) : undefined
+      };
+
       if (tokenInfo.isNative) {
-        const tx = await wallet.sendTransaction({
-          to: toAddress,
-          value: ethers.parseEther(amount),
-          data: paymentReference ? ethers.hexlify(new TextEncoder().encode(paymentReference)) : undefined
+        txOptions.value = ethers.parseEther(amount);
+      }
+
+      // Add gas price if provided
+      if (gasPrice) {
+        txOptions.gasPrice = BigInt(gasPrice);
+        logger.info('[TokenWallet] Using custom gas price', {
+          gasPrice: gasPrice,
+          gasPriceGwei: Number(ethers.formatUnits(BigInt(gasPrice), 'gwei'))
         });
+      }
+
+      if (tokenInfo.isNative) {
+        const tx = await wallet.sendTransaction(txOptions);
         return {
           hash: tx.hash,
           status: 'pending',
@@ -259,7 +276,8 @@ export class TokenWalletManager {
         const decimals = await tokenContract.decimals();
         const tx = await tokenContract.transfer(
           toAddress,
-          ethers.parseUnits(amount, decimals)
+          ethers.parseUnits(amount, decimals),
+          gasPrice ? { gasPrice: BigInt(gasPrice) } : undefined
         );
         return {
           hash: tx.hash,

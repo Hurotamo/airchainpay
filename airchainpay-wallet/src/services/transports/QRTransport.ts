@@ -7,6 +7,7 @@ import { MultiChainWalletManager } from '../../wallet/MultiChainWalletManager';
 import { TransactionBuilder } from '../../utils/TransactionBuilder';
 import { ethers } from 'ethers';
 import { TokenInfo } from '../../wallet/TokenWalletManager';
+import { QRCodeSigner, SignedQRPayload } from '../../utils/crypto/QRCodeSigner';
 // See global type declaration for 'qrcode' in qrcode.d.ts
 
 export class QRTransport implements IPaymentTransport {
@@ -50,8 +51,11 @@ export class QRTransport implements IPaymentTransport {
         ...rest // include any other extra fields
       };
 
-      // Encode the payload as QR code
-      const qrData = await QRCode.toDataURL(JSON.stringify(qrPayload));
+      // Sign the QR payload with digital signature
+      const signedPayload = await QRCodeSigner.signQRPayload(qrPayload, chainId);
+
+      // Encode the signed payload as QR code
+      const qrData = await QRCode.toDataURL(JSON.stringify(signedPayload));
 
       logger.info('[QRTransport] QR payment generated successfully', {
         to,

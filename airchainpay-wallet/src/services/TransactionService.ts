@@ -4,6 +4,7 @@ import { TRANSACTION_CONFIG, SUPPORTED_CHAINS } from '../constants/AppConfig';
 import { TxQueue } from './TxQueue';
 import { MultiChainWalletManager } from '../wallet/MultiChainWalletManager';
 import { Transaction } from '../types/transaction';
+import { GasPriceValidator } from '../utils/GasPriceValidator';
 
 interface TransactionOptions {
   maxRetries?: number;
@@ -58,6 +59,31 @@ export class TransactionService {
   }
 
   /**
+   * Determine transaction type for gas limit validation
+   * @param transaction - Transaction request
+   * @returns Transaction type for gas limit bounds
+   */
+  private determineTransactionType(transaction: ethers.TransactionRequest): 'nativeTransfer' | 'erc20Transfer' | 'contractInteraction' | 'complexTransaction' {
+    // Check if it's a native transfer (no data or simple data)
+    if (!transaction.data || transaction.data === '0x') {
+      return 'nativeTransfer';
+    }
+
+    // Check if it's an ERC-20 transfer (standard transfer function)
+    if (transaction.data && transaction.data.startsWith('0xa9059cbb')) {
+      return 'erc20Transfer';
+    }
+
+    // Check if it's a contract interaction (has data but not ERC-20 transfer)
+    if (transaction.data && transaction.data.length > 10) {
+      return 'contractInteraction';
+    }
+
+    // Default to complex transaction for unknown patterns
+    return 'complexTransaction';
+  }
+
+  /**
    * Send a transaction with retry logic and proper error handling
    */
   async sendTransaction(
@@ -100,15 +126,54 @@ export class TransactionService {
           };
         }
 
-        // Get current gas price
+        // Get current gas price and validate it
         const gasPrice = await this.multiChainWalletManager.getGasPrice(chainId);
-        if (BigInt(gasPrice) > BigInt(maxGasPrice)) {
-          throw new Error(`Gas price too high: ${ethers.formatUnits(gasPrice, 'gwei')} gwei`);
+        
+        // Comprehensive gas price validation
+        const gasPriceValidation = GasPriceValidator.validateGasPrice(gasPrice, chainId);
+        if (!gasPriceValidation.isValid) {
+          throw new Error(`Gas price validation failed: ${gasPriceValidation.error}`);
+        }
+
+        // Check if gas price is reasonable for current network conditions
+        const reasonablenessCheck = await GasPriceValidator.isGasPriceReasonable(gasPrice, chainId);
+        if (!reasonablenessCheck.isReasonable && reasonablenessCheck.reasonableness === 'very_high') {
+          throw new Error(`Gas price is unreasonably high: ${reasonablenessCheck.proposedGwei.toFixed(2)} gwei (${reasonablenessCheck.ratio.toFixed(2)}x above current)`);
+        }
+
+        // Log warning for high gas prices
+        if (gasPriceValidation.warningLevel === 'warning' || gasPriceValidation.warningLevel === 'high') {
+          logger.warn('[TransactionService] High gas price detected', {
+            chainId,
+            gasPrice: gasPrice.toString(),
+            gasPriceGwei: gasPriceValidation.gasPriceGwei,
+            warningLevel: gasPriceValidation.warningLevel,
+            reasonableness: reasonablenessCheck.reasonableness
+          });
         }
 
         // Estimate gas with a buffer
         const estimatedGas = await this.multiChainWalletManager.estimateGas(transaction, chainId);
         const gasLimit = Math.floor(Number(estimatedGas) * 1.2); // Add 20% buffer
+
+        // Determine transaction type for gas limit validation
+        const transactionType = this.determineTransactionType(transaction);
+        
+        // Validate gas limit
+        const gasLimitValidation = GasPriceValidator.validateGasLimit(BigInt(gasLimit), transactionType);
+        if (!gasLimitValidation.isValid) {
+          throw new Error(`Gas limit validation failed: ${gasLimitValidation.error}`);
+        }
+
+        // Log gas limit efficiency
+        if (gasLimitValidation.efficiency === 'high') {
+          logger.warn('[TransactionService] High gas limit detected', {
+            chainId,
+            gasLimit: gasLimit.toString(),
+            transactionType,
+            efficiency: gasLimitValidation.efficiency
+          });
+        }
 
         // Send transaction
         const signedTx = await this.multiChainWalletManager.signTransaction({

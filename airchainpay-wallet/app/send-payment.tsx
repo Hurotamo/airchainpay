@@ -26,6 +26,7 @@ import { ThemedView } from '../components/ThemedView';
 import { logger } from '../src/utils/Logger';
 import { Colors, ChainColors, getBlueBlackGradient, getChainColor } from '../constants/Colors';
 import { useThemeContext } from '../hooks/useThemeContext';
+import { QRCodeSigner } from '../src/utils/crypto/QRCodeSigner';
 
 export default function SendPaymentScreen() {
   // Get URL parameters from QR code scan
@@ -76,7 +77,7 @@ export default function SendPaymentScreen() {
     setSelectedChain(token.chainId);
   };
 
-  const handleQRScan = (data: string) => {
+  const handleQRScan = async (data: string) => {
     setShowQRScanner(false);
 
     try {
@@ -86,6 +87,45 @@ export default function SendPaymentScreen() {
         parsed = JSON.parse(data);
       } catch {
         parsed = null;
+      }
+
+      // Check if this is a signed QR payload and verify signature
+      if (parsed && QRCodeSigner.isSignedPayload(parsed)) {
+        logger.info('Signed QR payload detected, verifying signature');
+        
+        const verificationResult = await QRCodeSigner.verifyQRPayload(parsed);
+        
+        if (!verificationResult.isValid) {
+          Alert.alert(
+            'Invalid QR Code',
+            `QR code signature verification failed: ${verificationResult.error}`,
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+        
+        logger.info('QR code signature verified successfully', {
+          signer: verificationResult.signer,
+          chainId: verificationResult.chainId,
+          timestamp: verificationResult.timestamp
+        });
+        
+        // Show signature verification success
+        Alert.alert(
+          'Secure QR Code',
+          `QR code verified successfully!\n\nSigner: ${verificationResult.signer}\nChain: ${verificationResult.chainId}`,
+          [{ text: 'OK' }]
+        );
+      } else if (parsed && parsed.to) {
+        // Unsigned QR payload - show warning
+        Alert.alert(
+          'Unverified QR Code',
+          'This QR code is not digitally signed. Proceed with caution.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Continue', onPress: () => {} }
+          ]
+        );
       }
 
       if (parsed && parsed.to) {

@@ -19,6 +19,7 @@ import { MultiChainWalletManager } from '../wallet/MultiChainWalletManager';
 import { logger } from '../utils/Logger';
 import { ethers } from 'ethers';
 import { wordlists } from 'ethers/wordlists';
+import { PasswordMigration } from '../utils/crypto/PasswordMigration';
 
 export default function WalletImportScreen() {
   const [step, setStep] = useState<'credentials' | 'password'>('credentials');
@@ -30,17 +31,9 @@ export default function WalletImportScreen() {
   const [loading, setLoading] = useState(false);
 
   const validatePassword = (pass: string): string | null => {
-    if (pass.length < 8) {
-      return 'Password must be at least 8 characters long';
-    }
-    if (!/[A-Z]/.test(pass)) {
-      return 'Password must contain at least one uppercase letter';
-    }
-    if (!/[a-z]/.test(pass)) {
-      return 'Password must contain at least one lowercase letter';
-    }
-    if (!/[0-9]/.test(pass)) {
-      return 'Password must contain at least one number';
+    const validation = PasswordMigration.validatePassword(pass);
+    if (!validation.isValid) {
+      return validation.feedback[0] || 'Password does not meet security requirements';
     }
     return null;
   };
