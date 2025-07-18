@@ -197,23 +197,20 @@ async fn handle_transaction_submission(
     error_handler: Data<Arc<EnhancedErrorHandler>>,
     config_manager: Data<Arc<DynamicConfigManager>>,
 ) -> impl Responder {
-    // Validate input using sanitizer
-    use crate::utils::sanitizer::InputSanitizer;
-    let sanitizer = InputSanitizer::new();
+    // Validate input using ethereum validation functions
+    use crate::infrastructure::blockchain::ethereum;
     
-    // Validate signed transaction
-    let tx_validation = sanitizer.sanitize_hash(&req.signed_tx);
-    if tx_validation.data.is_none() {
+    // Validate transaction hash format
+    if !ethereum::validate_transaction_hash(&req.signed_tx) {
         return HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "Invalid signed transaction format",
+            "error": "Invalid transaction hash format",
             "field": "signed_tx",
             "timestamp": chrono::Utc::now().to_rfc3339(),
         }));
     }
     
-    // Validate chain ID
-    let chain_validation = sanitizer.sanitize_chain_id(&req.chain_id.to_string());
-    if chain_validation.data.is_none() {
+    // Validate chain ID (basic range check)
+    if req.chain_id == 0 || req.chain_id > 999999 {
         return HttpResponse::BadRequest().json(serde_json::json!({
             "error": "Invalid chain ID",
             "field": "chain_id",
@@ -334,6 +331,14 @@ struct TokenRequest {
     api_key: String,
 }
 
+#[derive(Deserialize)]
+struct ValidationRequest {
+    address: Option<String>,
+    transaction_hash: Option<String>,
+    amount: Option<String>,
+    chain_id: Option<u64>,
+}
+
 #[post("/auth/token")]
 async fn generate_token(
     req: web::Json<TokenRequest>,
@@ -351,6 +356,68 @@ async fn generate_token(
     
     HttpResponse::Ok().json(serde_json::json!({
         "token": token
+    }))
+}
+
+#[post("/validate")]
+async fn validate_inputs(
+    req: web::Json<ValidationRequest>,
+) -> impl Responder {
+    use crate::infrastructure::blockchain::ethereum;
+    
+    let mut results = serde_json::Map::new();
+    
+    // Validate address if provided
+    if let Some(address) = &req.address {
+        let is_valid = ethereum::validate_ethereum_address(address);
+        results.insert("address".to_string(), serde_json::json!({
+            "valid": is_valid,
+            "value": address
+        }));
+    }
+    
+    // Validate transaction hash if provided
+    if let Some(hash) = &req.transaction_hash {
+        let is_valid = ethereum::validate_transaction_hash(hash);
+        results.insert("transaction_hash".to_string(), serde_json::json!({
+            "valid": is_valid,
+            "value": hash
+        }));
+    }
+    
+    // Validate amount if provided
+    if let Some(amount) = &req.amount {
+        let ether_result = ethereum::parse_ether(amount);
+        let wei_result = ethereum::parse_wei(amount);
+        
+        let is_valid = ether_result.is_ok() || wei_result.is_ok();
+        let parsed_value = if ether_result.is_ok() {
+            format!("{} ETH", ethereum::format_ether(ether_result.unwrap()))
+        } else if wei_result.is_ok() {
+            format!("{} Wei", ethereum::format_wei(wei_result.unwrap()))
+        } else {
+            "Invalid".to_string()
+        };
+        
+        results.insert("amount".to_string(), serde_json::json!({
+            "valid": is_valid,
+            "value": amount,
+            "parsed": parsed_value
+        }));
+    }
+    
+    // Validate chain ID if provided
+    if let Some(chain_id) = req.chain_id {
+        let is_valid = chain_id > 0 && chain_id <= 999999;
+        results.insert("chain_id".to_string(), serde_json::json!({
+            "valid": is_valid,
+            "value": chain_id
+        }));
+    }
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "validation_results": results,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
     }))
 }
 

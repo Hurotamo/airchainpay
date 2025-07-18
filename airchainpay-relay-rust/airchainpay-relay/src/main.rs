@@ -17,6 +17,7 @@ use airchainpay_relay::middleware::error_handling::ErrorHandlingMiddleware;
 use airchainpay_relay::middleware::rate_limiting::RateLimitingMiddleware;
 use airchainpay_relay::middleware::ComprehensiveSecurityMiddleware;
 use airchainpay_relay::api::*;
+use airchainpay_relay::api::handlers::transaction::validate_inputs;
 use airchainpay_relay::utils::animated_ascii;
 use std::env;
 
@@ -154,6 +155,7 @@ async fn main() -> std::io::Result<()> {
                     .service(get_transactions)
                     .service(get_metrics)
                     .service(get_devices)
+                    .service(validate_inputs)
             )
     })
     .bind(("0.0.0.0", port))?

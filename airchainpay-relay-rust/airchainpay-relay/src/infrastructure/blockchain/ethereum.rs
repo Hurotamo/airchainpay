@@ -88,32 +88,108 @@ pub async fn send_transaction(signed_tx: Vec<u8>, rpc_url: &str) -> Result<TxHas
     Ok(pending_tx.tx_hash())
 }
 
-#[allow(dead_code)]
+
 pub fn validate_ethereum_address(address: &str) -> bool {
     address.parse::<Address>().is_ok()
 }
 
-#[allow(dead_code)]
 pub fn validate_transaction_hash(hash: &str) -> bool {
     hash.parse::<H256>().is_ok()
 }
 
-#[allow(dead_code)]
 pub fn parse_wei(amount: &str) -> Result<U256, Box<dyn std::error::Error>> {
-    Ok(amount.parse::<U256>()?)
+    // Parse as base-10 integer (wei is always a whole number)
+    Ok(U256::from_dec_str(amount)?)
 }
 
-#[allow(dead_code)]
 pub fn format_wei(amount: U256) -> String {
     amount.to_string()
 }
 
-#[allow(dead_code)]
 pub fn parse_ether(amount: &str) -> Result<U256, Box<dyn std::error::Error>> {
     Ok(ethers::utils::parse_ether(amount)?)
 }
 
-#[allow(dead_code)]
 pub fn format_ether(amount: U256) -> String {
     ethers::utils::format_ether(amount)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_ethereum_address() {
+        // Valid addresses
+        assert!(validate_ethereum_address("0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6"));
+        assert!(validate_ethereum_address("0x0000000000000000000000000000000000000000"));
+        
+        // Invalid addresses
+        assert!(!validate_ethereum_address("0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b")); // Too short
+        assert!(!validate_ethereum_address("0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8bG")); // Invalid character
+    }
+
+    #[test]
+    fn test_validate_transaction_hash() {
+        // Valid transaction hashes
+        assert!(validate_transaction_hash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"));
+        assert!(validate_transaction_hash("0x0000000000000000000000000000000000000000000000000000000000000000"));
+        
+        // Invalid transaction hashes
+        assert!(!validate_transaction_hash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcde")); // Too short
+        assert!(!validate_transaction_hash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdeg")); // Invalid character
+    }
+
+    #[test]
+    fn test_parse_and_format_wei() {
+        // Test with a smaller amount that fits in u64
+        let small_amount = "1000000";
+        let parsed_small = parse_wei(small_amount).unwrap();
+        let formatted_small = format_wei(parsed_small);
+        assert_eq!(formatted_small, small_amount);
+        
+        // Test with a medium amount
+        let medium_amount = "100000000000000000"; // 0.1 ETH in wei
+        let parsed_medium = parse_wei(medium_amount).unwrap();
+        let formatted_medium = format_wei(parsed_medium);
+        assert_eq!(formatted_medium, medium_amount);
+    }
+
+    #[test]
+    fn test_parse_and_format_ether() {
+        let amount_str = "1.5";
+        let parsed = parse_ether(amount_str).unwrap();
+        let formatted = format_ether(parsed);
+        // ethers::utils::format_ether returns with full precision
+        assert_eq!(formatted, "1.500000000000000000");
+        
+        // Test with whole number
+        let whole_amount = "1";
+        let parsed_whole = parse_ether(whole_amount).unwrap();
+        let formatted_whole = format_ether(parsed_whole);
+        assert_eq!(formatted_whole, "1.000000000000000000");
+    }
+
+    #[test]
+    fn test_performance_comparison() {
+        use std::time::Instant;
+        
+        // Test performance of our validation functions
+        let test_addresses = vec![
+            "0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6",
+            "0x0000000000000000000000000000000000000000",
+            "0x1234567890123456789012345678901234567890",
+        ];
+        
+        let start = Instant::now();
+        for _ in 0..10000 {
+            for addr in &test_addresses {
+                let _ = validate_ethereum_address(addr);
+            }
+        }
+        let duration = start.elapsed();
+        
+        println!("Validated 30,000 addresses in {:?}", duration);
+        println!("Average time per validation: {:?}", duration / 30000);
+    }
 } 

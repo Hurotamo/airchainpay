@@ -71,6 +71,15 @@ impl TransactionValidator {
             result.valid = false;
             result.errors.push(format!("Rate limit exceeded: {e}"));
         }
+        
+        // Validate transaction amount if we can extract it
+        if let Some(amount_str) = self.extract_amount_from_transaction(signed_tx) {
+            if let Err(e) = self.validate_transaction_amount(&amount_str) {
+                result.valid = false;
+                result.errors.push(format!("Invalid transaction amount: {e}"));
+            }
+        }
+        
         Ok(result)
     }
 
@@ -106,17 +115,10 @@ impl TransactionValidator {
     }
 
     fn validate_hex_format(&self, signed_tx: &str) -> Result<()> {
-        let hex_part = signed_tx.trim_start_matches("0x");
-        if hex_part.is_empty() {
-            return Err(anyhow!("Empty hex data"));
-        }
-        if hex_part.len() % 2 != 0 {
-            return Err(anyhow!("Invalid hex length"));
-        }
-        for c in hex_part.chars() {
-            if !c.is_ascii_hexdigit() {
-                return Err(anyhow!("Invalid hex character: {}", c));
-            }
+        // Use ethereum validation function for transaction hash format
+        use crate::infrastructure::blockchain::ethereum;
+        if !ethereum::validate_transaction_hash(signed_tx) {
+            return Err(anyhow!("Invalid transaction hash format"));
         }
         Ok(())
     }
@@ -204,6 +206,13 @@ impl TransactionValidator {
             if !chain_cfg.contract_address.is_empty() {
                 let to_addr = self.extract_to_address_from_transaction(signed_tx)
                     .ok_or_else(|| anyhow!("Failed to extract 'to' address from transaction"))?;
+                
+                // Validate the extracted address using ethereum validation
+                use crate::infrastructure::blockchain::ethereum;
+                if !ethereum::validate_ethereum_address(&to_addr) {
+                    return Err(anyhow!("Invalid 'to' address format: {}", to_addr));
+                }
+                
                 // Compare lowercase for safety
                 if to_addr.to_lowercase() != chain_cfg.contract_address.to_lowercase() {
                     return Err(anyhow!("Transaction 'to' address {} does not match expected contract address {}", to_addr, chain_cfg.contract_address));
@@ -239,5 +248,50 @@ impl TransactionValidator {
 
     fn extract_chain_id_from_transaction(&self, signed_tx: &str) -> Option<u64> {
         self.decode_transaction(signed_tx).ok().and_then(|tx| tx.chain_id).map(|id| id.as_u64()).or(Some(self.config.chain_id))
+    }
+
+    fn extract_amount_from_transaction(&self, signed_tx: &str) -> Option<String> {
+        self.decode_transaction(signed_tx).ok().map(|tx| tx.value.to_string())
+    }
+
+    /// Validate transaction amount using ethereum validation functions
+    fn validate_transaction_amount(&self, amount_str: &str) -> Result<()> {
+        use crate::infrastructure::blockchain::ethereum;
+        
+        // Try to parse as ether first
+        match ethereum::parse_ether(amount_str) {
+            Ok(amount) => {
+                // Check if amount is reasonable (between 0.000001 and 1000 ETH)
+                let min_amount = ethereum::parse_ether("0.000001").unwrap_or_default();
+                let max_amount = ethereum::parse_ether("1000").unwrap_or_default();
+                
+                if amount < min_amount {
+                    return Err(anyhow!("Amount too small: {}", amount_str));
+                }
+                if amount > max_amount {
+                    return Err(anyhow!("Amount too large: {}", amount_str));
+                }
+                Ok(())
+            },
+            Err(_) => {
+                // Try to parse as wei
+                match ethereum::parse_wei(amount_str) {
+                    Ok(amount) => {
+                        // Check if amount is reasonable (between 1 wei and 1000 ETH in wei)
+                        let min_amount = ethereum::parse_wei("1").unwrap_or_default();
+                        let max_amount = ethereum::parse_wei("1000000000000000000000").unwrap_or_default(); // 1000 ETH in wei
+                        
+                        if amount < min_amount {
+                            return Err(anyhow!("Amount too small: {}", amount_str));
+                        }
+                        if amount > max_amount {
+                            return Err(anyhow!("Amount too large: {}", amount_str));
+                        }
+                        Ok(())
+                    },
+                    Err(_) => Err(anyhow!("Invalid amount format: {}", amount_str))
+                }
+            }
+        }
     }
 } 
