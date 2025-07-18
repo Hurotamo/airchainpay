@@ -17,25 +17,14 @@ use airchainpay_relay::middleware::error_handling::ErrorHandlingMiddleware;
 use airchainpay_relay::middleware::rate_limiting::RateLimitingMiddleware;
 use airchainpay_relay::middleware::ComprehensiveSecurityMiddleware;
 use airchainpay_relay::api::*;
+use airchainpay_relay::utils::animated_ascii;
 use std::env;
-use colored::*;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    println!(
-        "{}\n{}",
-        r#"
- █████╗ ██╗██████╗  ██████╗██╗  ██╗ █████╗ ██╗███╗   ██╗██████╗  █████╗ ██╗   ██╗
-██╔══██╗██║██╔══██╗██╔════╝██║  ██║██╔══██╗██║████╗  ██║██╔══██╗██╔══██╗╚██╗ ██╔╝
-███████║██║██████╔╝██║     ███████║███████║██║██╔██╗ ██║██████╔╝███████║ ╚████╔╝ 
-██╔══██║██║██╔══██╗██║     ██╔══██║██╔══██║██║██║╚██╗██║██╔═══╝ ██╔══██║  ╚██╔╝  
-██║  ██║██║██║  ██║╚██████╗██║  ██║██║  ██║██║██║ ╚████║██║     ██║  ██║   ██║   
-╚═╝  ╚═╝╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝╚═╝     ╚═╝  ╚═╝   ╚═╝   
-                                                                                 
-"#
-            .blue(),
-        "Powering the Future of Payments. Fast. Secure. Borderless.".blue()
-    );
+    // Display animated ASCII logo
+    animated_ascii::display_animated_logo();
+    
     // Initialize logger
     Logger::init("info");
     
