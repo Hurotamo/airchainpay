@@ -27,6 +27,7 @@ import { logger } from '../src/utils/Logger';
 import { Colors, ChainColors, getBlueBlackGradient, getChainColor } from '../constants/Colors';
 import { useThemeContext } from '../hooks/useThemeContext';
 import { QRCodeSigner } from '../src/utils/crypto/QRCodeSigner';
+import { PaymentService } from '../src/services/PaymentService';
 
 export default function SendPaymentScreen() {
   // Get URL parameters from QR code scan
@@ -59,7 +60,7 @@ export default function SendPaymentScreen() {
         const token: TokenInfo = {
           symbol: params.token,
           name: params.token === chain.nativeCurrency.symbol ? chain.nativeCurrency.name : params.token,
-          address: '0x0000000000000000000000000000000000000000', // For native token
+          address: '0x0000000000000000000000000000000000000000', 
           decimals: chain.nativeCurrency.decimals,
           chainId: params.chainId,
           chainName: chain.name,
@@ -182,69 +183,53 @@ export default function SendPaymentScreen() {
 
     setLoading(true);
     try {
-      // Create transaction object
-      const transaction = {
-        to: recipient,
-        value: selectedToken.isNative ? ethers.parseEther(amount) : ethers.parseUnits(amount, selectedToken.decimals),
-        data: reference ? ethers.hexlify(ethers.toUtf8Bytes(reference)) : undefined
-      };
+      // Choose transport type (for demo, use 'onchain' if available)
+      // You may want to let the user select this in your UI
+      const transport: string = 'relay';
 
-      // Sign transaction for queueing
-      await MultiChainWalletManager.getInstance().signTransaction(transaction, selectedToken.chainId);
-      
-      // Add to queue for later processing
-      await TxQueue.addTransaction({
-        id: Date.now().toString(),
+      // Build payment request
+      const paymentRequest: any = {
         to: recipient,
         amount: amount,
-        status: 'pending',
         chainId: selectedToken.chainId,
-        timestamp: Date.now()
-      });
+        transport,
+        token: selectedToken,
+        paymentReference: reference || undefined,
+      };
 
-      Alert.alert(
-        'Transaction Queued', 
-        `Your ${selectedToken.symbol} transaction has been queued for sending.`,
-        [{ text: 'OK', onPress: () => router.back() }]
-      );
+      // For manual/onchain, sign and attach signedTx
+      if (transport === 'manual' || transport === 'onchain') {
+        const transaction = {
+          to: recipient,
+          value: selectedToken.isNative ? ethers.parseEther(amount) : ethers.parseUnits(amount, selectedToken.decimals),
+          data: reference ? ethers.hexlify(ethers.toUtf8Bytes(reference)) : undefined
+        };
+        const signedTx = await MultiChainWalletManager.getInstance().signTransaction(transaction, selectedToken.chainId);
+        paymentRequest.signedTx = signedTx;
+      }
+
+      // Use PaymentService to send
+      const paymentService = PaymentService.getInstance();
+      const result = await paymentService.sendPayment(paymentRequest);
+
+      if (result && result.status === 'sent') {
+        Alert.alert(
+          'Payment Sent',
+          `Your ${selectedToken.symbol} payment was sent successfully.`,
+          [{ text: 'OK', onPress: () => router.back() }]
+        );
+      } else if (result && result.status === 'queued') {
+        Alert.alert(
+          'Transaction Queued',
+          `Your ${selectedToken.symbol} transaction has been queued for sending.`,
+          [{ text: 'OK', onPress: () => router.back() }]
+        );
+      } else {
+        Alert.alert('Error', 'Payment failed.');
+      }
     } catch (error) {
       logger.error('Send payment error:', error);
-      
-      // Check if we're offline
-      if (String(error).includes('network') || String(error).includes('connect')) {
-        // Queue transaction for later
-        try {
-          // Create transaction object for signing
-          const transaction = {
-            to: recipient,
-            value: selectedToken.isNative ? ethers.parseEther(amount) : ethers.parseUnits(amount, selectedToken.decimals),
-            data: reference ? ethers.hexlify(ethers.toUtf8Bytes(reference)) : undefined
-          };
-          
-          // Sign transaction for offline queueing
-          await MultiChainWalletManager.getInstance().signTransaction(transaction, selectedToken.chainId);
-          
-          await TxQueue.addTransaction({
-            id: Date.now().toString(),
-            to: recipient,
-            amount: amount,
-            status: 'pending',
-            chainId: selectedToken.chainId,
-            timestamp: Date.now()
-          });
-          
-          Alert.alert(
-            'Transaction Queued', 
-            'You appear to be offline. The transaction has been queued and will be sent when you are back online.',
-            [{ text: 'OK', onPress: () => router.back() }]
-          );
-        } catch (queueError) {
-          logger.error('Failed to queue transaction:', queueError);
-          Alert.alert('Error', 'Failed to queue transaction for later sending');
-        }
-      } else {
-        Alert.alert('Error', String(error));
-      }
+      Alert.alert('Error', String(error));
     } finally {
       setLoading(false);
     }

@@ -1,4 +1,3 @@
-// Centralized PaymentService for BLE, QR, and normal payments
 import { logger } from '../utils/Logger';
 import { BLETransport } from './transports/BLETransport';
 import { SecureBLETransport } from './transports/SecureBLETransport';
@@ -10,14 +9,14 @@ import { TransactionService } from './TransactionService';
 import { Transaction } from '../types/transaction';
 import { ethers } from 'ethers';
 import { TokenInfo } from '../wallet/TokenWalletManager';
-import OfflineSecurityService from './OfflineSecurityService';
-import { GasPriceValidator } from '../utils/GasPriceValidator';
+import offlineSecurityService from './OfflineSecurityService';
+import { RelayTransport } from './transports/RelayTransport';
 
 export interface PaymentRequest {
   to: string;
   amount: string;
   chainId: string;
-  transport: 'ble' | 'secure_ble' | 'qr' | 'manual' | 'onchain';
+  transport: 'ble' | 'secure_ble' | 'qr' | 'manual' | 'onchain' | 'relay';
   token?: {
     address: string;
     symbol: string;
@@ -38,7 +37,7 @@ export interface PaymentRequest {
 
 export interface PaymentResult {
   status: 'sent' | 'queued' | 'failed' | 'key_exchange_required' | 'pending' | 'confirmed' | 'advertising';
-  transport: string;
+  transport: 'ble' | 'secure_ble' | 'qr' | 'manual' | 'onchain' | 'relay';
   transactionId?: string;
   message?: string;
   timestamp: number;
@@ -57,6 +56,7 @@ export class PaymentService {
   private onChainTransport: OnChainTransport;
   private walletManager: MultiChainWalletManager;
   private transactionService: TransactionService;
+  private relayTransport: RelayTransport;
 
   private constructor() {
     this.bleTransport = new BLETransport();
@@ -65,6 +65,7 @@ export class PaymentService {
     this.onChainTransport = new OnChainTransport();
     this.walletManager = MultiChainWalletManager.getInstance();
     this.transactionService = TransactionService.getInstance();
+    this.relayTransport = new RelayTransport();
   }
 
   static getInstance(): PaymentService {
@@ -75,9 +76,8 @@ export class PaymentService {
   }
 
   /**
-   * Send payment using the specified transport method
-   * Supports offline-first approach with automatic queueing
-   * Includes comprehensive double-spending prevention
+   * Send payment using the relay for all transaction types
+   * If offline, queue the transaction for later relay submission
    */
   async sendPayment(request: PaymentRequest): Promise<PaymentResult> {
     try {
@@ -92,347 +92,49 @@ export class PaymentService {
       if (!request.chainId) {
         throw new Error('Missing chainId in payment request.');
       }
-      // For manual/onchain/offline, check for signedTx
-      if ((request.transport === 'manual' || request.transport === 'onchain') && !(request as any).signedTx) {
-        throw new Error('Missing signedTx in payment request for manual/onchain transport.');
-      }
 
       // Validate payment request
       this.validatePaymentRequest(request);
 
       // Check network status for the target chain
       const isOnline = await this.checkNetworkStatus(request.chainId);
-      
-      // Handle offline scenarios with enhanced security
-      if (!isOnline && request.transport !== 'manual') {
-        logger.info('[PaymentService] Offline detected, performing security checks before queueing');
-        return await this.queueOfflineTransactionWithSecurity(request);
+
+      if (!isOnline) {
+        logger.info('[PaymentService] Offline detected, queueing transaction for relay');
+        const queuedTx = {
+          id: Date.now().toString() + Math.random().toString(36).substring(2),
+          ...request,
+          status: 'queued' as const,
+          timestamp: Date.now(),
+          transport: request.transport as 'ble' | 'secure_ble' | 'qr' | 'manual' | 'onchain' | 'relay',
+        };
+        await TxQueue.addTransaction(queuedTx);
+        return {
+          status: 'queued',
+          transport: 'relay',
+          message: 'Transaction queued for relay submission',
+          timestamp: Date.now(),
+        };
       }
 
-      // Process based on transport type
-      switch (request.transport) {
-        case 'ble':
-          return await this.processBLETransaction(request);
-        case 'secure_ble':
-          return await this.processSecureBLETransaction(request);
-        case 'qr':
-          return await this.processQRTransaction(request);
-        case 'manual':
-          return await this.processManualTransaction(request);
-        case 'onchain':
-          return await this.processOnChainTransaction(request);
-        default:
-          throw new Error(`Unsupported transport: ${request.transport}`);
-      }
-
+      // Always send to relay, regardless of original transport
+      const relayResult = await this.relayTransport.send(request);
+      return {
+        status: 'sent',
+        transport: 'relay',
+        transactionId: relayResult?.transactionId,
+        message: relayResult?.message || 'Transaction sent to relay',
+        timestamp: Date.now(),
+        metadata: relayResult,
+      };
     } catch (error) {
       logger.error('[PaymentService] Payment processing failed:', error);
       return {
         status: 'failed',
-        transport: request.transport,
+        transport: 'relay',
         message: error instanceof Error ? error.message : 'Unknown error',
         timestamp: Date.now()
       };
-    }
-  }
-
-  /**
-   * Process BLE transaction (peer-to-peer) - Legacy unencrypted
-   */
-  private async processBLETransaction(request: PaymentRequest): Promise<PaymentResult> {
-    try {
-      const result = await this.bleTransport.send({
-        to: request.to,
-        amount: request.amount,
-        chainId: request.chainId,
-        paymentReference: request.paymentReference,
-        device: request.extraData?.device,
-        token: request.token,
-        metadata: request.metadata
-      });
-
-      return {
-        status: 'sent',
-        transport: 'ble',
-        deviceId: result.deviceId,
-        deviceName: result.deviceName,
-        timestamp: Date.now(),
-        metadata: result
-      };
-
-    } catch (error) {
-      logger.error('[PaymentService] BLE transaction failed:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Process Secure BLE transaction (encrypted peer-to-peer)
-   */
-  private async processSecureBLETransaction(request: PaymentRequest): Promise<PaymentResult> {
-    try {
-      const result = await this.secureBleTransport.send({
-        to: request.to,
-        amount: request.amount,
-        chainId: request.chainId,
-        paymentReference: request.paymentReference,
-        device: request.extraData?.device,
-        token: request.token,
-        metadata: request.metadata
-      });
-
-      return {
-        status: result.status,
-        transport: 'secure_ble',
-        deviceId: result.deviceId,
-        deviceName: result.deviceName,
-        sessionId: result.sessionId,
-        message: result.message,
-        timestamp: Date.now(),
-        metadata: result
-      };
-
-    } catch (error) {
-      logger.error('[PaymentService] Secure BLE transaction failed:', error);
-      throw error;
-    }
-  }
-
-
-
-  /**
-   * Process QR transaction (offline QR code exchange)
-   */
-  private async processQRTransaction(request: PaymentRequest): Promise<PaymentResult> {
-    try {
-      const result = await this.qrTransport.send({
-        to: request.to,
-        amount: request.amount,
-        chainId: request.chainId,
-        token: request.token,
-        paymentReference: request.paymentReference,
-        merchant: request.metadata?.merchant,
-        location: request.metadata?.location,
-        maxAmount: request.metadata?.maxAmount,
-        minAmount: request.metadata?.minAmount,
-        expiry: request.metadata?.expiry,
-        timestamp: request.metadata?.timestamp
-      });
-
-      return {
-        status: result.status,
-        transport: 'qr',
-        qrData: result.qrData,
-        message: result.message,
-        timestamp: Date.now(),
-        metadata: result
-      };
-
-    } catch (error) {
-      logger.error('[PaymentService] QR transaction failed:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Process manual transaction (offline signing)
-   */
-  private async processManualTransaction(request: PaymentRequest): Promise<PaymentResult> {
-    try {
-      // Check network status for the target chain
-      const isOnline = await this.checkNetworkStatus(request.chainId);
-
-      // Create transaction object for signing
-      const transaction = {
-        to: request.to,
-        value: request.token?.isNative 
-          ? ethers.parseEther(request.amount) 
-          : ethers.parseUnits(request.amount, request.token?.decimals || 18),
-        data: request.paymentReference 
-          ? ethers.hexlify(ethers.toUtf8Bytes(request.paymentReference)) 
-          : undefined
-      };
-
-      // Sign transaction
-      const signedTx = await this.walletManager.signTransaction(transaction, request.chainId);
-
-      if (isOnline) {
-        // Send immediately using TokenWalletManager
-        const privateKey = await this.walletManager.exportPrivateKey();
-        if (!privateKey) {
-          throw new Error('No private key found in wallet storage');
-        }
-        // Always get chain config for merging
-        const chainConfig = (await import('../constants/AppConfig')).SUPPORTED_CHAINS[request.chainId];
-        if (!chainConfig) {
-          throw new Error(`Unsupported chain: ${request.chainId}`);
-        }
-        let tokenInfo: TokenInfo;
-        if (request.token) {
-          // Merge request.token with chain config to ensure all fields are present
-          tokenInfo = {
-            symbol: request.token.symbol || chainConfig.nativeCurrency.symbol,
-            name: (request.token as any).name || chainConfig.nativeCurrency.name,
-            decimals: request.token.decimals || chainConfig.nativeCurrency.decimals,
-            address: request.token.address || '',
-            chainId: String(request.chainId),
-            isNative: request.token.isNative !== undefined ? request.token.isNative : true,
-            logoUri: (request.token as any).logoUri,
-            isStablecoin: (request.token as any).isStablecoin
-          };
-        } else {
-          tokenInfo = {
-            symbol: chainConfig.nativeCurrency.symbol,
-            name: chainConfig.nativeCurrency.name,
-            decimals: chainConfig.nativeCurrency.decimals,
-            address: '',
-            chainId: String(request.chainId),
-            isNative: true,
-            logoUri: undefined,
-            isStablecoin: undefined
-          };
-        }
-        // Use TokenWalletManager to send
-        const TokenWalletManager = (await import('../wallet/TokenWalletManager')).default;
-        const result = await TokenWalletManager.sendTokenTransaction(
-          privateKey,
-          request.to,
-          request.amount,
-          tokenInfo,
-          request.paymentReference
-        );
-        logger.info('[PaymentService] Manual transaction sent immediately', { hash: result.hash, to: request.to, amount: request.amount, chainId: request.chainId });
-        return {
-          status: 'sent',
-          transport: 'manual',
-          transactionId: result.hash,
-          message: 'Transaction sent immediately (manual mode)',
-          timestamp: Date.now(),
-          metadata: result
-        };
-      } else {
-        // Offline: queue as before
-        const transactionId = Date.now().toString();
-        await TxQueue.addTransaction({
-          id: transactionId,
-          to: request.to,
-          amount: request.amount,
-          status: 'pending',
-          chainId: request.chainId,
-          timestamp: Date.now(),
-          signedTx: signedTx,
-          transport: 'manual',
-          metadata: {
-            token: request.token,
-            paymentReference: request.paymentReference,
-            merchant: request.metadata?.merchant,
-            location: request.metadata?.location
-          }
-        });
-        logger.info('[PaymentService] Manual transaction queued (offline)', {
-          transactionId,
-          to: request.to,
-          amount: request.amount,
-          chainId: request.chainId
-        });
-        return {
-          status: 'queued',
-          transport: 'manual',
-          transactionId: transactionId,
-          message: 'Transaction signed and queued for processing when online',
-          timestamp: Date.now()
-        };
-      }
-    } catch (error) {
-      logger.error('[PaymentService] Manual transaction failed:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Process on-chain transaction with gas price validation
-   */
-  private async processOnChainTransaction(request: PaymentRequest): Promise<PaymentResult> {
-    try {
-      // Create transaction object for gas price validation
-      const transaction = {
-        to: request.to,
-        value: request.token?.isNative 
-          ? ethers.parseEther(request.amount) 
-          : ethers.parseUnits(request.amount, request.token?.decimals || 18),
-        data: request.paymentReference 
-          ? ethers.hexlify(ethers.toUtf8Bytes(request.paymentReference)) 
-          : undefined
-      };
-
-      // Get current gas price and validate it
-      const gasPrice = await this.walletManager.getGasPrice(request.chainId);
-      
-      // Comprehensive gas price validation
-      const gasPriceValidation = GasPriceValidator.validateGasPrice(gasPrice, request.chainId);
-      if (!gasPriceValidation.isValid) {
-        throw new Error(`Gas price validation failed: ${gasPriceValidation.error}`);
-      }
-
-      // Check if gas price is reasonable for current network conditions
-      const reasonablenessCheck = await GasPriceValidator.isGasPriceReasonable(gasPrice, request.chainId);
-      if (!reasonablenessCheck.isReasonable && reasonablenessCheck.reasonableness === 'very_high') {
-        throw new Error(`Gas price is unreasonably high: ${reasonablenessCheck.proposedGwei.toFixed(2)} gwei (${reasonablenessCheck.ratio.toFixed(2)}x above current)`);
-      }
-
-      // Log warning for high gas prices
-      if (gasPriceValidation.warningLevel === 'warning' || gasPriceValidation.warningLevel === 'high') {
-        logger.warn('[PaymentService] High gas price detected for onchain transaction', {
-          chainId: request.chainId,
-          gasPrice: gasPrice.toString(),
-          gasPriceGwei: gasPriceValidation.gasPriceGwei,
-          warningLevel: gasPriceValidation.warningLevel,
-          reasonableness: reasonablenessCheck.reasonableness
-        });
-      }
-
-      // Estimate optimal gas price if current price is too high
-      let finalGasPrice = gasPrice;
-      if (gasPriceValidation.warningLevel === 'high') {
-        const optimalEstimate = await GasPriceValidator.estimateOptimalGasPrice(request.chainId, 'normal');
-        if (optimalEstimate.isValid) {
-          finalGasPrice = BigInt(optimalEstimate.gasPrice);
-          logger.info('[PaymentService] Using optimal gas price estimate', {
-            originalPrice: gasPrice.toString(),
-            optimalPrice: finalGasPrice.toString(),
-            chainId: request.chainId
-          });
-        }
-      }
-
-      // Send transaction with validated gas price
-      const result = await this.onChainTransport.send({
-        to: request.to,
-        amount: request.amount,
-        chainId: request.chainId,
-        token: request.token,
-        paymentReference: request.paymentReference,
-        gasPrice: finalGasPrice.toString()
-      });
-
-      return {
-        status: 'sent',
-        transport: 'onchain',
-        timestamp: Date.now(),
-        metadata: {
-          ...result,
-          gasPriceValidation: {
-            isValid: gasPriceValidation.isValid,
-            warningLevel: gasPriceValidation.warningLevel,
-            gasPriceGwei: gasPriceValidation.gasPriceGwei,
-            reasonableness: reasonablenessCheck.reasonableness
-          }
-        }
-      };
-
-    } catch (error) {
-      logger.error('[PaymentService] On-chain transaction failed:', error);
-      throw error;
     }
   }
 
@@ -490,7 +192,7 @@ export class PaymentService {
         isNative: true
       };
 
-      await OfflineSecurityService.performOfflineSecurityCheck(
+      await offlineSecurityService.performOfflineSecurityCheck(
         request.to,
         request.amount,
         request.chainId,
@@ -832,57 +534,21 @@ export class PaymentService {
   }
 
   /**
-   * Process queued transactions when online
+   * Process queued transactions: send all to relay when online
    */
   async processQueuedTransactions(): Promise<void> {
-    try {
-      const pendingTxs = await this.getPendingTransactions();
-      
-      for (const tx of pendingTxs) {
-        try {
-          if (!tx.chainId || !tx.signedTx) {
-            logger.warn('[PaymentService] Skipping transaction without chainId or signedTx:', tx.id);
-            continue;
-          }
-
-          const isOnline = await this.checkNetworkStatus(tx.chainId);
-          if (isOnline) {
-            // Process the queued transaction using the signed transaction
-            const provider = this.transactionService['getProvider'](tx.chainId);
-            const txResponse = await provider.broadcastTransaction(tx.signedTx);
-            const receipt = await txResponse.wait();
-            
-            // Update transaction with hash
-            await TxQueue.updateTransaction(tx.id, { 
-              status: 'completed',
-              hash: txResponse.hash
-            });
-
-            // Clear offline balance tracking for this transaction
-            if (tx.metadata?.token) {
-              const tokenInfo: TokenInfo = {
-                symbol: tx.metadata.token.symbol,
-                name: tx.metadata.token.symbol,
-                decimals: tx.metadata.token.decimals,
-                address: tx.metadata.token.address,
-                chainId: tx.chainId!,
-                isNative: tx.metadata.token.isNative
-              };
-              await OfflineSecurityService.clearOfflineBalanceTracking(tx.chainId!, tx.amount, tokenInfo);
-            }
-            
-            logger.info('[PaymentService] Queued transaction processed', {
-              transactionId: tx.id,
-              hash: txResponse.hash
-            });
-          }
-        } catch (error) {
-          logger.error('[PaymentService] Failed to process queued transaction:', error);
-          await TxQueue.updateTransaction(tx.id, { status: 'failed' });
+    const queued = await TxQueue.getQueuedTransactions();
+    for (const tx of queued) {
+      try {
+        const isOnline = await this.checkNetworkStatus(tx.chainId || '');
+        if (isOnline) {
+          await this.relayTransport.send(tx);
+          await TxQueue.removeTransaction(tx.id || '');
+          logger.info('[PaymentService] Queued transaction sent to relay', { id: tx.id });
         }
+      } catch (err) {
+        logger.error('[PaymentService] Failed to send queued transaction to relay', err);
       }
-    } catch (error) {
-      logger.error('[PaymentService] Failed to process queued transactions:', error);
     }
   }
 

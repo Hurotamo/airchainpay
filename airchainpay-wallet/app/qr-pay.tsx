@@ -7,7 +7,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { PaymentService } from '../src/services/PaymentService';
 import { TransactionBuilder } from '../src/utils/TransactionBuilder';
 import { logger } from '../src/utils/Logger';
-import { DEFAULT_CHAIN_ID } from '../src/constants/AppConfig';
 import QRCode from 'react-native-qrcode-svg';
 import { useSelectedChain } from '../src/components/ChainSelector';
 import { MultiTokenBalanceView } from '../src/components/MultiTokenBalanceView';
@@ -251,7 +250,7 @@ export default function QRPayScreen() {
         to: transaction.to,
         amount: transaction.amount,
         chainId: transaction.chainId,
-        transport: 'onchain', // CHANGED from 'qr' to 'onchain'
+        transport: 'relay',
         token: transaction.token,
         paymentReference: transaction.paymentReference,
         extraData: {

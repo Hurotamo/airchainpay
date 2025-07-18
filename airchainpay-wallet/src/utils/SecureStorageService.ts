@@ -12,9 +12,10 @@ import { logger } from './Logger';
 export class SecureStorageService {
   private static instance: SecureStorageService;
   private keychainAvailable: boolean = false;
+  private initializationPromise: Promise<void> | null = null;
 
   private constructor() {
-    this.initializeKeychain();
+    this.initializationPromise = this.initializeKeychain();
   }
 
   public static getInstance(): SecureStorageService {
@@ -25,17 +26,49 @@ export class SecureStorageService {
   }
 
   /**
+   * Wait for initialization to complete
+   */
+  private async waitForInitialization(): Promise<void> {
+    if (this.initializationPromise) {
+      await this.initializationPromise;
+    }
+  }
+
+  /**
    * Initialize keychain availability check
    */
   private async initializeKeychain(): Promise<void> {
     try {
-      // Test if keychain is available
-      await Keychain.getSupportedBiometryType();
-      this.keychainAvailable = true;
-      logger.info('[SecureStorage] Keychain is available and supported');
+      // Check if Keychain module is available and properly imported
+      if (!Keychain) {
+        this.keychainAvailable = false;
+        logger.info('[SecureStorage] Keychain module not available, using SecureStore fallback');
+        return;
+      }
+
+      // Check if the module has the required methods
+      if (typeof Keychain.getSupportedBiometryType !== 'function') {
+        this.keychainAvailable = false;
+        logger.info('[SecureStorage] Keychain methods not available, using SecureStore fallback');
+        return;
+      }
+
+      // Test if keychain is available by calling the method
+      // Wrap in try-catch to handle any runtime errors
+      try {
+        const biometryType = await Keychain.getSupportedBiometryType();
+        
+        // If we get here without error, keychain is available
+        this.keychainAvailable = true;
+        logger.info('[SecureStorage] Keychain is available and supported');
+      } catch (keychainError) {
+        // Keychain is not available on this device/platform
+        this.keychainAvailable = false;
+        logger.info('[SecureStorage] Keychain not supported on this device, using SecureStore fallback');
+      }
     } catch (error) {
       this.keychainAvailable = false;
-      logger.warn('[SecureStorage] Keychain not available, falling back to SecureStore:', error);
+      logger.info('[SecureStorage] Keychain initialization failed, using SecureStore fallback');
     }
   }
 
@@ -56,8 +89,11 @@ export class SecureStorageService {
   ): Promise<void> {
     const { useBiometrics = false, accessControl, accessible } = options;
 
+    // Wait for initialization to complete
+    await this.waitForInitialization();
+
     try {
-      if (this.keychainAvailable) {
+      if (this.keychainAvailable && Keychain) {
         // Use hardware-backed keychain storage
         const keychainOptions = {
           accessControl: accessControl || Keychain.ACCESS_CONTROL.BIOMETRY_ANY,
@@ -111,8 +147,11 @@ export class SecureStorageService {
   ): Promise<string | null> {
     const { useBiometrics = false, promptMessage = 'Authenticate to access wallet' } = options;
 
+    // Wait for initialization to complete
+    await this.waitForInitialization();
+
     try {
-      if (this.keychainAvailable) {
+      if (this.keychainAvailable && Keychain) {
         // Use hardware-backed keychain storage
         const keychainOptions = {
           accessControl: useBiometrics 
@@ -160,8 +199,11 @@ export class SecureStorageService {
    * @param key - Storage key
    */
   async deleteItem(key: string): Promise<void> {
+    // Wait for initialization to complete
+    await this.waitForInitialization();
+
     try {
-      if (this.keychainAvailable) {
+      if (this.keychainAvailable && Keychain) {
         // Try to delete from keychain using the correct method
         await Keychain.resetGenericPassword();
         logger.info(`[SecureStorage] Deleted ${key} from Keychain`);
@@ -191,7 +233,8 @@ export class SecureStorageService {
   /**
    * Check if keychain is available
    */
-  isKeychainAvailable(): boolean {
+  async isKeychainAvailable(): Promise<boolean> {
+    await this.waitForInitialization();
     return this.keychainAvailable;
   }
 
@@ -199,8 +242,10 @@ export class SecureStorageService {
    * Get supported biometric types
    */
   async getSupportedBiometryType(): Promise<Keychain.BIOMETRY_TYPE | null> {
+    await this.waitForInitialization();
+    
     try {
-      if (this.keychainAvailable) {
+      if (this.keychainAvailable && Keychain) {
         return await Keychain.getSupportedBiometryType();
       }
       return null;
@@ -214,8 +259,10 @@ export class SecureStorageService {
    * Check if device has biometric hardware
    */
   async hasBiometricHardware(): Promise<boolean> {
+    await this.waitForInitialization();
+    
     try {
-      if (this.keychainAvailable) {
+      if (this.keychainAvailable && Keychain) {
         const biometryType = await Keychain.getSupportedBiometryType();
         return biometryType !== null && biometryType !== Keychain.BIOMETRY_TYPE.TOUCH_ID;
       }
@@ -230,8 +277,10 @@ export class SecureStorageService {
    * Check if biometrics are enrolled
    */
   async isBiometricsEnrolled(): Promise<boolean> {
+    await this.waitForInitialization();
+    
     try {
-      if (this.keychainAvailable) {
+      if (this.keychainAvailable && Keychain) {
         const biometryType = await Keychain.getSupportedBiometryType();
         return biometryType !== null && biometryType !== Keychain.BIOMETRY_TYPE.TOUCH_ID;
       }
@@ -245,7 +294,9 @@ export class SecureStorageService {
   /**
    * Get security level information
    */
-  getSecurityLevel(): string {
+  async getSecurityLevel(): Promise<string> {
+    await this.waitForInitialization();
+    
     if (this.keychainAvailable) {
       return 'HARDWARE_BACKED';
     }
@@ -257,6 +308,8 @@ export class SecureStorageService {
    * @param keys - Array of keys to migrate
    */
   async migrateFromSecureStore(keys: string[]): Promise<void> {
+    await this.waitForInitialization();
+    
     if (!this.keychainAvailable) {
       logger.warn('[SecureStorage] Cannot migrate: Keychain not available');
       return;

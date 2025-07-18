@@ -112,7 +112,12 @@ class Logger {
     // Format additional arguments
     if (args.length > 0) {
       args.forEach(arg => {
-        if (typeof arg === 'object') {
+        if (arg instanceof Error) {
+          formattedMessage += ` Error: ${arg.message}`;
+          if (arg.stack) {
+            formattedMessage += `\nStack: ${arg.stack}`;
+          }
+        } else if (typeof arg === 'object') {
           try {
             formattedMessage += ' ' + JSON.stringify(arg);
           } catch (e) {

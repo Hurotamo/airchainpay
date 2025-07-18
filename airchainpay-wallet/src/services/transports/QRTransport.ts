@@ -4,7 +4,6 @@ import { IPaymentTransport } from './BLETransport';
 import QRCode from 'qrcode';
 import { TxQueue } from '../TxQueue';
 import { MultiChainWalletManager } from '../../wallet/MultiChainWalletManager';
-import { TransactionBuilder } from '../../utils/TransactionBuilder';
 import { ethers } from 'ethers';
 import { TokenInfo } from '../../wallet/TokenWalletManager';
 import { QRCodeSigner, SignedQRPayload } from '../../utils/crypto/QRCodeSigner';

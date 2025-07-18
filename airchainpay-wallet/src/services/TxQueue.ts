@@ -48,6 +48,30 @@ export class TxQueue {
       console.error('Error clearing transaction queue:', error);
     }
   }
+
+  static async getQueuedTransactions(): Promise<Transaction[]> {
+    try {
+      const queueStr = await AsyncStorage.getItem(TX_QUEUE_KEY);
+      if (!queueStr) return [];
+      const queue = JSON.parse(queueStr);
+      return queue.filter((tx: Transaction) => tx.status === 'queued');
+    } catch (error) {
+      console.error('Error getting queued transactions:', error);
+      return [];
+    }
+  }
+
+  static async removeTransaction(txId: string): Promise<void> {
+    try {
+      const queueStr = await AsyncStorage.getItem(TX_QUEUE_KEY);
+      if (!queueStr) return;
+      let queue = JSON.parse(queueStr);
+      queue = queue.filter((tx: Transaction) => tx.id !== txId);
+      await AsyncStorage.setItem(TX_QUEUE_KEY, JSON.stringify(queue));
+    } catch (error) {
+      console.error('Error removing transaction from queue:', error);
+    }
+  }
 }
 
 export type TxRow = Transaction;

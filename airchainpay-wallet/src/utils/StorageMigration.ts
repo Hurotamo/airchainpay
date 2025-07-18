@@ -25,15 +25,16 @@ export class StorageMigration {
       // 1. Migration status is not 'completed'
       // 2. Migration version is not current
       // 3. Keychain is available (we can upgrade)
+      const keychainAvailable = await secureStorage.isKeychainAvailable();
       const needsMigration = migrationStatus !== 'completed' || 
                            migrationVersion !== this.CURRENT_MIGRATION_VERSION ||
-                           secureStorage.isKeychainAvailable();
+                           keychainAvailable;
       
       logger.info('[StorageMigration] Migration check:', {
         migrationStatus,
         migrationVersion,
         currentVersion: this.CURRENT_MIGRATION_VERSION,
-        keychainAvailable: secureStorage.isKeychainAvailable(),
+        keychainAvailable,
         needsMigration
       });
       
@@ -59,7 +60,8 @@ export class StorageMigration {
       logger.info('[StorageMigration] Starting migration to hardware-backed storage');
 
       // Check if keychain is available
-      if (!secureStorage.isKeychainAvailable()) {
+      const keychainAvailable = await secureStorage.isKeychainAvailable();
+      if (!keychainAvailable) {
         logger.warn('[StorageMigration] Keychain not available, skipping migration');
         return {
           success: false,
@@ -144,19 +146,26 @@ export class StorageMigration {
       const migrationStatus = await SecureStore.getItemAsync(this.MIGRATION_STATUS_KEY);
       const migrationVersion = await SecureStore.getItemAsync(this.MIGRATION_VERSION_KEY);
       
+      const keychainAvailable = await secureStorage.isKeychainAvailable();
+      const securityLevel = await secureStorage.getSecurityLevel();
+      
       return {
         isCompleted: migrationStatus === 'completed',
         version: migrationVersion,
-        keychainAvailable: secureStorage.isKeychainAvailable(),
-        securityLevel: secureStorage.getSecurityLevel()
+        keychainAvailable,
+        securityLevel
       };
     } catch (error) {
       logger.error('[StorageMigration] Failed to get migration status:', error);
+      
+      const keychainAvailable = await secureStorage.isKeychainAvailable();
+      const securityLevel = await secureStorage.getSecurityLevel();
+      
       return {
         isCompleted: false,
         version: null,
-        keychainAvailable: secureStorage.isKeychainAvailable(),
-        securityLevel: secureStorage.getSecurityLevel()
+        keychainAvailable,
+        securityLevel
       };
     }
   }

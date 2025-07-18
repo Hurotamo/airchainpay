@@ -1,7 +1,7 @@
 use std::time::Duration;
 use std::thread;
 use colored::*;
-use std::io::{self, Write};
+use std::io::Write;
 use std::env;
 
 #[derive(Debug)]
@@ -30,7 +30,8 @@ impl AnimatedAscii {
             "╚═╝  ╚═╝╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝╚═╝     ╚═╝  ╚═╝   ╚═╝   ".to_string(),
         ];
 
-        let colors = vec!["blue", "cyan", "magenta", "green", "yellow", "red"];
+        // Custom color order: blue, dark (bright black), orange
+        let colors = vec!["blue", "bright_black", "truecolor_orange", "blue", "bright_black", "truecolor_orange"];
 
         Self {
             frames: logo,
@@ -42,34 +43,25 @@ impl AnimatedAscii {
 
     pub fn display_typing_animation(&mut self, speed_ms: u64) {
         println!("\n");
-        
-        for (_line_index, line) in self.frames.iter().enumerate() {
+        for (line_index, line) in self.frames.iter().enumerate() {
             let mut animated_line = String::new();
             let chars: Vec<char> = line.chars().collect();
-            
             for (char_index, &ch) in chars.iter().enumerate() {
                 animated_line.push(ch);
-                
-                // Clear line and reprint
                 print!("\r");
-                io::stdout().flush().unwrap();
-                
-                // Apply color based on position and animation
-                let color_index = (self.current_color + char_index) % self.colors.len();
+                std::io::stdout().flush().unwrap();
+                // Use custom color per line
+                let color_index = line_index % self.colors.len();
                 let colored_line = self.apply_color(&animated_line, color_index);
                 print!("{}", colored_line);
-                
-                // Add remaining characters in dim color
                 if char_index < chars.len() - 1 {
                     let remaining: String = chars[char_index + 1..].iter().collect();
                     print!("{}", remaining.dimmed());
                 }
-                
-                thread::sleep(Duration::from_millis(speed_ms));
+                std::thread::sleep(std::time::Duration::from_millis(speed_ms));
             }
-            println!(); // Move to next line
+            println!();
         }
-        
         self.current_color = (self.current_color + 1) % self.colors.len();
     }
 
@@ -115,13 +107,10 @@ impl AnimatedAscii {
     }
 
     fn apply_color(&self, text: &str, color_index: usize) -> String {
-        match self.colors[color_index] {
+        match self.colors[color_index % self.colors.len()] {
             "blue" => text.blue().to_string(),
-            "cyan" => text.cyan().to_string(),
-            "magenta" => text.magenta().to_string(),
-            "green" => text.green().to_string(),
-            "yellow" => text.yellow().to_string(),
-            "red" => text.red().to_string(),
+            "bright_black" => text.bright_black().to_string(),
+            "truecolor_orange" => text.truecolor(255,140,0).to_string(), // Orange RGB
             _ => text.to_string(),
         }
     }
@@ -165,8 +154,9 @@ impl AnimatedAscii {
 
     pub fn display_static(&self) {
         println!("\n");
-        for line in &self.frames {
-            println!("{}", line.blue());
+        for (line_index, line) in self.frames.iter().enumerate() {
+            let color_index = line_index % self.colors.len();
+            println!("{}", self.apply_color(line, color_index));
         }
         println!("\n{}", "Powering the Future of Payments. Fast. Secure. Borderless.".blue());
     }

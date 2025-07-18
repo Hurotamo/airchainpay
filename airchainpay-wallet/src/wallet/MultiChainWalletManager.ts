@@ -122,14 +122,17 @@ export class MultiChainWalletManager {
       const password = await secureStorage.getItem(STORAGE_KEYS.WALLET_PASSWORD);
       const backupConfirmed = await secureStorage.getItem(STORAGE_KEYS.BACKUP_CONFIRMED);
 
+      const securityLevel = await secureStorage.getSecurityLevel();
+      const keychainAvailable = await secureStorage.isKeychainAvailable();
+      
       logger.info('[MultiChain] Storage state:', {
         hasPrivateKey: !!privateKey,
         hasSeedPhrase: !!seedPhrase,
         hasTempSeedPhrase: !!tempSeedPhrase,
         hasPassword: !!password,
         backupConfirmed: backupConfirmed === 'true',
-        securityLevel: secureStorage.getSecurityLevel(),
-        keychainAvailable: secureStorage.isKeychainAvailable()
+        securityLevel,
+        keychainAvailable
       });
     } catch (error) {
       logger.error('[MultiChain] Failed to log storage state:', error);
