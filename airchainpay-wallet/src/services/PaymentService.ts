@@ -117,8 +117,17 @@ export class PaymentService {
         };
       }
 
+      // Sign the transaction before sending to relay
+      const signedTx = await this.signTransactionForRelay(request);
+      
+      // Add signed transaction to request
+      const relayRequest = {
+        ...request,
+        signedTx: signedTx
+      };
+
       // Always send to relay, regardless of original transport
-      const relayResult = await this.relayTransport.send(request);
+      const relayResult = await this.relayTransport.send(relayRequest);
       return {
         status: 'sent',
         transport: 'relay',
@@ -135,6 +144,45 @@ export class PaymentService {
         message: error instanceof Error ? error.message : 'Unknown error',
         timestamp: Date.now()
       };
+    }
+  }
+
+  /**
+   * Sign transaction for relay submission
+   */
+  private async signTransactionForRelay(request: PaymentRequest): Promise<string> {
+    try {
+      logger.info('[PaymentService] Signing transaction for relay', {
+        to: request.to,
+        amount: request.amount,
+        chainId: request.chainId
+      });
+
+      // Create transaction object
+      const transaction = {
+        to: request.to,
+        value: request.token?.isNative 
+          ? ethers.parseEther(request.amount) 
+          : ethers.parseUnits(request.amount, request.token?.decimals || 18),
+        data: request.paymentReference 
+          ? ethers.hexlify(ethers.toUtf8Bytes(request.paymentReference)) 
+          : undefined
+      };
+
+      // Sign the transaction
+      const signedTx = await this.walletManager.signTransaction(transaction, request.chainId);
+      
+      logger.info('[PaymentService] Transaction signed successfully', {
+        to: request.to,
+        amount: request.amount,
+        chainId: request.chainId,
+        signedTxLength: signedTx.length
+      });
+
+      return signedTx;
+    } catch (error) {
+      logger.error('[PaymentService] Failed to sign transaction for relay:', error);
+      throw new Error(`Failed to sign transaction: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

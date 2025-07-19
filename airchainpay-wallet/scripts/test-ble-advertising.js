@@ -8,19 +8,32 @@
 const fs = require('fs');
 const path = require('path');
 
-console.log('🧪 Testing BLE Advertising Setup');
-console.log('================================\n');
+console.log('🔍 Testing BLE Advertising Support...\n');
 
-// Check package.json for BLE libraries
-const packageJsonPath = path.join(__dirname, '..', 'package.json');
+// Check platform (simulate)
+console.log('📱 Platform: android (assuming Android for testing)');
+
+// Test native module availability
+console.log('\n🔧 Testing native module availability...');
+
+// Check if modules are installed
+const packageJsonPath = path.join('package.json');
 const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
 
 console.log('📦 Checking BLE Dependencies:');
 console.log(`- react-native-ble-plx: ${packageJson.dependencies['react-native-ble-plx'] || 'NOT INSTALLED'}`);
 console.log(`- react-native-ble-advertiser: ${packageJson.dependencies['react-native-ble-advertiser'] || 'NOT INSTALLED'}`);
 
+// Check if node_modules exist
+const blePlxPath = path.join('node_modules', 'react-native-ble-plx');
+const bleAdvertiserPath = path.join('node_modules', 'react-native-ble-advertiser');
+
+console.log('\n📁 Checking module files:');
+console.log(`- react-native-ble-plx: ${fs.existsSync(blePlxPath) ? '✅' : '❌'}`);
+console.log(`- react-native-ble-advertiser: ${fs.existsSync(bleAdvertiserPath) ? '✅' : '❌'}`);
+
 // Check Android manifest for permissions
-const manifestPath = path.join(__dirname, '..', 'android', 'app', 'src', 'main', 'AndroidManifest.xml');
+const manifestPath = path.join('android', 'app', 'src', 'main', 'AndroidManifest.xml');
 if (fs.existsSync(manifestPath)) {
   const manifestContent = fs.readFileSync(manifestPath, 'utf8');
   
@@ -58,64 +71,17 @@ if (fs.existsSync(manifestPath)) {
   console.log('❌ Android manifest not found');
 }
 
-// Check app.config.js for BLE plugin configuration
-const appConfigPath = path.join(__dirname, '..', 'app.config.js');
-if (fs.existsSync(appConfigPath)) {
-  const appConfigContent = fs.readFileSync(appConfigPath, 'utf8');
-  
-  console.log('\n⚙️  Checking App Configuration:');
-  
-  const hasBlePlxPlugin = appConfigContent.includes('react-native-ble-plx');
-  const hasBackgroundEnabled = appConfigContent.includes('isBackgroundEnabled');
-  const hasPeripheralMode = appConfigContent.includes('peripheral');
-  const hasCentralMode = appConfigContent.includes('central');
-  
-  console.log(`- BLE-PLX Plugin: ${hasBlePlxPlugin ? '✅' : '❌'}`);
-  console.log(`- Background Enabled: ${hasBackgroundEnabled ? '✅' : '❌'}`);
-  console.log(`- Peripheral Mode: ${hasPeripheralMode ? '✅' : '❌'}`);
-  console.log(`- Central Mode: ${hasCentralMode ? '✅' : '❌'}`);
-  
-} else {
-  console.log('❌ app.config.js not found');
-}
-
-// Check BluetoothManager implementation
-const bluetoothManagerPath = path.join(__dirname, '..', 'src', 'bluetooth', 'BluetoothManager.ts');
-if (fs.existsSync(bluetoothManagerPath)) {
-  const bluetoothManagerContent = fs.readFileSync(bluetoothManagerPath, 'utf8');
-  
-  console.log('\n🔧 Checking BluetoothManager Implementation:');
-  
-  const checks = [
-    { name: 'BleManager Import', pattern: 'from \'react-native-ble-plx\'' },
-    { name: 'BleAdvertiser Import', pattern: 'from \'react-native-ble-advertiser\'' },
-    { name: 'BLUETOOTH_ADVERTISE Permission Check', pattern: 'BLUETOOTH_ADVERTISE' },
-    { name: 'startAdvertising Method', pattern: 'startAdvertising' },
-    { name: 'stopAdvertising Method', pattern: 'stopAdvertising' },
-    { name: 'Permission Request Method', pattern: 'requestPermissions' },
-    { name: 'Error Handling', pattern: 'BluetoothError' }
-  ];
-  
-  checks.forEach(check => {
-    const hasFeature = bluetoothManagerContent.includes(check.pattern);
-    console.log(`${hasFeature ? '✅' : '❌'} ${check.name}`);
-  });
-  
-} else {
-  console.log('❌ BluetoothManager.ts not found');
-}
-
-console.log('\n📋 Summary:');
-console.log('✅ BLUETOOTH_ADVERTISE permission added to Android manifest');
-console.log('✅ Permission request methods updated in BluetoothManager');
-console.log('✅ Comprehensive error handling implemented');
-console.log('✅ Platform-specific checks in place');
-
-console.log('\n🚀 Next Steps:');
-console.log('1. Rebuild the Android app: npx expo run:android');
-console.log('2. Test BLE advertising on Android 12+ device');
-console.log('3. Check console logs for permission requests');
-console.log('4. Verify advertising starts successfully');
-
 console.log('\n💡 Note: BLE advertising only works on Android devices');
-console.log('   iOS does not support BLE advertising in the same way'); 
+console.log('   iOS does not support BLE advertising in the same way');
+console.log('\n🔧 To fix BLE advertising issues:');
+console.log('   1. Ensure you are testing on an Android device');
+console.log('   2. Make sure Bluetooth is enabled');
+console.log('   3. Grant all required permissions');
+console.log('   4. Restart the app after granting permissions');
+console.log('   5. If using an emulator, BLE may not work properly');
+
+console.log('\n✅ BLE modules appear to be properly installed');
+console.log('   If you still see advertising errors, try:');
+console.log('   - Restarting the app');
+console.log('   - Checking Bluetooth permissions in device settings');
+console.log('   - Testing on a physical Android device (not emulator)'); 

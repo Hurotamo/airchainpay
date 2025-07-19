@@ -58,9 +58,36 @@ export class SecureStorageService {
       try {
         const biometryType = await Keychain.getSupportedBiometryType();
         
-        // If we get here without error, keychain is available
-        this.keychainAvailable = true;
-        logger.info('[SecureStorage] Keychain is available and supported');
+        // Additional check: try to set a test value to verify keychain is working
+        const testKey = '__test_keychain_access__';
+        const testValue = 'test_value_' + Date.now();
+        
+        try {
+          await Keychain.setGenericPassword(testKey, testValue, {
+            accessControl: Keychain.ACCESS_CONTROL.DEVICE_PASSCODE,
+            accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED,
+            securityLevel: Keychain.SECURITY_LEVEL.SECURE_HARDWARE,
+          });
+          
+          // Try to retrieve the test value
+          const credentials = await Keychain.getGenericPassword({
+            accessControl: Keychain.ACCESS_CONTROL.DEVICE_PASSCODE,
+          });
+          
+          // Clean up test value
+          await Keychain.resetGenericPassword();
+          
+          if (credentials && credentials.password === testValue) {
+            this.keychainAvailable = true;
+            logger.info('[SecureStorage] Keychain is available and working properly');
+          } else {
+            this.keychainAvailable = false;
+            logger.info('[SecureStorage] Keychain test failed, using SecureStore fallback');
+          }
+        } catch (testError) {
+          this.keychainAvailable = false;
+          logger.info('[SecureStorage] Keychain test failed, using SecureStore fallback:', testError);
+        }
       } catch (keychainError) {
         // Keychain is not available on this device/platform
         this.keychainAvailable = false;
@@ -96,17 +123,10 @@ export class SecureStorageService {
       if (this.keychainAvailable && Keychain) {
         // Use hardware-backed keychain storage
         const keychainOptions = {
-          accessControl: accessControl || Keychain.ACCESS_CONTROL.BIOMETRY_ANY,
+          accessControl: accessControl || (useBiometrics ? Keychain.ACCESS_CONTROL.BIOMETRY_ANY : Keychain.ACCESS_CONTROL.DEVICE_PASSCODE),
           accessible: accessible || Keychain.ACCESSIBLE.WHEN_UNLOCKED,
-          authenticationType: Keychain.AUTHENTICATION_TYPE.BIOMETRICS,
           securityLevel: Keychain.SECURITY_LEVEL.SECURE_HARDWARE,
         };
-
-        // If biometrics is not requested, use device passcode
-        if (!useBiometrics) {
-          keychainOptions.accessControl = Keychain.ACCESS_CONTROL.DEVICE_PASSCODE;
-          keychainOptions.authenticationType = Keychain.AUTHENTICATION_TYPE.BIOMETRICS;
-        }
 
         await Keychain.setGenericPassword(key, value, keychainOptions);
         logger.info(`[SecureStorage] Stored ${key} in Keychain`);
@@ -157,10 +177,6 @@ export class SecureStorageService {
           accessControl: useBiometrics 
             ? Keychain.ACCESS_CONTROL.BIOMETRY_ANY 
             : Keychain.ACCESS_CONTROL.DEVICE_PASSCODE,
-          authenticationType: useBiometrics 
-            ? Keychain.AUTHENTICATION_TYPE.BIOMETRICS 
-            : Keychain.AUTHENTICATION_TYPE.BIOMETRICS,
-          securityLevel: Keychain.SECURITY_LEVEL.SECURE_HARDWARE,
         };
 
         const credentials = await Keychain.getGenericPassword(keychainOptions);

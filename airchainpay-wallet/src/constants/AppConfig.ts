@@ -9,7 +9,8 @@ function getRpcUrl(chainId: string): string {
   const extra = Constants.expoConfig?.extra || {};
   
   console.log(`[AppConfig] Getting RPC URL for chainId: ${chainId}`);
-  console.log(`[AppConfig] Constants.expoConfig?.extra:`, extra);
+  // Remove sensitive logging - don't log the entire extra object
+  console.log(`[AppConfig] Configuration loaded for chain: ${chainId}`);
   
   let rpcUrl = '';
   switch (chainId) {
@@ -23,7 +24,8 @@ function getRpcUrl(chainId: string): string {
       rpcUrl = '';
   }
   
-  console.log(`[AppConfig] Resolved RPC URL for ${chainId}: ${rpcUrl}`);
+  // Remove sensitive logging - don't log the actual RPC URL
+  console.log(`[AppConfig] RPC URL resolved for ${chainId}: [REDACTED]`);
   return rpcUrl;
 }
 
@@ -75,6 +77,69 @@ export const SUPPORTED_CHAINS: { [key: string]: ChainConfig } = {
   },
 };
 
+// Gas configuration for better organization
+export const GAS_CONFIG = {
+  // Gas price limits in gwei (must match GasPriceValidator.ts)
+  limits: {
+    base_sepolia: {
+      min: 0.1,      // 0.1 gwei minimum
+      max: 50,       // 50 gwei maximum
+      warning: 20,   // Warning at 20 gwei
+      emergency: 100 // Emergency limit
+    },
+    core_testnet: {
+      min: 0.1,
+      max: 100,      // Higher limit for Core
+      warning: 50,
+      emergency: 200
+    }
+  },
+  
+  // Gas limit bounds for different transaction types
+  gasLimits: {
+    nativeTransfer: {
+      min: 21000,
+      max: 25000,
+      recommended: 21000
+    },
+    erc20Transfer: {
+      min: 65000,
+      max: 80000,
+      recommended: 65000
+    },
+    contractInteraction: {
+      min: 100000,
+      max: 500000,
+      recommended: 150000
+    },
+    complexTransaction: {
+      min: 200000,
+      max: 1000000,
+      recommended: 300000
+    }
+  },
+  
+  // Default gas settings
+  defaults: {
+    gasLimit: '21000',
+    gasPrice: '50000000000', // 50 gwei
+    maxPriorityFeePerGas: '1500000000', // 1.5 gwei
+    maxFeePerGas: '50000000000', // 50 gwei
+  },
+  
+  // Gas estimation settings
+  estimation: {
+    priorityMultipliers: {
+      low: 0.8,
+      normal: 1.0,
+      high: 1.5,
+      urgent: 2.0
+    },
+    maxRetries: 3,
+    timeout: 30000,
+  }
+};
+
 // Default chain configuration
 export const DEFAULT_CHAIN_ID = 'base_sepolia';
 export const DEFAULT_CHAIN_CONFIG = SUPPORTED_CHAINS[DEFAULT_CHAIN_ID];
@@ -84,8 +149,82 @@ if (!DEFAULT_CHAIN_CONFIG.contractAddress) {
   throw new Error('Contract address not configured for default chain');
 }
 
+// Validate gas configuration consistency
+const validateGasConfig = () => {
+  const supportedChains = Object.keys(SUPPORTED_CHAINS);
+  
+  for (const chainId of supportedChains) {
+    const gasLimits = GAS_CONFIG.limits[chainId as keyof typeof GAS_CONFIG.limits];
+    const maxGasPrice = TRANSACTION_CONFIG.maxGasPrice[chainId as keyof typeof TRANSACTION_CONFIG.maxGasPrice];
+    
+    if (!gasLimits) {
+      console.warn(`[AppConfig] No gas limits configured for chain: ${chainId}`);
+      continue;
+    }
+    
+    if (!maxGasPrice) {
+      console.warn(`[AppConfig] No max gas price configured for chain: ${chainId}`);
+      continue;
+    }
+    
+    // Convert maxGasPrice from wei to gwei for comparison
+    const maxGasPriceGwei = Number(maxGasPrice) / 1e9;
+    
+    if (Math.abs(maxGasPriceGwei - gasLimits.max) > 0.1) {
+      console.warn(`[AppConfig] Gas price limit mismatch for ${chainId}: maxGasPrice=${maxGasPriceGwei}gwei, gasLimits.max=${gasLimits.max}gwei`);
+    }
+  }
+};
+
+// Run validation in development - moved after GAS_CONFIG definition
+
 // Legacy exports for backward compatibility
 export const DEFAULT_RPC_URL = DEFAULT_CHAIN_CONFIG.rpcUrl;
+
+// Gas configuration helper functions
+export const GasConfigHelpers = {
+  /**
+   * Get gas price limits for a specific chain
+   */
+  getGasPriceLimits: (chainId: string) => {
+    return GAS_CONFIG.limits[chainId as keyof typeof GAS_CONFIG.limits];
+  },
+  
+  /**
+   * Get gas limit bounds for a transaction type
+   */
+  getGasLimitBounds: (transactionType: keyof typeof GAS_CONFIG.gasLimits) => {
+    return GAS_CONFIG.gasLimits[transactionType];
+  },
+  
+  /**
+   * Check if gas price is within limits for a chain
+   */
+  isGasPriceValid: (gasPriceGwei: number, chainId: string): boolean => {
+    const limits = GAS_CONFIG.limits[chainId as keyof typeof GAS_CONFIG.limits];
+    if (!limits) return false;
+    return gasPriceGwei >= limits.min && gasPriceGwei <= limits.max;
+  },
+  
+  /**
+   * Get default gas price for a chain
+   */
+  getDefaultGasPrice: (chainId: string): string => {
+    const limits = GAS_CONFIG.limits[chainId as keyof typeof GAS_CONFIG.limits];
+    if (!limits) return GAS_CONFIG.defaults.gasPrice;
+    
+    // Use warning level as default, but ensure it's within bounds
+    const defaultGwei = Math.min(limits.warning, limits.max);
+    return (defaultGwei * 1e9).toString();
+  },
+  
+  /**
+   * Get priority multiplier for gas estimation
+   */
+  getPriorityMultiplier: (priority: 'low' | 'normal' | 'high' | 'urgent'): number => {
+    return GAS_CONFIG.estimation.priorityMultipliers[priority];
+  }
+};
 
 
 // Relay server configuration
@@ -135,8 +274,8 @@ export const TRANSACTION_CONFIG = {
   retryDelay: 2000,
   timeout: 60000,
   maxGasPrice: {
-    base_sepolia: '20000000000', // 20 gwei
-    core_testnet: '50000000000', // 50 gwei
+    base_sepolia: '50000000000', // 50 gwei (updated to match GasPriceValidator)
+    core_testnet: '100000000000', // 100 gwei (updated to match GasPriceValidator)
   },
 };
 
@@ -190,7 +329,35 @@ export const API_ENDPOINTS = {
     getGasPrice: '/gas/price',
     estimateGas: '/gas/estimate',
     getBlockNumber: '/block/number',
+    getGasEstimate: '/gas/estimate',
+    getFeeHistory: '/gas/fee-history',
   },
+};
+
+// Gas-related constants
+export const GAS_CONSTANTS = {
+  // Gas price units
+  WEI_PER_GWEI: 1e9,
+  GWEI_PER_ETH: 1e9,
+  
+  // Common gas limits
+  ETH_TRANSFER_GAS: 21000,
+  ERC20_TRANSFER_GAS: 65000,
+  CONTRACT_DEPLOYMENT_GAS: 500000,
+  
+  // Gas price thresholds (in gwei)
+  LOW_GAS_THRESHOLD: 5,
+  NORMAL_GAS_THRESHOLD: 20,
+  HIGH_GAS_THRESHOLD: 50,
+  URGENT_GAS_THRESHOLD: 100,
+  
+  // Gas estimation timeouts
+  ESTIMATION_TIMEOUT: 30000,
+  VALIDATION_TIMEOUT: 10000,
+  
+  // Gas price update intervals
+  PRICE_UPDATE_INTERVAL: 60000, // 1 minute
+  HISTORY_WINDOW: 600000, // 10 minutes
 };
 
 // Error messages
@@ -240,7 +407,7 @@ export const UI_CONFIG = {
 // Default values
 export const DEFAULT_VALUES = {
   GAS_LIMIT: '21000',
-  GAS_PRICE: '20000000000',
+  GAS_PRICE: '50000000000', // Updated to 50 gwei for better compatibility
   TRANSACTION_TIMEOUT: 60000,
   SCAN_TIMEOUT: 30000,
   CONNECTION_TIMEOUT: 15000,
@@ -260,4 +427,16 @@ export const CHAIN_CONFIGS = {
     blockTime: 3,
     confirmations: 6,
   },
-}; 
+};
+
+// Safety check to ensure GAS_CONFIG is properly loaded
+if (typeof GAS_CONFIG === 'undefined' || !GAS_CONFIG.limits) {
+  console.error('[AppConfig] GAS_CONFIG is not properly initialized');
+  // Provide fallback configuration
+  (global as any).GAS_CONFIG = GAS_CONFIG;
+}
+
+// Run validation in development - now that GAS_CONFIG is defined
+if (process.env.NODE_ENV === 'development') {
+  validateGasConfig();
+} 

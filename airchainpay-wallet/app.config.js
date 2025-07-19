@@ -50,8 +50,11 @@ module.exports = {
         "BLUETOOTH_ADMIN",
         "BLUETOOTH_SCAN",
         "BLUETOOTH_CONNECT",
+        "BLUETOOTH_ADVERTISE",
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "ACCESS_FINE_LOCATION",
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT"
       ]
     },
     web: {
@@ -61,16 +64,16 @@ module.exports = {
       eas: {
         projectId: "6ddaf098-0540-4a9e-befa-09814a2e6e45"
       },
-      BASE_SEPOLIA_RPC_URL: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org",
+       BASE_SEPOLIA_RPC_URL: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org",
       CORE_TESTNET_RPC_URL: process.env.CORE_TESTNET_RPC_URL || "https://rpc.test2.btcs.network",
-      BASESCAN_API_KEY: process.env.BASESCAN_API_KEY || "your_basescan_api_key",
-      ETHERSCAN_API_KEY: process.env.ETHERSCAN_API_KEY || "your_etherscan_api_key",
-      INFURA_PROJECT_ID: process.env.INFURA_PROJECT_ID || "your_infura_project_id",
-      INFURA_PROJECT_SECRET: process.env.INFURA_PROJECT_SECRET || "your_infura_project_secret",
-      ALCHEMY_API_KEY: process.env.ALCHEMY_API_KEY || "your_alchemy_api_key",
-      QUICKNODE_API_KEY: process.env.QUICKNODE_API_KEY || "your_quicknode_api_key",
+      BASESCAN_API_KEY: process.env.BASESCAN_API_KEY || "",
+      ETHERSCAN_API_KEY: process.env.ETHERSCAN_API_KEY || "",
+      INFURA_PROJECT_ID: process.env.INFURA_PROJECT_ID || "",
+      INFURA_PROJECT_SECRET: process.env.INFURA_PROJECT_SECRET || "",
+      ALCHEMY_API_KEY: process.env.ALCHEMY_API_KEY || "",
+      QUICKNODE_API_KEY: process.env.QUICKNODE_API_KEY || "",
       RELAY_SERVER_URL: process.env.RELAY_SERVER_URL || "http://localhost:4000",
-      RELAY_API_KEY: process.env.RELAY_API_KEY || "your_relay_api_key"
+      RELAY_API_KEY: process.env.RELAY_API_KEY || ""
     }
   }
 }; 

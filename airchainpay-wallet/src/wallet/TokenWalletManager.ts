@@ -60,7 +60,7 @@ export class TokenWalletManager {
           
           const provider = new ethers.JsonRpcProvider(chain.rpcUrl);
           this.providers[chainKey] = provider;
-          this.logger.info(`[TokenWallet] Successfully initialized provider for ${chain.name} with key ${chainKey} and RPC URL: ${chain.rpcUrl}`);
+          this.logger.info(`[TokenWallet] Successfully initialized provider for ${chain.name} with key ${chainKey}`);
         } catch (error) {
           this.logger.error(`[TokenWallet] Failed to create provider for ${chain.name}:`, error);
         }
@@ -105,7 +105,7 @@ export class TokenWalletManager {
         try {
           const provider = new ethers.JsonRpcProvider(rpcUrl);
           this.providers[chainKey] = provider;
-          this.logger.info(`[TokenWallet] Created fallback provider for ${chainKey} with URL: ${rpcUrl}`);
+          this.logger.info(`[TokenWallet] Created fallback provider for ${chainKey}`);
         } catch (error) {
           this.logger.error(`[TokenWallet] Failed to create fallback provider for ${chainKey}:`, error);
         }

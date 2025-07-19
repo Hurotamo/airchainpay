@@ -321,7 +321,24 @@ export default function BLEPaymentScreen() {
     // Check if advertising is truly supported
     const trulySupported = await bleManager.isAdvertisingTrulySupported();
     if (!trulySupported) {
-      setAdvertisingError('BLE advertising is not supported on this device or platform.');
+      // Get more detailed information about why advertising is not supported
+      const supportStatus = await bleManager.checkAdvertisingSupport();
+      let errorMessage = 'BLE advertising is not supported on this device or platform.';
+      
+      if (supportStatus.missingRequirements.length > 0) {
+        errorMessage = `BLE advertising not available: ${supportStatus.missingRequirements.join(', ')}`;
+      }
+      
+      // Add specific guidance based on the error
+      if (errorMessage.includes('advertiser not available')) {
+        errorMessage += '\n\n💡 Try restarting the app or rebuilding with: npx expo run:android';
+      } else if (errorMessage.includes('Bluetooth')) {
+        errorMessage += '\n\n💡 Please ensure Bluetooth is enabled in device settings';
+      } else if (errorMessage.includes('permissions')) {
+        errorMessage += '\n\n💡 Please grant Bluetooth permissions in app settings';
+      }
+      
+      setAdvertisingError(errorMessage);
       setAdvertisingStatus('Not advertising');
       return;
     }
