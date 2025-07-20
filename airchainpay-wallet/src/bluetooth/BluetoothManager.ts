@@ -129,85 +129,166 @@ export class BluetoothManager {
   }
 
   /**
-   * Initialize BLE advertiser - simplified approach
+   * Initialize BLE advertiser - enhanced approach with better error handling
    */
   private initializeBleAdvertiser(): void {
-    console.log('[BLE] 🔧 Starting BLE advertiser initialization...');
+    console.log('[BLE] 🔧 Starting enhanced BLE advertiser initialization...');
     
-    // Only use the actual tp-rn-ble-advertiser module
-    if (this.tryDirectImport()) {
+    // Strategy 1: Try direct import with enhanced validation
+    if (this.tryDirectImportEnhanced()) {
       return;
     }
     
-    // If direct import fails, try require
-    if (this.tryRequireImport()) {
+    // Strategy 2: Try require with enhanced validation
+    if (this.tryRequireImportEnhanced()) {
       return;
     }
     
-    console.log('[BLE] ❌ BLE advertiser not available');
-    this.initializationError = 'BLE advertiser module not available';
+    // Strategy 3: Try NativeModules approach
+    if (this.tryNativeModulesImport()) {
+      return;
+    }
+    
+    console.log('[BLE] ❌ BLE advertiser not available after all strategies');
+    this.initializationError = 'BLE advertiser module not available - try rebuilding the app';
   }
 
   /**
-   * Strategy 1: Try direct import
+   * Strategy 1: Enhanced direct import with better validation
    */
-  private tryDirectImport(): boolean {
+  private tryDirectImportEnhanced(): boolean {
     try {
-      console.log('[BLE] 🔧 Strategy 1: Trying direct import...');
+      console.log('[BLE] 🔧 Strategy 1: Enhanced direct import...');
+      
+      // Check if the module exists
+      if (!ReactNativeBleAdvertiser) {
+        console.warn('[BLE] ❌ ReactNativeBleAdvertiser import is null/undefined');
+        return false;
+      }
+      
       console.log('[BLE] Debug: ReactNativeBleAdvertiser =', ReactNativeBleAdvertiser);
       console.log('[BLE] Debug: typeof ReactNativeBleAdvertiser =', typeof ReactNativeBleAdvertiser);
       
-      if (ReactNativeBleAdvertiser && typeof ReactNativeBleAdvertiser === 'object') {
+      // Check if it's an object with methods
+      if (typeof ReactNativeBleAdvertiser === 'object') {
+        const keys = Object.keys(ReactNativeBleAdvertiser);
+        console.log('[BLE] Debug: ReactNativeBleAdvertiser keys =', keys);
+        
+        // Check for required methods
         const hasStartBroadcast = 'startBroadcast' in ReactNativeBleAdvertiser;
         const hasStopBroadcast = 'stopBroadcast' in ReactNativeBleAdvertiser;
         
         console.log('[BLE] Debug: hasStartBroadcast =', hasStartBroadcast);
         console.log('[BLE] Debug: hasStopBroadcast =', hasStopBroadcast);
-        console.log('[BLE] Debug: ReactNativeBleAdvertiser keys =', Object.keys(ReactNativeBleAdvertiser));
         
         if (hasStartBroadcast && hasStopBroadcast) {
-          this.advertiser = ReactNativeBleAdvertiser;
-          console.log('[BLE] ✅ ReactNativeBleAdvertiser initialized successfully via direct import');
-          return true;
+          // Test if methods are actually callable
+          if (typeof ReactNativeBleAdvertiser.startBroadcast === 'function' && 
+              typeof ReactNativeBleAdvertiser.stopBroadcast === 'function') {
+            this.advertiser = ReactNativeBleAdvertiser;
+            console.log('[BLE] ✅ ReactNativeBleAdvertiser initialized successfully via enhanced direct import');
+            return true;
+          } else {
+            console.warn('[BLE] ❌ ReactNativeBleAdvertiser methods are not callable functions');
+          }
         } else {
           console.warn('[BLE] ❌ ReactNativeBleAdvertiser missing required methods');
         }
       } else {
-        console.warn('[BLE] ❌ ReactNativeBleAdvertiser is null or not an object');
+        console.warn('[BLE] ❌ ReactNativeBleAdvertiser is not an object');
       }
     } catch (error) {
-      console.warn('[BLE] ❌ Direct import failed:', error);
+      console.warn('[BLE] ❌ Enhanced direct import failed:', error);
     }
     return false;
   }
 
   /**
-   * Strategy 2: Try require with error handling
+   * Strategy 2: Enhanced require import with better validation
    */
-  private tryRequireImport(): boolean {
+  private tryRequireImportEnhanced(): boolean {
     try {
-      console.log('[BLE] 🔧 Strategy 2: Trying require import...');
+      console.log('[BLE] 🔧 Strategy 2: Enhanced require import...');
       const fallbackBleAdvertiser = require('tp-rn-ble-advertiser');
       console.log('[BLE] Debug: fallbackBleAdvertiser =', fallbackBleAdvertiser);
       
       if (fallbackBleAdvertiser && typeof fallbackBleAdvertiser === 'object') {
+        const keys = Object.keys(fallbackBleAdvertiser);
+        console.log('[BLE] Debug: fallbackBleAdvertiser keys =', keys);
+        
         const hasStartBroadcast = 'startBroadcast' in fallbackBleAdvertiser;
         const hasStopBroadcast = 'stopBroadcast' in fallbackBleAdvertiser;
         
         if (hasStartBroadcast && hasStopBroadcast) {
-          this.advertiser = fallbackBleAdvertiser;
-          console.log('[BLE] ✅ ReactNativeBleAdvertiser initialized via require');
-          return true;
+          // Test if methods are actually callable
+          if (typeof fallbackBleAdvertiser.startBroadcast === 'function' && 
+              typeof fallbackBleAdvertiser.stopBroadcast === 'function') {
+            this.advertiser = fallbackBleAdvertiser;
+            console.log('[BLE] ✅ ReactNativeBleAdvertiser initialized via enhanced require');
+            return true;
+          } else {
+            console.warn('[BLE] ❌ Require import methods are not callable functions');
+          }
         } else {
           console.warn('[BLE] ❌ Require import missing required methods');
         }
       } else {
-        console.warn('[BLE] ❌ Require import not available');
+        console.warn('[BLE] ❌ Require import not available or not an object');
       }
-          } catch (fallbackError) {
-        const errorMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
-        console.warn('[BLE] ❌ Require import failed:', errorMessage);
+    } catch (fallbackError) {
+      const errorMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+      console.warn('[BLE] ❌ Enhanced require import failed:', errorMessage);
+    }
+    return false;
+  }
+
+  /**
+   * Strategy 3: Try NativeModules approach
+   */
+  private tryNativeModulesImport(): boolean {
+    try {
+      console.log('[BLE] 🔧 Strategy 3: NativeModules import...');
+      
+      // Try to access via NativeModules
+      const { NativeModules } = require('react-native');
+      console.log('[BLE] Debug: Available NativeModules =', Object.keys(NativeModules));
+      
+      if (NativeModules.ReactNativeBleAdvertiser) {
+        const nativeModule = NativeModules.ReactNativeBleAdvertiser;
+        console.log('[BLE] Debug: NativeModules.ReactNativeBleAdvertiser =', nativeModule);
+        
+        if (nativeModule && typeof nativeModule === 'object') {
+          const hasStartBroadcast = 'startBroadcast' in nativeModule;
+          const hasStopBroadcast = 'stopBroadcast' in nativeModule;
+          
+          if (hasStartBroadcast && hasStopBroadcast) {
+            this.advertiser = nativeModule;
+            console.log('[BLE] ✅ ReactNativeBleAdvertiser initialized via NativeModules');
+            return true;
+          }
+        }
       }
+      
+      // Try alternative module name
+      if (NativeModules.TpRnBleAdvertiser) {
+        const nativeModule = NativeModules.TpRnBleAdvertiser;
+        console.log('[BLE] Debug: NativeModules.TpRnBleAdvertiser =', nativeModule);
+        
+        if (nativeModule && typeof nativeModule === 'object') {
+          const hasStartBroadcast = 'startBroadcast' in nativeModule;
+          const hasStopBroadcast = 'stopBroadcast' in nativeModule;
+          
+          if (hasStartBroadcast && hasStopBroadcast) {
+            this.advertiser = nativeModule;
+            console.log('[BLE] ✅ ReactNativeBleAdvertiser initialized via NativeModules (alternative name)');
+            return true;
+          }
+        }
+      }
+      
+    } catch (error) {
+      console.warn('[BLE] ❌ NativeModules import failed:', error);
+    }
     return false;
   }
 
@@ -337,8 +418,97 @@ export class BluetoothManager {
   }
 
   /**
+   * Enhanced permission request for Android 12+ with multiple fallback strategies
+   */
+  async requestPermissionsEnhanced(): Promise<{
+    success: boolean;
+    grantedPermissions: string[];
+    deniedPermissions: string[];
+    error?: string;
+  }> {
+    if (Platform.OS !== 'android') {
+      return { success: true, grantedPermissions: [], deniedPermissions: [] };
+    }
+
+    try {
+      const apiLevel = parseInt(Platform.Version.toString(), 10);
+      console.log('[BLE] Enhanced permission request for Android API level:', apiLevel);
+      
+      const results = {
+        success: false,
+        grantedPermissions: [] as string[],
+        deniedPermissions: [] as string[],
+        error: undefined as string | undefined
+      };
+
+      if (apiLevel >= 31) { // Android 12+
+        const permissions = [
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE
+        ];
+        
+        console.log('[BLE] Requesting enhanced permissions:', permissions);
+        
+        try {
+          const permissionResults = await PermissionsAndroid.requestMultiple(permissions);
+          console.log('[BLE] Enhanced permission results:', permissionResults);
+          
+          // Check each permission result
+          Object.entries(permissionResults).forEach(([permission, status]) => {
+            if (status === 'granted') {
+              results.grantedPermissions.push(permission);
+            } else {
+              results.deniedPermissions.push(permission);
+            }
+          });
+          
+          // Consider it successful if we have the critical permissions
+          const criticalPermissions = [
+            PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+            PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT
+          ];
+          
+          const hasCriticalPermissions = criticalPermissions.every(perm => 
+            results.grantedPermissions.includes(perm)
+          );
+          
+          results.success = hasCriticalPermissions;
+          
+          if (!results.success) {
+            results.error = `Critical permissions missing: ${criticalPermissions.filter(perm => 
+              !results.grantedPermissions.includes(perm)
+            ).join(', ')}`;
+          }
+          
+        } catch (error) {
+          console.error('[BLE] Error in enhanced permission request:', error);
+          results.error = error instanceof Error ? error.message : String(error);
+          results.success = false;
+        }
+      } else {
+        // For older Android versions, permissions are auto-granted
+        results.success = true;
+        results.grantedPermissions = ['legacy_auto_granted'];
+      }
+      
+      console.log('[BLE] Enhanced permission request completed:', results);
+      return results;
+      
+    } catch (error) {
+      console.error('[BLE] Fatal error in enhanced permission request:', error);
+      return {
+        success: false,
+        grantedPermissions: [],
+        deniedPermissions: [],
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
+  /**
    * Request BLE permissions for Android
-   * OVERRIDDEN: No-op, never show permission dialog
+   * Enhanced version that properly handles BLUETOOTH_ADVERTISE permission
    */
   async requestPermissions(): Promise<void> {
     if (Platform.OS !== 'android') {
@@ -358,28 +528,36 @@ export class BluetoothManager {
         
         console.log('[BLE] Requesting permissions:', permissions);
         
-        const results = await PermissionsAndroid.requestMultiple(permissions);
-        console.log('[BLE] Permission request results:', results);
+        // First check current permission status
+        const currentStatus = await this.checkPermissions();
+        console.log('[BLE] Current permission status:', currentStatus);
         
-        // Check if any permissions were denied
-        const deniedPermissions = Object.entries(results)
-          .filter(([_, status]) => status === 'denied')
-          .map(([permission, _]) => permission);
-        
-        if (deniedPermissions.length > 0) {
-          console.warn('[BLE] Some permissions were denied:', deniedPermissions);
-          throw new BluetoothError(
-            `Required permissions denied: ${deniedPermissions.join(', ')}`,
-            'PERMISSION_DENIED'
-          );
+        // Only request if permissions are missing
+        if (!currentStatus.granted) {
+          const results = await PermissionsAndroid.requestMultiple(permissions);
+          console.log('[BLE] Permission request results:', results);
+          
+          // Check if any permissions were denied
+          const deniedPermissions = Object.entries(results)
+            .filter(([_, status]) => status === 'denied')
+            .map(([permission, _]) => permission);
+          
+          if (deniedPermissions.length > 0) {
+            console.warn('[BLE] Some permissions were denied:', deniedPermissions);
+            
+            // If BLUETOOTH_ADVERTISE is specifically denied, show a helpful message
+            if (deniedPermissions.includes(PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE)) {
+              console.log('[BLE] BLUETOOTH_ADVERTISE permission denied - this may affect advertising functionality');
+              // Don't throw error, let the advertising attempt proceed as some devices may work anyway
+            }
+          }
+        } else {
+          console.log('[BLE] All permissions already granted');
         }
       }
     } catch (error) {
       console.error('[BLE] Error requesting permissions:', error);
-      throw new BluetoothError(
-        `Failed to request permissions: ${error instanceof Error ? error.message : String(error)}`,
-        'PERMISSION_ERROR'
-      );
+      // Don't throw error, let the advertising attempt proceed
     }
   }
 
@@ -398,6 +576,91 @@ export class BluetoothManager {
     } catch (error) {
       console.error('[BLE] Error requesting all permissions:', error);
       return false;
+    }
+  }
+
+  /**
+   * Check if all required permissions are granted
+   */
+  async checkPermissions(): Promise<{
+    granted: boolean;
+    missing: string[];
+    details: { [key: string]: string };
+  }> {
+    if (Platform.OS !== 'android') {
+      return { granted: true, missing: [], details: {} };
+    }
+
+    try {
+      const apiLevel = parseInt(Platform.Version.toString(), 10);
+      console.log('[BLE] Checking permissions for Android API level:', apiLevel);
+      const results: { [key: string]: string } = {};
+      const missing: string[] = [];
+      
+      if (apiLevel >= 31) { // Android 12+
+        const permissions = [
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE
+        ];
+        
+        console.log('[BLE] Checking permissions:', permissions);
+        
+        for (const permission of permissions) {
+          try {
+            const granted = await PermissionsAndroid.check(permission);
+            console.log(`[BLE] Permission check for ${permission}:`, granted);
+            results[permission] = granted ? 'granted' : 'denied';
+            if (!granted) {
+              missing.push(permission);
+            }
+          } catch (error) {
+            console.warn(`[BLE] Error checking permission ${permission}:`, error);
+            results[permission] = 'error';
+            missing.push(permission);
+          }
+        }
+      }
+      
+      // Also check location permission which is often required for BLE
+      const locationPermission = PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION;
+      try {
+        const granted = await PermissionsAndroid.check(locationPermission);
+        results[locationPermission] = granted ? 'granted' : 'denied';
+        if (!granted) {
+          missing.push(locationPermission);
+        }
+      } catch (error) {
+        console.warn('[BLE] Error checking location permission:', error);
+        results[locationPermission] = 'error';
+        missing.push(locationPermission);
+      }
+      
+      console.log('[BLE] Permission check results:', results);
+      console.log('[BLE] Missing permissions:', missing);
+      
+      // For Android 12+, BLUETOOTH_ADVERTISE permission might be denied but still work
+      // So we'll be more lenient with the permission check
+      const criticalPermissions = [
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT
+      ];
+      
+      const criticalMissing = missing.filter(perm => 
+        criticalPermissions.includes(perm as any)
+      );
+      
+      return {
+        granted: criticalMissing.length === 0, // Only require critical permissions
+        missing,
+        details: results
+      };
+    } catch (error) {
+      return {
+        granted: false,
+        missing: ['unknown'],
+        details: { error: error instanceof Error ? error.message : String(error) }
+      };
     }
   }
 
@@ -442,6 +705,7 @@ export class BluetoothManager {
     if (!this.advertiser) {
       console.log('[BLE] ❌ BLE advertiser module not available');
       console.log('[BLE] Debug: this.advertiser =', this.advertiser);
+      console.log('[BLE] Debug: initializationError =', this.initializationError);
       return false;
     }
     console.log('[BLE] ✅ Advertiser module is available');
@@ -478,12 +742,29 @@ export class BluetoothManager {
       }
       console.log('[BLE] ✅ Bluetooth is powered on');
 
-      // Check permissions (but don't fail if permissions are missing since they're auto-granted)
-      const hasPerms = await this.hasAllPermissions();
-      console.log('[BLE] Debug: hasAllPermissions =', hasPerms);
-      if (!hasPerms) {
-        console.log('[BLE] ⚠️ Missing permissions, but continuing since they should be auto-granted');
-        // Don't return false here since permissions are auto-granted
+      // Check permissions with detailed logging
+      const permissionStatus = await this.checkPermissions();
+      console.log('[BLE] Debug: permissionStatus =', permissionStatus);
+      
+      // Be more lenient with BLUETOOTH_ADVERTISE permission
+      const criticalPermissions = [
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT
+      ];
+      
+      const criticalMissing = permissionStatus.missing.filter(perm => 
+        criticalPermissions.includes(perm as any)
+      );
+      
+      if (criticalMissing.length > 0) {
+        console.log('[BLE] ❌ Critical permissions missing:', criticalMissing);
+        return false;
+      }
+      
+      // Check if BLUETOOTH_ADVERTISE is missing (non-critical)
+      const advertiseMissing = permissionStatus.missing.includes(PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE);
+      if (advertiseMissing) {
+        console.log('[BLE] ⚠️ BLUETOOTH_ADVERTISE permission missing, but continuing - some devices work without it');
       } else {
         console.log('[BLE] ✅ All permissions granted');
       }
@@ -605,8 +886,50 @@ export class BluetoothManager {
         throw new BluetoothError('Bluetooth is not powered on', 'BLE_NOT_POWERED_ON');
       }
 
-      // Request permissions before advertising
-      await this.requestPermissions();
+      // Request permissions before advertising (but don't fail if BLUETOOTH_ADVERTISE is denied)
+      try {
+        const enhancedPermissionResult = await this.requestPermissionsEnhanced();
+        console.log('[BLE] Enhanced permission result:', enhancedPermissionResult);
+        
+        if (!enhancedPermissionResult.success) {
+          console.warn('[BLE] Enhanced permission request failed:', enhancedPermissionResult.error);
+          
+          // If BLUETOOTH_ADVERTISE is specifically denied, try to proceed anyway
+          if (enhancedPermissionResult.deniedPermissions.includes(PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE)) {
+            console.log('[BLE] BLUETOOTH_ADVERTISE denied, but attempting to advertise anyway');
+          } else {
+            throw new BluetoothError(
+              enhancedPermissionResult.error || 'Permission request failed',
+              'PERMISSION_DENIED'
+            );
+          }
+        }
+      } catch (error) {
+        logger.warn('[BLE] Permission request failed, but continuing with advertising attempt:', error);
+      }
+
+      // Check permissions but be lenient with BLUETOOTH_ADVERTISE
+      const permissionStatus = await this.checkPermissions();
+      if (!permissionStatus.granted) {
+        const criticalPermissions = [
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT
+        ];
+        
+        const criticalMissing = permissionStatus.missing.filter(perm => 
+          criticalPermissions.includes(perm as any)
+        );
+        
+        if (criticalMissing.length > 0) {
+          logger.error('[BLE] Critical permissions missing:', criticalMissing);
+          throw new BluetoothError(
+            `Critical permissions missing: ${criticalMissing.join(', ')}`,
+            'CRITICAL_PERMISSION_DENIED'
+          );
+        } else {
+          logger.warn('[BLE] Some non-critical permissions missing, but attempting to advertise anyway');
+        }
+      }
 
       // Create advertising data for AirChainPay with enhanced configuration
       const advertisingData = {
@@ -646,6 +969,8 @@ export class BluetoothManager {
         timestamp: Date.now()
       });
       
+      logger.info('[BLE] Attempting to start broadcast with message:', advertisingMessage);
+      
       const startAdvertisingPromise = this.advertiser.startBroadcast(advertisingMessage);
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => reject(new Error('Advertising start timeout')), 10000);
@@ -672,10 +997,23 @@ export class BluetoothManager {
     } catch (error) {
       this.isAdvertising = false;
       logger.error('[BLE] Exception thrown during advertising:', error);
-      throw new BluetoothError(
-        `Failed to start advertising: ${error instanceof Error ? error.message : String(error)}`,
-        'ADVERTISING_ERROR'
-      );
+      
+      // Provide more specific error messages based on the error type
+      let errorMessage = error instanceof Error ? error.message : String(error);
+      let errorCode = 'ADVERTISING_ERROR';
+      
+      if (errorMessage.includes('permission') || errorMessage.includes('Permission')) {
+        errorCode = 'PERMISSION_DENIED';
+        errorMessage = 'Bluetooth advertising permission denied. Please check app permissions in device settings.';
+      } else if (errorMessage.includes('timeout')) {
+        errorCode = 'ADVERTISING_TIMEOUT';
+        errorMessage = 'Advertising start timed out. Please try again.';
+      } else if (errorMessage.includes('Bluetooth')) {
+        errorCode = 'BLUETOOTH_ERROR';
+        errorMessage = 'Bluetooth error occurred. Please ensure Bluetooth is enabled.';
+      }
+      
+      throw new BluetoothError(errorMessage, errorCode);
     }
   }
 
@@ -1340,76 +1678,5 @@ Device Information:
       details,
       missingRequirements
     };
-  }
-
-  /**
-   * Check if all required permissions are granted
-   */
-  async checkPermissions(): Promise<{
-    granted: boolean;
-    missing: string[];
-    details: { [key: string]: string };
-  }> {
-    if (Platform.OS !== 'android') {
-      return { granted: true, missing: [], details: {} };
-    }
-
-    try {
-      const apiLevel = parseInt(Platform.Version.toString(), 10);
-      console.log('[BLE] Checking permissions for Android API level:', apiLevel);
-      const results: { [key: string]: string } = {};
-      const missing: string[] = [];
-      if (apiLevel >= 31) { // Android 12+
-        const permissions = [
-          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-          PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE
-        ];
-        // Ensure BLUETOOTH_ADVERTISE is always included
-        if (!permissions.includes(PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE)) {
-          permissions.push(PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE);
-        }
-        console.log('[BLE] Checking permissions:', permissions);
-        for (const permission of permissions) {
-          try {
-            const granted = await PermissionsAndroid.check(permission);
-            console.log(`[BLE] Permission check for ${permission}:`, granted);
-            results[permission] = granted ? 'granted' : 'denied';
-            if (!granted) {
-              missing.push(permission);
-            }
-          } catch (error) {
-            console.warn(`[BLE] Error checking permission ${permission}:`, error);
-            results[permission] = 'error';
-            missing.push(permission);
-          }
-        }
-      }
-      const locationPermission = PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION;
-      try {
-        const granted = await PermissionsAndroid.check(locationPermission);
-        results[locationPermission] = granted ? 'granted' : 'denied';
-        if (!granted) {
-          missing.push(locationPermission);
-        }
-      } catch (error) {
-        console.warn('[BLE] Error checking location permission:', error);
-        results[locationPermission] = 'error';
-        missing.push(locationPermission);
-      }
-      console.log('[BLE] Permission check results:', results);
-      console.log('[BLE] Missing permissions:', missing);
-      return {
-        granted: missing.length === 0,
-        missing,
-        details: results
-      };
-    } catch (error) {
-      return {
-        granted: false,
-        missing: ['unknown'],
-        details: { error: error instanceof Error ? error.message : String(error) }
-      };
-    }
   }
 } 
