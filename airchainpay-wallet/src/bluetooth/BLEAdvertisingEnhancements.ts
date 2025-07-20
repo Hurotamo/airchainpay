@@ -123,18 +123,17 @@ export class BLEAdvertisingEnhancements {
         return { success: false, error };
       }
 
-      // Start advertising
-      await advertiser.broadcast(
-        config.serviceUUID,
-        config.manufacturerData,
-        {
-          txPowerLevel: config.txPowerLevel,
-          advertiseMode: config.advertiseMode,
-          includeDeviceName: config.includeDeviceName,
-          includeTxPowerLevel: config.includeTxPowerLevel,
-          connectable: config.connectable
-        }
-      );
+      // Start advertising using tp-rn-ble-advertiser
+      const advertisingMessage = JSON.stringify({
+        name: config.deviceName,
+        serviceUUID: config.serviceUUID,
+        type: 'AirChainPay',
+        version: '1.0.0',
+        capabilities: ['payment', 'secure_ble'],
+        timestamp: Date.now()
+      });
+      
+      await advertiser.startBroadcast(advertisingMessage);
 
       this.recordMetrics(sessionId, startTime, true);
       logger.info('[BLE] Enhanced advertising started successfully', { sessionId, config });

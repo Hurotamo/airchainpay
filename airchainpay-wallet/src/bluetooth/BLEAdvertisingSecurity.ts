@@ -191,18 +191,19 @@ export class BLEAdvertisingSecurity {
         securityConfig
       );
 
-      // Start advertising with security
-      await advertiser.broadcast(
-        config.serviceUUID,
-        config.manufacturerData,
-        {
-          txPowerLevel: config.txPowerLevel,
-          advertiseMode: config.advertiseMode,
-          includeDeviceName: config.includeDeviceName,
-          includeTxPowerLevel: config.includeTxPowerLevel,
-          connectable: config.connectable
-        }
-      );
+      // Start advertising with security using tp-rn-ble-advertiser
+      const secureAdvertisingMessage = JSON.stringify({
+        name: deviceName,
+        serviceUUID: serviceUUID,
+        type: 'AirChainPay',
+        version: '1.0.0',
+        capabilities: ['payment', 'secure_ble', 'encrypted'],
+        timestamp: Date.now(),
+        encrypted: true,
+        authenticationToken: config.authenticationToken || null
+      });
+      
+      await advertiser.startBroadcast(secureAdvertisingMessage);
 
       // Record successful security metrics
       this.recordSecuritySuccess(sessionId, 'encryption');

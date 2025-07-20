@@ -25,6 +25,7 @@
     "test-ble-advertising": "node ./scripts/test-ble-advertising.js",
     "test-ble-final": "node ./scripts/test-ble-final.js",
     "test-ble-complete": "node ./scripts/test-ble-complete.js",
+    "test-tp-advertiser": "node ./scripts/test-tp-ble-advertiser.js",
     "start-tunnel": "expo start --tunnel --clear",
     "start-fixed": "npm run fix-android && npm run fix-ethers && expo start --clear",
     "emulator": "./scripts/start-emulator.sh",
@@ -77,7 +78,6 @@
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "react-native": "0.79.5",
-    "react-native-ble-advertiser": "0.0.17",
     "react-native-ble-plx": "3.5.0",
     "react-native-gesture-handler": "~2.24.0",
     "react-native-get-random-values": "1.11.0",
@@ -94,6 +94,7 @@
     "stream-browserify": "3.0.0",
     "superstruct": "2.0.2",
     "text-encoding": "^0.7.0",
+    "tp-rn-ble-advertiser": "^5.2.0",
     "url": "0.11.4",
     "use-latest-callback": "0.2.4",
     "wa-sqlite": "1.0.0"
