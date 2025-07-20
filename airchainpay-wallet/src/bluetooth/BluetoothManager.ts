@@ -82,65 +82,10 @@ export class BluetoothManager {
           this.manager = new BleManager();
           console.log('[BLE] BleManager instance created successfully');
           
-                  // Initialize BLE advertiser for peripheral mode
-        if (Platform.OS === 'android') {
-          console.log('[BLE] 🔧 Initializing ReactNativeBleAdvertiser for Android...');
-          try {
-            // Test if the ReactNativeBleAdvertiser module is actually available and working
-            console.log('[BLE] Debug: ReactNativeBleAdvertiser =', ReactNativeBleAdvertiser);
-            console.log('[BLE] Debug: typeof ReactNativeBleAdvertiser =', typeof ReactNativeBleAdvertiser);
-            
-            if (ReactNativeBleAdvertiser && typeof ReactNativeBleAdvertiser === 'object') {
-              // Check if it has the required methods by testing if it's a proper module
-              // Note: tp-rn-ble-advertiser uses 'startBroadcast' and 'stopBroadcast'
-              const hasStartBroadcast = 'startBroadcast' in ReactNativeBleAdvertiser;
-              const hasStopBroadcast = 'stopBroadcast' in ReactNativeBleAdvertiser;
-              
-              console.log('[BLE] Debug: hasStartBroadcast =', hasStartBroadcast);
-              console.log('[BLE] Debug: hasStopBroadcast =', hasStopBroadcast);
-              console.log('[BLE] Debug: ReactNativeBleAdvertiser keys =', Object.keys(ReactNativeBleAdvertiser));
-              
-              if (hasStartBroadcast && hasStopBroadcast) {
-                this.advertiser = ReactNativeBleAdvertiser;
-                console.log('[BLE] ✅ ReactNativeBleAdvertiser initialized successfully');
-              } else {
-                console.warn('[BLE] ❌ ReactNativeBleAdvertiser module not properly available - missing required methods');
-                this.advertiser = null;
-              }
-            } else {
-              console.warn('[BLE] ❌ ReactNativeBleAdvertiser module not properly available');
-              console.warn('[BLE] Debug: ReactNativeBleAdvertiser is null or not an object');
-              
-              // Try fallback import
-              try {
-                console.log('[BLE] 🔧 Trying fallback import...');
-                const fallbackBleAdvertiser = require('tp-rn-ble-advertiser');
-                console.log('[BLE] Debug: fallbackBleAdvertiser =', fallbackBleAdvertiser);
-                
-                if (fallbackBleAdvertiser && typeof fallbackBleAdvertiser === 'object') {
-                  const hasStartBroadcast = 'startBroadcast' in fallbackBleAdvertiser;
-                  const hasStopBroadcast = 'stopBroadcast' in fallbackBleAdvertiser;
-                  
-                  if (hasStartBroadcast && hasStopBroadcast) {
-                    this.advertiser = fallbackBleAdvertiser;
-                    console.log('[BLE] ✅ ReactNativeBleAdvertiser initialized via fallback');
-                  } else {
-                    console.warn('[BLE] ❌ Fallback ReactNativeBleAdvertiser also missing methods');
-                    this.advertiser = null;
-                  }
-                } else {
-                  console.warn('[BLE] ❌ Fallback ReactNativeBleAdvertiser also not available');
-                  this.advertiser = null;
-                }
-              } catch (fallbackError) {
-                console.warn('[BLE] ❌ Fallback import failed:', fallbackError);
-                this.advertiser = null;
-              }
-            }
-          } catch (advertiserError) {
-            console.warn('[BLE] ❌ ReactNativeBleAdvertiser initialization failed:', advertiserError);
-            this.advertiser = null;
-          }
+          // Initialize BLE advertiser for peripheral mode
+          if (Platform.OS === 'android') {
+            console.log('[BLE] 🔧 Initializing ReactNativeBleAdvertiser for Android...');
+            this.initializeBleAdvertiser();
           }
           
           // Set up state change listener
@@ -182,6 +127,91 @@ export class BluetoothManager {
       console.log('[BLE] Initialization error:', this.initializationError);
     }
   }
+
+  /**
+   * Initialize BLE advertiser - simplified approach
+   */
+  private initializeBleAdvertiser(): void {
+    console.log('[BLE] 🔧 Starting BLE advertiser initialization...');
+    
+    // Only use the actual tp-rn-ble-advertiser module
+    if (this.tryDirectImport()) {
+      return;
+    }
+    
+    // If direct import fails, try require
+    if (this.tryRequireImport()) {
+      return;
+    }
+    
+    console.log('[BLE] ❌ BLE advertiser not available');
+    this.initializationError = 'BLE advertiser module not available';
+  }
+
+  /**
+   * Strategy 1: Try direct import
+   */
+  private tryDirectImport(): boolean {
+    try {
+      console.log('[BLE] 🔧 Strategy 1: Trying direct import...');
+      console.log('[BLE] Debug: ReactNativeBleAdvertiser =', ReactNativeBleAdvertiser);
+      console.log('[BLE] Debug: typeof ReactNativeBleAdvertiser =', typeof ReactNativeBleAdvertiser);
+      
+      if (ReactNativeBleAdvertiser && typeof ReactNativeBleAdvertiser === 'object') {
+        const hasStartBroadcast = 'startBroadcast' in ReactNativeBleAdvertiser;
+        const hasStopBroadcast = 'stopBroadcast' in ReactNativeBleAdvertiser;
+        
+        console.log('[BLE] Debug: hasStartBroadcast =', hasStartBroadcast);
+        console.log('[BLE] Debug: hasStopBroadcast =', hasStopBroadcast);
+        console.log('[BLE] Debug: ReactNativeBleAdvertiser keys =', Object.keys(ReactNativeBleAdvertiser));
+        
+        if (hasStartBroadcast && hasStopBroadcast) {
+          this.advertiser = ReactNativeBleAdvertiser;
+          console.log('[BLE] ✅ ReactNativeBleAdvertiser initialized successfully via direct import');
+          return true;
+        } else {
+          console.warn('[BLE] ❌ ReactNativeBleAdvertiser missing required methods');
+        }
+      } else {
+        console.warn('[BLE] ❌ ReactNativeBleAdvertiser is null or not an object');
+      }
+    } catch (error) {
+      console.warn('[BLE] ❌ Direct import failed:', error);
+    }
+    return false;
+  }
+
+  /**
+   * Strategy 2: Try require with error handling
+   */
+  private tryRequireImport(): boolean {
+    try {
+      console.log('[BLE] 🔧 Strategy 2: Trying require import...');
+      const fallbackBleAdvertiser = require('tp-rn-ble-advertiser');
+      console.log('[BLE] Debug: fallbackBleAdvertiser =', fallbackBleAdvertiser);
+      
+      if (fallbackBleAdvertiser && typeof fallbackBleAdvertiser === 'object') {
+        const hasStartBroadcast = 'startBroadcast' in fallbackBleAdvertiser;
+        const hasStopBroadcast = 'stopBroadcast' in fallbackBleAdvertiser;
+        
+        if (hasStartBroadcast && hasStopBroadcast) {
+          this.advertiser = fallbackBleAdvertiser;
+          console.log('[BLE] ✅ ReactNativeBleAdvertiser initialized via require');
+          return true;
+        } else {
+          console.warn('[BLE] ❌ Require import missing required methods');
+        }
+      } else {
+        console.warn('[BLE] ❌ Require import not available');
+      }
+          } catch (fallbackError) {
+        const errorMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+        console.warn('[BLE] ❌ Require import failed:', errorMessage);
+      }
+    return false;
+  }
+
+
 
   public static getInstance(): BluetoothManager {
     if (!BluetoothManager.instance) {

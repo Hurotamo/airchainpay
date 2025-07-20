@@ -28,7 +28,15 @@ module.exports = {
       'events': path.resolve(__dirname, 'node_modules/events'),
       'ws': path.resolve(__dirname, 'src/shims/websocket.js'),
       'rpc-websockets': path.resolve(__dirname, 'src/shims/rpc-websockets.js'),
-      'crypto': path.resolve(__dirname, 'src/shims/crypto.js')
+      'crypto': path.resolve(__dirname, 'src/shims/crypto.js'),
+      // Add BLE module fallbacks - point to actual module
+      'react-native-ble-advertiser': path.resolve(__dirname, 'node_modules/tp-rn-ble-advertiser'),
+      'ble-advertiser': path.resolve(__dirname, 'node_modules/tp-rn-ble-advertiser'),
+      '@react-native-ble/ble-advertiser': path.resolve(__dirname, 'node_modules/tp-rn-ble-advertiser'),
+      // Add fallbacks for unknown modules that might be required
+      '1827': path.resolve(__dirname, 'node_modules/tp-rn-ble-advertiser'),
+      '1828': path.resolve(__dirname, 'node_modules/tp-rn-ble-advertiser'),
+      '1829': path.resolve(__dirname, 'node_modules/tp-rn-ble-advertiser')
     },
     // Force Metro to resolve these modules
     resolverMainFields: ['react-native', 'browser', 'main'],
@@ -39,10 +47,32 @@ module.exports = {
       'superstruct': path.resolve(__dirname, 'src/shims/superstruct.js'),
       'ws': path.resolve(__dirname, 'src/shims/websocket.js'),
       'rpc-websockets': path.resolve(__dirname, 'src/shims/rpc-websockets.js'),
-      'crypto': path.resolve(__dirname, 'src/shims/crypto.js')
+      'crypto': path.resolve(__dirname, 'src/shims/crypto.js'),
+      // Add BLE module aliases
+      'react-native-ble-advertiser': path.resolve(__dirname, 'node_modules/tp-rn-ble-advertiser'),
+      'ble-advertiser': path.resolve(__dirname, 'node_modules/tp-rn-ble-advertiser'),
+      '@react-native-ble/ble-advertiser': path.resolve(__dirname, 'node_modules/tp-rn-ble-advertiser')
     },
     // Custom resolver function to handle module resolution
     resolveRequest: (context, moduleName, platform) => {
+      // Handle BLE advertiser modules
+      if (moduleName === 'react-native-ble-advertiser' || 
+          moduleName === 'ble-advertiser' || 
+          moduleName === '@react-native-ble/ble-advertiser') {
+        return {
+          filePath: path.resolve(__dirname, 'node_modules/tp-rn-ble-advertiser'),
+          type: 'sourceFile'
+        };
+      }
+      
+      // Handle unknown module numbers (1827, 1828, 1829)
+      if (moduleName === '1827' || moduleName === '1828' || moduleName === '1829') {
+        return {
+          filePath: path.resolve(__dirname, 'node_modules/tp-rn-ble-advertiser'),
+          type: 'sourceFile'
+        };
+      }
+      
       // Force rpc-websockets to resolve to our shim
       if (moduleName === 'rpc-websockets') {
         return {
