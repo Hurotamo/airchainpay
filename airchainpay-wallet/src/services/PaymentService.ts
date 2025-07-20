@@ -77,6 +77,7 @@ export class PaymentService {
 
   /**
    * Send payment using the relay for all transaction types
+   * If relay is not available, fallback to on-chain transport
    * If offline, queue the transaction for later relay submission
    */
   async sendPayment(request: PaymentRequest): Promise<PaymentResult> {
@@ -117,30 +118,49 @@ export class PaymentService {
         };
       }
 
-      // Sign the transaction before sending to relay
-      const signedTx = await this.signTransactionForRelay(request);
-      
-      // Add signed transaction to request
-      const relayRequest = {
-        ...request,
-        signedTx: signedTx
-      };
+      // Try to use relay first, fallback to on-chain if relay fails
+      try {
+        logger.info('[PaymentService] Attempting to send via relay');
+        
+        // Sign the transaction before sending to relay
+        const signedTx = await this.signTransactionForRelay(request);
+        
+        // Add signed transaction to request
+        const relayRequest = {
+          ...request,
+          signedTx: signedTx
+        };
 
-      // Always send to relay, regardless of original transport
-      const relayResult = await this.relayTransport.send(relayRequest);
-      return {
-        status: 'sent',
-        transport: 'relay',
-        transactionId: relayResult?.transactionId,
-        message: relayResult?.message || 'Transaction sent to relay',
-        timestamp: Date.now(),
-        metadata: relayResult,
-      };
+        // Try to send to relay
+        const relayResult = await this.relayTransport.send(relayRequest);
+        return {
+          status: 'sent',
+          transport: 'relay',
+          transactionId: relayResult?.transactionId,
+          message: relayResult?.message || 'Transaction sent to relay',
+          timestamp: Date.now(),
+          metadata: relayResult,
+        };
+      } catch (relayError) {
+        logger.warn('[PaymentService] Relay transport failed, falling back to on-chain transport:', relayError);
+        
+        // Fallback to on-chain transport
+        logger.info('[PaymentService] Using on-chain transport as fallback');
+        const onChainResult = await this.onChainTransport.send(request);
+        return {
+          status: 'sent',
+          transport: 'onchain',
+          transactionId: onChainResult?.hash,
+          message: 'Transaction sent on-chain',
+          timestamp: Date.now(),
+          metadata: onChainResult,
+        };
+      }
     } catch (error) {
       logger.error('[PaymentService] Payment processing failed:', error);
       return {
         status: 'failed',
-        transport: 'relay',
+        transport: request.transport,
         message: error instanceof Error ? error.message : 'Unknown error',
         timestamp: Date.now()
       };
@@ -582,7 +602,7 @@ export class PaymentService {
   }
 
   /**
-   * Process queued transactions: send all to relay when online
+   * Process queued transactions: send all to relay when online, fallback to on-chain
    */
   async processQueuedTransactions(): Promise<void> {
     const queued = await TxQueue.getQueuedTransactions();
@@ -590,12 +610,25 @@ export class PaymentService {
       try {
         const isOnline = await this.checkNetworkStatus(tx.chainId || '');
         if (isOnline) {
-          await this.relayTransport.send(tx);
-          await TxQueue.removeTransaction(tx.id || '');
-          logger.info('[PaymentService] Queued transaction sent to relay', { id: tx.id });
+          try {
+            // Try relay first
+            await this.relayTransport.send(tx);
+            await TxQueue.removeTransaction(tx.id || '');
+            logger.info('[PaymentService] Queued transaction sent to relay', { id: tx.id });
+          } catch (relayError) {
+            logger.warn('[PaymentService] Relay failed for queued transaction, trying on-chain:', relayError);
+            
+            // Fallback to on-chain transport
+            const onChainResult = await this.onChainTransport.send(tx);
+            await TxQueue.removeTransaction(tx.id || '');
+            logger.info('[PaymentService] Queued transaction sent on-chain', { 
+              id: tx.id, 
+              hash: onChainResult?.hash 
+            });
+          }
         }
       } catch (err) {
-        logger.error('[PaymentService] Failed to send queued transaction to relay', err);
+        logger.error('[PaymentService] Failed to send queued transaction', err);
       }
     }
   }

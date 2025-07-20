@@ -105,11 +105,14 @@ export class TokenWalletManager {
         try {
           const provider = new ethers.JsonRpcProvider(rpcUrl);
           this.providers[chainKey] = provider;
-          this.logger.info(`[TokenWallet] Created fallback provider for ${chainKey}`);
+          this.logger.info(`[TokenWallet] Created fallback provider for ${chainKey} with URL: ${rpcUrl}`);
         } catch (error) {
           this.logger.error(`[TokenWallet] Failed to create fallback provider for ${chainKey}:`, error);
         }
       }
+      
+      // Log all available providers after creation
+      this.logger.info('[TokenWallet] Available providers after fallback creation:', Object.keys(this.providers));
     } catch (error) {
       this.logger.error('[TokenWallet] Failed to create fallback providers:', error);
     }
@@ -121,7 +124,12 @@ export class TokenWalletManager {
       initialized: this.initialized,
       availableProviders: Object.keys(this.providers),
       providersCount: Object.keys(this.providers).length,
-      supportedChains: Object.keys(SUPPORTED_CHAINS)
+      supportedChains: Object.keys(SUPPORTED_CHAINS),
+      providerDetails: Object.entries(this.providers).map(([key, provider]) => ({
+        key,
+        providerType: provider.constructor.name,
+        hasProvider: !!provider
+      }))
     };
   }
 
@@ -231,8 +239,14 @@ export class TokenWalletManager {
     const provider = this.providers[tokenInfo.chainId];
     if (!provider) {
       this.logger.error(`[TokenWallet] Provider not found for chainId: ${tokenInfo.chainId}. Available provider keys:`, Object.keys(this.providers));
+      this.logger.error(`[TokenWallet] Provider status:`, this.getProviderStatus());
       throw new Error(`Provider not initialized for chain ${tokenInfo.chainId}`);
     }
+    
+    this.logger.info(`[TokenWallet] Found provider for chainId: ${tokenInfo.chainId}`, {
+      providerType: provider.constructor.name,
+      hasProvider: !!provider
+    });
     
     try {
       const wallet = new ethers.Wallet(privateKey, provider);
@@ -265,20 +279,45 @@ export class TokenWalletManager {
           blockExplorer: chainConfig.blockExplorer ? `${chainConfig.blockExplorer}/tx/${tx.hash}` : undefined
         };
       } else {
+        // Use a more complete ERC-20 ABI to handle different token implementations
+        const erc20Abi = [
+          'function transfer(address to, uint256 amount) returns (bool)',
+          'function transferFrom(address from, address to, uint256 amount) returns (bool)',
+          'function balanceOf(address account) view returns (uint256)',
+          'function decimals() view returns (uint8)',
+          'function symbol() view returns (string)',
+          'function name() view returns (string)',
+          'function totalSupply() view returns (uint256)',
+          'event Transfer(address indexed from, address indexed to, uint256 value)'
+        ];
+        
         const tokenContract = new ethers.Contract(
           tokenInfo.address,
-          [
-            'function transfer(address to, uint256 amount) returns (bool)',
-            'function decimals() view returns (uint8)'
-          ],
+          erc20Abi,
           wallet
         );
-        const decimals = await tokenContract.decimals();
+        
+        // Get decimals from contract or use tokenInfo
+        let decimals: number;
+        try {
+          decimals = await tokenContract.decimals();
+        } catch (error) {
+          this.logger.warn(`[TokenWallet] Failed to get decimals from contract, using tokenInfo: ${tokenInfo.decimals}`);
+          decimals = tokenInfo.decimals;
+        }
+        
+        // Prepare transaction options
+        const txOptions: any = {};
+        if (gasPrice) {
+          txOptions.gasPrice = BigInt(gasPrice);
+        }
+        
         const tx = await tokenContract.transfer(
           toAddress,
           ethers.parseUnits(amount, decimals),
-          gasPrice ? { gasPrice: BigInt(gasPrice) } : undefined
+          txOptions
         );
+        
         return {
           hash: tx.hash,
           status: 'pending',
