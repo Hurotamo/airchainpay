@@ -13,3 +13,4 @@ cargo run --bin airchainpay-relay --manifest-path airchainpay-relay-rust/airchai
 
 
 source .env && cargo run --bin airchainpay-relay
+PORT=4000 RUST_LOG=debug cargo run --bin airchainpay-relay

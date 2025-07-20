@@ -250,7 +250,7 @@ export default function QRPayScreen() {
         to: transaction.to,
         amount: transaction.amount,
         chainId: transaction.chainId,
-        transport: 'relay',
+        transport: 'onchain',
         token: transaction.token,
         paymentReference: transaction.paymentReference,
         extraData: {

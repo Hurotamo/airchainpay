@@ -76,9 +76,9 @@ export class PaymentService {
   }
 
   /**
-   * Send payment using the relay for all transaction types
-   * If relay is not available, fallback to on-chain transport
-   * If offline, queue the transaction for later relay submission
+   * Send payment using the proper flow:
+   * - If user has internet: transaction -> relay -> blockchain
+   * - If user doesn't have internet: transaction -> queued -> relay -> blockchain
    */
   async sendPayment(request: PaymentRequest): Promise<PaymentResult> {
     try {
@@ -101,27 +101,41 @@ export class PaymentService {
       const isOnline = await this.checkNetworkStatus(request.chainId);
 
       if (!isOnline) {
-        logger.info('[PaymentService] Offline detected, queueing transaction for relay');
+        logger.info('[PaymentService] No internet connection detected, queueing transaction for relay');
+        
+        // Sign the transaction for offline queueing
+        const signedTx = await this.signTransactionForRelay(request);
+        
+        // Queue transaction for later relay submission
         const queuedTx = {
           id: Date.now().toString() + Math.random().toString(36).substring(2),
           ...request,
           status: 'queued' as const,
           timestamp: Date.now(),
-          transport: request.transport as 'ble' | 'secure_ble' | 'qr' | 'manual' | 'onchain' | 'relay',
+          transport: 'relay' as const,
+          signedTx: signedTx,
+          metadata: {
+            queuedForRelay: true,
+            offlineTimestamp: Date.now(),
+            originalTransport: request.transport
+          }
         };
+        
         await TxQueue.addTransaction(queuedTx);
+        
         return {
           status: 'queued',
           transport: 'relay',
-          message: 'Transaction queued for relay submission',
+          message: 'Transaction queued for relay submission when online',
           timestamp: Date.now(),
+          transactionId: queuedTx.id,
         };
       }
 
-      // Try to use relay first, fallback to on-chain if relay fails
+      // User has internet connection - try relay first
+      logger.info('[PaymentService] Internet connection detected, attempting relay transport');
+      
       try {
-        logger.info('[PaymentService] Attempting to send via relay');
-        
         // Sign the transaction before sending to relay
         const signedTx = await this.signTransactionForRelay(request);
         
@@ -133,6 +147,12 @@ export class PaymentService {
 
         // Try to send to relay
         const relayResult = await this.relayTransport.send(relayRequest);
+        
+        logger.info('[PaymentService] Transaction sent successfully via relay', {
+          transactionId: relayResult?.transactionId,
+          message: relayResult?.message
+        });
+        
         return {
           status: 'sent',
           transport: 'relay',
@@ -144,14 +164,15 @@ export class PaymentService {
       } catch (relayError) {
         logger.warn('[PaymentService] Relay transport failed, falling back to on-chain transport:', relayError);
         
-        // Fallback to on-chain transport
+        // Fallback to on-chain transport when relay is not available
         logger.info('[PaymentService] Using on-chain transport as fallback');
         const onChainResult = await this.onChainTransport.send(request);
+        
         return {
           status: 'sent',
           transport: 'onchain',
           transactionId: onChainResult?.hash,
-          message: 'Transaction sent on-chain',
+          message: 'Transaction sent on-chain (relay unavailable)',
           timestamp: Date.now(),
           metadata: onChainResult,
         };
@@ -603,32 +624,74 @@ export class PaymentService {
 
   /**
    * Process queued transactions: send all to relay when online, fallback to on-chain
+   * This implements the flow: queued -> relay -> blockchain
    */
   async processQueuedTransactions(): Promise<void> {
     const queued = await TxQueue.getQueuedTransactions();
+    
+    if (queued.length === 0) {
+      logger.info('[PaymentService] No queued transactions to process');
+      return;
+    }
+    
+    logger.info('[PaymentService] Processing queued transactions', { count: queued.length });
+    
     for (const tx of queued) {
       try {
+        // Check if we have internet connection
         const isOnline = await this.checkNetworkStatus(tx.chainId || '');
-        if (isOnline) {
+        
+        if (!isOnline) {
+          logger.info('[PaymentService] Still offline, skipping queued transaction', { id: tx.id });
+          continue;
+        }
+        
+        logger.info('[PaymentService] Processing queued transaction', { 
+          id: tx.id, 
+          to: tx.to, 
+          amount: tx.amount,
+          chainId: tx.chainId 
+        });
+        
+        try {
+          // Try relay first (relay -> blockchain)
+          logger.info('[PaymentService] Attempting to send queued transaction via relay');
+          await this.relayTransport.send(tx);
+          
+          // Remove from queue on success
+          await TxQueue.removeTransaction(tx.id || '');
+          logger.info('[PaymentService] Queued transaction sent successfully via relay', { id: tx.id });
+          
+        } catch (relayError) {
+          logger.warn('[PaymentService] Relay failed for queued transaction, trying on-chain fallback:', relayError);
+          
           try {
-            // Try relay first
-            await this.relayTransport.send(tx);
-            await TxQueue.removeTransaction(tx.id || '');
-            logger.info('[PaymentService] Queued transaction sent to relay', { id: tx.id });
-          } catch (relayError) {
-            logger.warn('[PaymentService] Relay failed for queued transaction, trying on-chain:', relayError);
-            
-            // Fallback to on-chain transport
+            // Fallback to on-chain transport (on-chain -> blockchain)
             const onChainResult = await this.onChainTransport.send(tx);
+            
+            // Remove from queue on success
             await TxQueue.removeTransaction(tx.id || '');
-            logger.info('[PaymentService] Queued transaction sent on-chain', { 
+            logger.info('[PaymentService] Queued transaction sent successfully on-chain', { 
               id: tx.id, 
               hash: onChainResult?.hash 
             });
+            
+          } catch (onChainError) {
+            logger.error('[PaymentService] Both relay and on-chain failed for queued transaction', {
+              id: tx.id,
+              relayError: relayError instanceof Error ? relayError.message : String(relayError),
+              onChainError: onChainError instanceof Error ? onChainError.message : String(onChainError)
+            });
+            
+            // Keep transaction in queue for retry later
+            // Could implement retry logic here with exponential backoff
           }
         }
       } catch (err) {
-        logger.error('[PaymentService] Failed to send queued transaction', err);
+        logger.error('[PaymentService] Failed to process queued transaction', {
+          id: tx.id,
+          error: err instanceof Error ? err.message : String(err)
+        });
       }
     }
   }

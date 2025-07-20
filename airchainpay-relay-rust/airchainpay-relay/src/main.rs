@@ -76,7 +76,7 @@ async fn main() -> std::io::Result<()> {
     transaction_processor.start().await.expect("Failed to start transaction processor");
     
     // Get port from environment or use default
-    let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string()).parse::<u16>().unwrap_or(8080);
+    let port = env::var("PORT").unwrap_or_else(|_| "4000".to_string()).parse::<u16>().unwrap_or(4000);
     
     log::info!("Starting AirChainPay Relay Server on port {port}");
     

@@ -587,7 +587,7 @@ export default function BLEPaymentScreen() {
         to: transactionForm.to,
         amount: transactionForm.amount,
         chainId: selectedChain,
-        transport: 'relay' as const,
+        transport: 'onchain' as const,
         extraData: { device: selectedDevice },
         token: tokenObj,
         paymentReference: transactionHash,

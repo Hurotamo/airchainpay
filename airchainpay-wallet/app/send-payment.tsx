@@ -185,7 +185,7 @@ export default function SendPaymentScreen() {
     try {
       // Choose transport type (for demo, use 'onchain' if available)
       // You may want to let the user select this in your UI
-      const transport: string = 'relay';
+      const transport: string = 'onchain';
 
       // Build payment request
       const paymentRequest: any = {
