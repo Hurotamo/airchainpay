@@ -1,35 +1,26 @@
 import { IPaymentTransport } from './BLETransport';
 import { logger } from '../../utils/Logger';
+import { getRelayConfig } from '../../constants/config';
 
 export class RelayTransport implements IPaymentTransport {
   private getRelayUrl(): string {
-    // Try different possible relay URLs
-    const possibleUrls = [
-      'http://localhost:4000/api/send_tx',
-      'http://127.0.0.1:4000/api/send_tx',
-      'http://192.168.1.41:4000/api/send_tx',
-      'http://10.0.2.2:4000/api/send_tx' // Android emulator localhost
-    ];
-    
-    // Use localhost as primary
-    return possibleUrls[0];
+    const config = getRelayConfig();
+    // Use the first endpoint as primary
+    return `${config.relayEndpoints[0]}${config.transactionEndpoint}`;
   }
 
-    private async checkRelayHealth(): Promise<boolean> {
-    const healthUrls = [
-      'http://localhost:4000/health',
-      'http://127.0.0.1:4000/health',
-      'http://192.168.1.41:4000/health'
-    ];
-
-    for (const url of healthUrls) {
+  private async checkRelayHealth(): Promise<boolean> {
+    const config = getRelayConfig();
+    
+    for (const endpoint of config.relayEndpoints) {
       try {
+        const healthUrl = `${endpoint}${config.healthEndpoint}`;
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 2000); // Reduced timeout
         
-        logger.info('[RelayTransport] Testing relay health at', { url });
+        logger.info('[RelayTransport] Testing relay health at', { url: healthUrl });
         
-        const response = await fetch(url, { 
+        const response = await fetch(healthUrl, { 
           signal: controller.signal,
           method: 'GET',
           headers: {
@@ -41,18 +32,24 @@ export class RelayTransport implements IPaymentTransport {
         clearTimeout(timeoutId);
         
         if (response.ok) {
-          logger.info('[RelayTransport] Relay health check passed', { url });
+          logger.info('[RelayTransport] Relay health check passed', { url: healthUrl });
           return true;
         } else {
-          logger.warn('[RelayTransport] Relay health check failed with status', { url, status: response.status });
+          logger.warn('[RelayTransport] Relay health check failed', { 
+            url: healthUrl, 
+            status: response.status 
+          });
         }
-      } catch (error: unknown) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        logger.debug('[RelayTransport] Health check failed for', { url, error: errorMessage });
-      }
+              } catch (error: unknown) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          logger.warn('[RelayTransport] Relay health check error', { 
+            url: endpoint, 
+            error: errorMessage 
+          });
+        }
     }
     
-    logger.warn('[RelayTransport] All relay health checks failed');
+    logger.error('[RelayTransport] All relay health checks failed');
     return false;
   }
 
