@@ -12,6 +12,7 @@ use rand::RngCore;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::os::unix::fs::PermissionsExt;
 
 /// Platform-specific features and capabilities
 pub struct PlatformFeatures {
@@ -222,8 +223,9 @@ impl FileStorage {
 
     // Helper: Get file path for a given key
     fn file_path(key: &str) -> PathBuf {
-        // TODO: Use a secure app data directory
-        let mut path = PathBuf::from("./secure_storage");
+        // Use OS-specific secure app data directory
+        let base_dir = dirs::data_dir().unwrap_or_else(|| PathBuf::from("./secure_storage"));
+        let mut path = base_dir.join("airchainpay");
         fs::create_dir_all(&path).ok();
         path.push(format!("{}.dat", key));
         path
@@ -231,7 +233,8 @@ impl FileStorage {
 
     // Helper: Get or generate salt for a key
     fn get_salt(key: &str) -> Result<Vec<u8>, WalletError> {
-        let mut salt_path = PathBuf::from("./secure_storage");
+        let base_dir = dirs::data_dir().unwrap_or_else(|| PathBuf::from("./secure_storage"));
+        let mut salt_path = base_dir.join("airchainpay");
         fs::create_dir_all(&salt_path).ok();
         salt_path.push(format!("{}.salt", key));
         if salt_path.exists() {
@@ -250,25 +253,28 @@ impl FileStorage {
 
 impl PlatformStorage for FileStorage {
     fn store(&self, key: &str, data: &[u8]) -> Result<(), WalletError> {
-        // TODO: Prompt user for password or use a secure method to obtain it
-        let password = "change_this_password"; // WARNING: Replace in production
+        // Prompt user for password or use OS keyring
+        let password = rpassword::prompt_password("Enter password for secure storage: ")
+            .map_err(|e| WalletError::crypto(format!("Password prompt failed: {}", e)))?;
         let salt = Self::get_salt(key)?;
-        let key_bytes = Self::derive_key(password, &salt)?;
+        let key_bytes = Self::derive_key(&password, &salt)?;
         let cipher = Aes256Gcm::new(GenericArray::from_slice(&key_bytes));
         let mut nonce = [0u8; 12];
         rand::thread_rng().fill_bytes(&mut nonce);
         let ciphertext = cipher.encrypt(GenericArray::from_slice(&nonce), data)
             .map_err(|e| WalletError::crypto(format!("Encryption failed: {}", e)))?;
         let mut file = File::create(Self::file_path(key))?;
+        file.set_permissions(fs::Permissions::from_mode(0o600))?;
         file.write_all(&nonce)?;
         file.write_all(&ciphertext)?;
         Ok(())
     }
 
     fn retrieve(&self, key: &str) -> Result<Vec<u8>, WalletError> {
-        let password = "change_this_password"; // WARNING: Replace in production
+        let password = rpassword::prompt_password("Enter password for secure storage: ")
+            .map_err(|e| WalletError::crypto(format!("Password prompt failed: {}", e)))?;
         let salt = Self::get_salt(key)?;
-        let key_bytes = Self::derive_key(password, &salt)?;
+        let key_bytes = Self::derive_key(&password, &salt)?;
         let cipher = Aes256Gcm::new(GenericArray::from_slice(&key_bytes));
         let mut file = File::open(Self::file_path(key))?;
         let mut nonce = [0u8; 12];
@@ -282,7 +288,8 @@ impl PlatformStorage for FileStorage {
 
     fn delete(&self, key: &str) -> Result<(), WalletError> {
         let _ = fs::remove_file(Self::file_path(key));
-        let mut salt_path = PathBuf::from("./secure_storage");
+        let base_dir = dirs::data_dir().unwrap_or_else(|| PathBuf::from("./secure_storage"));
+        let mut salt_path = base_dir.join("airchainpay");
         salt_path.push(format!("{}.salt", key));
         let _ = fs::remove_file(salt_path);
         Ok(())
@@ -293,8 +300,9 @@ impl PlatformStorage for FileStorage {
     }
 
     fn list_keys(&self) -> Result<Vec<String>, WalletError> {
+        let base_dir = dirs::data_dir().unwrap_or_else(|| PathBuf::from("./secure_storage"));
+        let dir = base_dir.join("airchainpay");
         let mut keys = vec![];
-        let dir = PathBuf::from("./secure_storage");
         if let Ok(entries) = fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();

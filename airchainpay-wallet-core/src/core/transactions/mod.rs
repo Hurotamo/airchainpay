@@ -4,15 +4,23 @@
 
 use crate::shared::error::WalletError;
 use crate::shared::types::{Transaction, SignedTransaction, TransactionHash, TransactionStatus, Network, Amount};
+use crate::core::crypto::signatures::SignatureManager;
+use reqwest::Client;
+use serde_json::json;
+use crate::core::crypto::keys::SecurePrivateKey;
 
 /// Transaction manager for handling blockchain transactions
 pub struct TransactionManager {
-    // TODO: Implement real transaction handling
+    signature_manager: SignatureManager,
+    rpc_url: String,
 }
 
 impl TransactionManager {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(rpc_url: String) -> Self {
+        Self {
+            signature_manager: SignatureManager::new().expect("Failed to create SignatureManager"),
+            rpc_url,
+        }
     }
 
     pub async fn init(&self) -> Result<(), WalletError> {
@@ -29,11 +37,9 @@ impl TransactionManager {
         if to.is_empty() {
             return Err(WalletError::validation("Recipient address cannot be empty"));
         }
-
         if value.is_empty() {
             return Err(WalletError::validation("Transaction value cannot be empty"));
         }
-
         Ok(Transaction {
             to,
             value,
@@ -53,21 +59,46 @@ impl TransactionManager {
         if private_key.is_empty() {
             return Err(WalletError::crypto("Private key cannot be empty"));
         }
-
-        // Mock signature - in production, this would use proper ECDSA signing
-        let signature = vec![0u8; 65];
-        let hash = "0x...".to_string();
-
+        let private_key_obj = SecurePrivateKey::from_bytes(private_key)?;
+        let tx_signature = self.signature_manager.sign_ethereum_transaction(transaction, &private_key_obj)?;
+        // Compose the signature as r || s || v (Ethereum style)
+        let mut signature_bytes = Vec::new();
+        signature_bytes.extend_from_slice(&hex::decode(&tx_signature.r).unwrap_or_default());
+        signature_bytes.extend_from_slice(&hex::decode(&tx_signature.s).unwrap_or_default());
+        signature_bytes.push(tx_signature.v);
+        use sha3::{Keccak256, Digest};
+        let mut hasher = Keccak256::new();
+        // TODO: RLP encode the transaction for a real hash
+        // hasher.update(rlp_bytes);
+        let hash = format!("0x{}", hex::encode(hasher.finalize()));
         Ok(SignedTransaction {
             transaction: transaction.clone(),
-            signature,
+            signature: signature_bytes,
             hash,
         })
     }
 
     pub async fn send_transaction(&self, signed_transaction: &SignedTransaction) -> Result<TransactionHash, WalletError> {
-        // TODO: Implement real transaction sending
-        Ok("0x0000000000000000000000000000000000000000000000000000000000000000".to_string())
+        let client = Client::new();
+        let tx_hex = hex::encode(&signed_transaction.signature);
+        let params = json!([tx_hex]);
+        let body = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_sendRawTransaction",
+            "params": params,
+            "id": 1
+        });
+        let resp = client.post(&self.rpc_url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| WalletError::network(format!("Failed to send transaction: {}", e)))?;
+        let resp_json: serde_json::Value = resp.json().await.map_err(|e| WalletError::network(format!("Invalid response: {}", e)))?;
+        if let Some(result) = resp_json.get("result") {
+            Ok(result.as_str().unwrap_or_default().to_string())
+        } else {
+            Err(WalletError::network("No transaction hash returned".to_string()))
+        }
     }
 
     pub async fn get_transaction_status(
@@ -77,19 +108,70 @@ impl TransactionManager {
         if transaction_hash.is_empty() {
             return Err(WalletError::validation("Transaction hash cannot be empty"));
         }
-
-        // Mock status - in production, this would query the blockchain
-        Ok(TransactionStatus::Pending)
+        let client = Client::new();
+        let params = json!([transaction_hash]);
+        let body = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_getTransactionReceipt",
+            "params": params,
+            "id": 1
+        });
+        let resp = client.post(&self.rpc_url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| WalletError::network(format!("Failed to get transaction status: {}", e)))?;
+        let resp_json: serde_json::Value = resp.json().await.map_err(|e| WalletError::network(format!("Invalid response: {}", e)))?;
+        if resp_json.get("result").is_some() {
+            Ok(TransactionStatus::Confirmed)
+        } else {
+            Ok(TransactionStatus::Pending)
+        }
     }
 
-    pub async fn estimate_gas(&self, _to_address: &str, _amount: u64) -> Result<u64, WalletError> {
-        // Mock gas estimation - in production, this would query the network
-        Ok(21000)
+    pub async fn estimate_gas(&self, to_address: &str, amount: u64) -> Result<u64, WalletError> {
+        let client = Client::new();
+        let params = json!([{ "to": to_address, "value": format!("0x{:x}", amount) }]);
+        let body = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_estimateGas",
+            "params": params,
+            "id": 1
+        });
+        let resp = client.post(&self.rpc_url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| WalletError::network(format!("Failed to estimate gas: {}", e)))?;
+        let resp_json: serde_json::Value = resp.json().await.map_err(|e| WalletError::network(format!("Invalid response: {}", e)))?;
+        if let Some(result) = resp_json.get("result") {
+            u64::from_str_radix(result.as_str().unwrap_or("0x5208").trim_start_matches("0x"), 16)
+                .map_err(|_| WalletError::network("Invalid gas estimate".to_string()))
+        } else {
+            Ok(21000)
+        }
     }
 
     pub async fn get_gas_price(&self, _network: Network) -> Result<u64, WalletError> {
-        // Mock gas price - in production, this would query the network
-        Ok(20000000000) // 20 gwei
+        let client = Client::new();
+        let body = json!({
+            "jsonrpc": "2.0",
+            "method": "eth_gasPrice",
+            "params": [],
+            "id": 1
+        });
+        let resp = client.post(&self.rpc_url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| WalletError::network(format!("Failed to get gas price: {}", e)))?;
+        let resp_json: serde_json::Value = resp.json().await.map_err(|e| WalletError::network(format!("Invalid response: {}", e)))?;
+        if let Some(result) = resp_json.get("result") {
+            u64::from_str_radix(result.as_str().unwrap_or("0x4a817c800").trim_start_matches("0x"), 16)
+                .map_err(|_| WalletError::network("Invalid gas price".to_string()))
+        } else {
+            Ok(20000000000)
+        }
     }
 }
 
@@ -123,7 +205,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_transaction_manager() {
-        let manager = TransactionManager::new();
+        let manager = TransactionManager::new("http://localhost:8545".to_string()); // Mock RPC URL
         manager.init().await.unwrap();
 
         let transaction = manager

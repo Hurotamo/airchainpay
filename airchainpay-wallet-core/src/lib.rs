@@ -110,7 +110,7 @@ pub async fn init_wallet_core() -> Result<WalletCore, WalletError> {
     let crypto_manager = CryptoManager::new();
     let wallet_manager = WalletManager::new(crypto_manager);
     let storage = StorageManager::new();
-    let transaction_manager = TransactionManager::new();
+    let transaction_manager = TransactionManager::new("http://localhost:8545".to_string());
     
     Ok(WalletCore {
         wallet_manager,
@@ -134,8 +134,30 @@ impl WalletCore {
     }
 
     pub async fn import_wallet(&self, seed_phrase: &str) -> Result<Wallet, WalletError> {
-        // TODO: Implement wallet import from seed phrase
-        Err(WalletError::not_implemented("Wallet import not yet implemented"))
+        use bip39::{Mnemonic, Language};
+        use bip32::{XPrv, DerivationPath, ExtendedPrivateKey, Seed};
+        use std::str::FromStr;
+        let mnemonic = Mnemonic::parse(seed_phrase)
+            .map_err(|e| WalletError::validation(format!("Invalid seed phrase: {}", e)))?;
+        let seed_bytes = mnemonic.to_seed("");
+        let seed = Seed::new(seed_bytes);
+        let xprv = XPrv::new(&seed)
+            .map_err(|e| WalletError::crypto(format!("Failed to create XPrv: {}", e)))?;
+        let derivation_path = DerivationPath::from_str("m/44'/60'/0'/0/0")
+            .map_err(|e| WalletError::crypto(format!("Invalid derivation path: {}", e)))?;
+        let mut child_xprv = xprv;
+        for child_number in derivation_path.into_iter() {
+            child_xprv = child_xprv.derive_child(child_number)
+                .map_err(|e| WalletError::crypto(format!("Failed to derive child XPrv: {}", e)))?;
+        }
+        let private_key_bytes = child_xprv.private_key().to_bytes();
+        let private_key_hex = format!("0x{}", hex::encode(private_key_bytes));
+        let wallet_id = format!("wallet_{}", uuid::Uuid::new_v4());
+        let network = Network::CoreTestnet;
+        let key_manager = self.wallet_manager.crypto_manager().key_manager.read().await;
+        let _ = key_manager.import_private_key(&wallet_id, &private_key_hex).await?;
+        let wallet = self.wallet_manager.create_wallet(&wallet_id, "Imported Wallet", network).await?;
+        Ok(Wallet::from(wallet))
     }
 
     pub async fn sign_message(&self, wallet: &Wallet, message: &str) -> Result<String, WalletError> {

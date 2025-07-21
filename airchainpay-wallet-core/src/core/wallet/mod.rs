@@ -250,6 +250,10 @@ impl WalletManager {
         
         Ok(())
     }
+
+    pub fn crypto_manager(&self) -> &CryptoManager {
+        &self.crypto_manager
+    }
 }
 
 #[cfg(test)]
