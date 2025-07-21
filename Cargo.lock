@@ -349,6 +349,7 @@ dependencies = [
  "criterion",
  "dotenv",
  "env_logger",
+ "ethers",
  "flate2",
  "generic-array 1.2.0",
  "hex",

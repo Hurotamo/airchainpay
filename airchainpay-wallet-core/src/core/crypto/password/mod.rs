@@ -89,7 +89,7 @@ impl PasswordManager {
             &salt,
             iterations,
             &mut hash
-        );
+        ).map_err(|e| WalletError::crypto(&format!("PBKDF2 error: {:?}", e)))?;
         Ok(format!(
             "$pbkdf2-sha256${}${}${}",
             iterations,
@@ -117,7 +117,7 @@ impl PasswordManager {
             &salt,
             iterations,
             &mut computed_hash
-        );
+        ).map_err(|e| WalletError::crypto(&format!("PBKDF2 error: {:?}", e)))?;
         Ok(computed_hash == stored_hash.as_slice())
     }
     
@@ -263,6 +263,15 @@ impl Zeroize for SecurePassword {
     }
 }
 
+/// Compute HMAC-SHA256 of a password (for demonstration)
+pub fn compute_password_hmac(password: &str, key: &[u8]) -> Vec<u8> {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    let mut mac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC can take key of any size");
+    mac.update(password.as_bytes());
+    mac.finalize().into_bytes().to_vec()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -352,5 +361,13 @@ mod tests {
         
         assert_eq!(secure_password.as_str(), password);
         assert_eq!(secure_password.as_bytes(), password.as_bytes());
+    }
+
+    #[test]
+    fn test_compute_password_hmac() {
+        let password = "test_password_123";
+        let key = b"supersecretkey";
+        let hmac = compute_password_hmac(password, key);
+        assert!(!hmac.is_empty());
     }
 } 

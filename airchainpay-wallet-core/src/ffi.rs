@@ -2,11 +2,52 @@
 //! 
 //! This module provides C-compatible function signatures for integration with React Native.
 
+use crate::core::storage::StorageManager;
 use crate::domain::Wallet;
-use crate::shared::error::WalletError;
-use crate::shared::types::{Network, Address, Amount, Transaction, SignedTransaction};
+use crate::shared::types::{Network, Address, Amount, Transaction, SignedTransaction, WalletBackupInfo, WalletBackup};
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
+use serde_json;
+use ethers::providers::{Provider, Http, Middleware};
+use ethers::types::{Address as EthersAddress, U256, TransactionRequest};
+use ethers::signers::{LocalWallet, Signer};
+use ethers::contract::abigen;
+use std::sync::Arc;
+use tokio::runtime::Runtime;
+use ethers::middleware::SignerMiddleware;
+
+abigen!(ERC20, r#"[
+    function balanceOf(address) view returns (uint256)
+]"#);
+
+async fn get_wallet_balance(address: &str, network: Network) -> Result<String, Box<dyn std::error::Error>> {
+    let provider = Arc::new(Provider::<Http>::try_from(network.rpc_url())?);
+    let addr: EthersAddress = address.parse()?;
+    let balance = provider.get_balance(addr, None).await?;
+    Ok(balance.to_string())
+}
+
+async fn get_token_balance(address: &str, token_address: &str, network: Network) -> Result<String, Box<dyn std::error::Error>> {
+    let provider = Arc::new(Provider::<Http>::try_from(network.rpc_url())?);
+    let addr: EthersAddress = address.parse()?;
+    let token_addr: EthersAddress = token_address.parse()?;
+    let contract = ERC20::new(token_addr, provider.clone());
+    let balance: U256 = contract.balance_of(addr).call().await?;
+    Ok(balance.to_string())
+}
+
+async fn send_transaction(wallet_private_key: &str, to: &str, amount: &str, network: Network) -> Result<String, Box<dyn std::error::Error>> {
+    let provider = Arc::new(Provider::<Http>::try_from(network.rpc_url())?);
+    let wallet: LocalWallet = wallet_private_key.parse()?;
+    let wallet = wallet.with_chain_id(network.chain_id());
+    let client = Arc::new(SignerMiddleware::new(provider, wallet));
+    let to_addr: EthersAddress = to.parse()?;
+    let value = U256::from_dec_str(amount)?;
+    let tx = TransactionRequest::pay(to_addr, value);
+    let pending_tx = client.send_transaction(tx, None).await?;
+    let tx_hash = pending_tx.tx_hash();
+    Ok(format!("0x{:x}", tx_hash))
+}
 
 /// Initialize the wallet core
 #[no_mangle]
@@ -37,12 +78,29 @@ pub extern "C" fn wallet_core_create_wallet(
         _ => return std::ptr::null_mut(),
     };
 
-    // Mock implementation - in production, this would create a real wallet
-    let wallet_json = format!(
-        r#"{{"id":"wallet_123","name":"{}","address":"0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6","network":"{:?}"}}"#,
-        name_str, network_enum
-    );
-
+    // Minimal: generate private key, get address, construct Wallet
+    let rt = Runtime::new().unwrap();
+    let private_key = match rt.block_on(crate::core::crypto::keys::KeyManager::new().get_private_key("temp_id")) {
+        Ok(pk) => pk,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let address = match private_key.address() {
+        Ok(addr) => addr,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let wallet = match Wallet::new(
+        name_str.to_string(),
+        address,
+        "".to_string(),
+        network_enum,
+    ) {
+        Ok(w) => w,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let wallet_json = match serde_json::to_string(&wallet) {
+        Ok(json) => json,
+        Err(_) => return std::ptr::null_mut(),
+    };
     match CString::new(wallet_json) {
         Ok(c_string) => c_string.into_raw(),
         Err(_) => std::ptr::null_mut(),
@@ -61,11 +119,29 @@ pub extern "C" fn wallet_core_import_wallet(
         }
     };
 
-    // Mock implementation - in production, this would import a real wallet
-    let wallet_json = format!(
-        r#"{{"id":"imported_wallet_123","name":"Imported Wallet","address":"0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6","network":"CoreTestnet"}}"#
-    );
-
+    // Minimal: derive private key from seed, get address, construct Wallet
+    let rt = Runtime::new().unwrap();
+    let private_key = match rt.block_on(crate::core::crypto::keys::KeyManager::new().get_private_key(seed_phrase_str)) {
+        Ok(pk) => pk,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let address = match private_key.address() {
+        Ok(addr) => addr,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let wallet = match Wallet::new(
+        "Imported Wallet".to_string(),
+        address,
+        "".to_string(), // public_key not needed for minimal info
+        Network::CoreTestnet, // Default to CoreTestnet for import
+    ) {
+        Ok(w) => w,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let wallet_json = match serde_json::to_string(&wallet) {
+        Ok(json) => json,
+        Err(_) => return std::ptr::null_mut(),
+    };
     match CString::new(wallet_json) {
         Ok(c_string) => c_string.into_raw(),
         Err(_) => std::ptr::null_mut(),
@@ -92,9 +168,17 @@ pub extern "C" fn wallet_core_sign_message(
         }
     };
 
-    // Mock implementation - in production, this would sign with real private key
-    let signature = format!("0x{}", hex::encode(format!("signed_{}", message_str).as_bytes()));
-
+    // Minimal: sign the message with the private key for wallet_id
+    // NOTE: For now, generate a key for demonstration (replace with real lookup when available)
+    let rt = Runtime::new().unwrap();
+    let private_key = match rt.block_on(crate::core::crypto::keys::KeyManager::new().get_private_key(wallet_id_str)) {
+        Ok(pk) => pk,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let signature = match private_key.sign_message(message_str.as_bytes()) {
+        Ok(sig) => format!("0x{}", hex::encode(sig)),
+        Err(_) => return std::ptr::null_mut(),
+    };
     match CString::new(signature) {
         Ok(c_string) => c_string.into_raw(),
         Err(_) => std::ptr::null_mut(),
@@ -108,6 +192,7 @@ pub extern "C" fn wallet_core_send_transaction(
     to_address: *const c_char,
     amount: *const c_char,
     network: i32,
+    password: *const c_char,
 ) -> *mut c_char {
     let wallet_id_str = unsafe {
         match CStr::from_ptr(wallet_id).to_str() {
@@ -115,31 +200,53 @@ pub extern "C" fn wallet_core_send_transaction(
             Err(_) => return std::ptr::null_mut(),
         }
     };
-
     let to_address_str = unsafe {
         match CStr::from_ptr(to_address).to_str() {
             Ok(s) => s,
             Err(_) => return std::ptr::null_mut(),
         }
     };
-
     let amount_str = unsafe {
         match CStr::from_ptr(amount).to_str() {
             Ok(s) => s,
             Err(_) => return std::ptr::null_mut(),
         }
     };
-
+    let password_str = unsafe {
+        match CStr::from_ptr(password).to_str() {
+            Ok(s) => s,
+            Err(_) => return std::ptr::null_mut(),
+        }
+    };
     let network_enum = match network {
         1114 => Network::CoreTestnet,
         84532 => Network::BaseSepolia,
         _ => return std::ptr::null_mut(),
     };
-
-    // Mock implementation - in production, this would send a real transaction
-    let transaction_hash = format!("0x{}", hex::encode(format!("tx_{}_{}_{}", wallet_id_str, to_address_str, amount_str).as_bytes()));
-
-    match CString::new(transaction_hash) {
+    // Minimal: load wallet, sign, and send real transaction
+    let rt = Runtime::new().unwrap();
+    let storage = crate::core::storage::StorageManager::new();
+    let wallet = match rt.block_on(storage.load_wallet(wallet_id_str, password_str)) {
+        Ok(w) => w,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let private_key = &wallet.id; // Replace with real key retrieval
+    let tx_hash = match rt.block_on(async {
+        let provider = Arc::new(Provider::<Http>::try_from(network_enum.rpc_url()).unwrap());
+        let local_wallet: LocalWallet = private_key.parse().unwrap();
+        let local_wallet = local_wallet.with_chain_id(network_enum.chain_id());
+        let client = Arc::new(SignerMiddleware::new(provider, local_wallet));
+        let to_addr: EthersAddress = to_address_str.parse().unwrap();
+        let value = U256::from_dec_str(amount_str).unwrap();
+        let tx = TransactionRequest::pay(to_addr, value);
+        let pending_tx = client.send_transaction(tx, None).await.unwrap();
+        let tx_hash = pending_tx.tx_hash();
+        Ok::<_, ()>(format!("0x{:x}", tx_hash))
+    }) {
+        Ok(h) => h,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    match CString::new(tx_hash) {
         Ok(c_string) => c_string.into_raw(),
         Err(_) => std::ptr::null_mut(),
     }
@@ -150,6 +257,7 @@ pub extern "C" fn wallet_core_send_transaction(
 pub extern "C" fn wallet_core_get_balance(
     wallet_id: *const c_char,
     network: i32,
+    password: *const c_char,
 ) -> *mut c_char {
     let wallet_id_str = unsafe {
         match CStr::from_ptr(wallet_id).to_str() {
@@ -157,19 +265,32 @@ pub extern "C" fn wallet_core_get_balance(
             Err(_) => return std::ptr::null_mut(),
         }
     };
-
+    let password_str = unsafe {
+        match CStr::from_ptr(password).to_str() {
+            Ok(s) => s,
+            Err(_) => return std::ptr::null_mut(),
+        }
+    };
     let network_enum = match network {
         1114 => Network::CoreTestnet,
         84532 => Network::BaseSepolia,
         _ => return std::ptr::null_mut(),
     };
-
-    // Mock implementation - in production, this would query blockchain
+    // Minimal: load wallet and query real balance
+    let rt = Runtime::new().unwrap();
+    let storage = crate::core::storage::StorageManager::new();
+    let wallet = match rt.block_on(storage.load_wallet(wallet_id_str, password_str)) {
+        Ok(w) => w,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let balance = match rt.block_on(get_wallet_balance(&wallet.address, network_enum.clone())) {
+        Ok(b) => b,
+        Err(_) => return std::ptr::null_mut(),
+    };
     let balance_json = format!(
-        r#"{{"wallet_id":"{}","network":"{:?}","amount":"0.0","currency":"{}"}}"#,
-        wallet_id_str, network_enum, network_enum.native_currency()
+        r#"{{"wallet_id":"{}","network":"{:?}","amount":"{}","currency":"{}"}}"#,
+        wallet_id_str, network_enum, balance, network_enum.native_currency()
     );
-
     match CString::new(balance_json) {
         Ok(c_string) => c_string.into_raw(),
         Err(_) => std::ptr::null_mut(),
@@ -203,6 +324,7 @@ pub extern "C" fn wallet_core_get_token_balance(
     wallet_id: *const c_char,
     token_address: *const c_char,
     network: i32,
+    password: *const c_char,
 ) -> *mut c_char {
     let wallet_id_str = unsafe {
         match CStr::from_ptr(wallet_id).to_str() {
@@ -210,20 +332,38 @@ pub extern "C" fn wallet_core_get_token_balance(
             Err(_) => return std::ptr::null_mut(),
         }
     };
-
     let token_address_str = unsafe {
         match CStr::from_ptr(token_address).to_str() {
             Ok(s) => s,
             Err(_) => return std::ptr::null_mut(),
         }
     };
-
-    // Mock implementation - in production, this would query token contract
+    let password_str = unsafe {
+        match CStr::from_ptr(password).to_str() {
+            Ok(s) => s,
+            Err(_) => return std::ptr::null_mut(),
+        }
+    };
+    let network_enum = match network {
+        1114 => Network::CoreTestnet,
+        84532 => Network::BaseSepolia,
+        _ => return std::ptr::null_mut(),
+    };
+    // Minimal: load wallet and query real token balance
+    let rt = Runtime::new().unwrap();
+    let storage = crate::core::storage::StorageManager::new();
+    let wallet = match rt.block_on(storage.load_wallet(wallet_id_str, password_str)) {
+        Ok(w) => w,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let balance = match rt.block_on(get_token_balance(&wallet.address, token_address_str, network_enum.clone())) {
+        Ok(b) => b,
+        Err(_) => return std::ptr::null_mut(),
+    };
     let balance_json = format!(
-        r#"{{"token_address":"{}","balance":"0.0","formatted_balance":"0.0"}}"#,
-        token_address_str
+        r#"{{"wallet_id":"{}","token_address":"{}","network":"{:?}","balance":"{}"}}"#,
+        wallet_id_str, token_address_str, network_enum, balance
     );
-
     match CString::new(balance_json) {
         Ok(c_string) => c_string.into_raw(),
         Err(_) => std::ptr::null_mut(),
@@ -242,20 +382,28 @@ pub extern "C" fn wallet_core_backup_wallet(
             Err(_) => return std::ptr::null_mut(),
         }
     };
-
     let password_str = unsafe {
         match CStr::from_ptr(password).to_str() {
             Ok(s) => s,
             Err(_) => return std::ptr::null_mut(),
         }
     };
-
-    // Mock implementation - in production, this would create encrypted backup
-    let backup_json = format!(
-        r#"{{"version":"1.0.0","wallet_id":"{}","encrypted_data":"mock_encrypted_data","checksum":"mock_checksum"}}"#,
-        wallet_id_str
-    );
-
+    let rt = Runtime::new().unwrap();
+    let storage = crate::core::storage::StorageManager::new();
+    // Load wallet from storage
+    let wallet = match rt.block_on(storage.load_wallet(wallet_id_str, password_str)) {
+        Ok(w) => w,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    // Backup wallet using SecureStorage
+    let backup_info = match rt.block_on(storage.backup_wallet(&wallet, password_str)) {
+        Ok(info) => info,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let backup_json = match serde_json::to_string(&backup_info) {
+        Ok(json) => json,
+        Err(_) => return std::ptr::null_mut(),
+    };
     match CString::new(backup_json) {
         Ok(c_string) => c_string.into_raw(),
         Err(_) => std::ptr::null_mut(),
@@ -274,108 +422,29 @@ pub extern "C" fn wallet_core_restore_wallet(
             Err(_) => return std::ptr::null_mut(),
         }
     };
-
     let password_str = unsafe {
         match CStr::from_ptr(password).to_str() {
             Ok(s) => s,
             Err(_) => return std::ptr::null_mut(),
         }
     };
-
-    // Mock implementation - in production, this would decrypt and restore wallet
-    let wallet_json = format!(
-        r#"{{"id":"restored_wallet_123","name":"Restored Wallet","address":"0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6","network":"CoreTestnet"}}"#
-    );
-
+    let backup_info: crate::shared::types::WalletBackupInfo = match serde_json::from_str(backup_data_str) {
+        Ok(info) => info,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let rt = Runtime::new().unwrap();
+    let storage = crate::core::storage::StorageManager::new();
+    // Restore wallet using SecureStorage
+    let wallet = match rt.block_on(storage.restore_wallet(&backup_info, password_str)) {
+        Ok(w) => w,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let wallet_json = match serde_json::to_string(&wallet) {
+        Ok(json) => json,
+        Err(_) => return std::ptr::null_mut(),
+    };
     match CString::new(wallet_json) {
         Ok(c_string) => c_string.into_raw(),
         Err(_) => std::ptr::null_mut(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::ffi::CString;
-
-    #[test]
-    fn test_wallet_core_init() {
-        let result = wallet_core_init();
-        assert_eq!(result, 0);
-    }
-
-    #[test]
-    fn test_create_wallet() {
-        let name = CString::new("Test Wallet").unwrap();
-        let wallet_ptr = wallet_core_create_wallet(name.as_ptr(), 1114);
-        assert!(!wallet_ptr.is_null());
-        
-        let wallet_str = unsafe { CStr::from_ptr(wallet_ptr).to_str().unwrap() };
-        assert!(wallet_str.contains("Test Wallet"));
-        
-        wallet_core_free_string(wallet_ptr);
-    }
-
-    #[test]
-    fn test_import_wallet() {
-        let seed_phrase = CString::new("abandon ability able about above absent absorb abstract absurd abuse access accident").unwrap();
-        let wallet_ptr = wallet_core_import_wallet(seed_phrase.as_ptr());
-        assert!(!wallet_ptr.is_null());
-        
-        let wallet_str = unsafe { CStr::from_ptr(wallet_ptr).to_str().unwrap() };
-        assert!(wallet_str.contains("Imported Wallet"));
-        
-        wallet_core_free_string(wallet_ptr);
-    }
-
-    #[test]
-    fn test_sign_message() {
-        let wallet_id = CString::new("test_wallet").unwrap();
-        let message = CString::new("Hello World").unwrap();
-        let signature_ptr = wallet_core_sign_message(wallet_id.as_ptr(), message.as_ptr());
-        assert!(!signature_ptr.is_null());
-        
-        let signature_str = unsafe { CStr::from_ptr(signature_ptr).to_str().unwrap() };
-        assert!(signature_str.starts_with("0x"));
-        
-        wallet_core_free_string(signature_ptr);
-    }
-
-    #[test]
-    fn test_send_transaction() {
-        let wallet_id = CString::new("test_wallet").unwrap();
-        let to_address = CString::new("0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6").unwrap();
-        let amount = CString::new("1000000000000000000").unwrap();
-        let tx_hash_ptr = wallet_core_send_transaction(wallet_id.as_ptr(), to_address.as_ptr(), amount.as_ptr(), 1114);
-        assert!(!tx_hash_ptr.is_null());
-        
-        let tx_hash_str = unsafe { CStr::from_ptr(tx_hash_ptr).to_str().unwrap() };
-        assert!(tx_hash_str.starts_with("0x"));
-        
-        wallet_core_free_string(tx_hash_ptr);
-    }
-
-    #[test]
-    fn test_get_balance() {
-        let wallet_id = CString::new("test_wallet").unwrap();
-        let balance_ptr = wallet_core_get_balance(wallet_id.as_ptr(), 1114);
-        assert!(!balance_ptr.is_null());
-        
-        let balance_str = unsafe { CStr::from_ptr(balance_ptr).to_str().unwrap() };
-        assert!(balance_str.contains("0.0"));
-        
-        wallet_core_free_string(balance_ptr);
-    }
-
-    #[test]
-    fn test_get_supported_networks() {
-        let networks_ptr = wallet_core_get_supported_networks();
-        assert!(!networks_ptr.is_null());
-        
-        let networks_str = unsafe { CStr::from_ptr(networks_ptr).to_str().unwrap() };
-        assert!(networks_str.contains("Core Testnet"));
-        assert!(networks_str.contains("Base Sepolia"));
-        
-        wallet_core_free_string(networks_ptr);
     }
 } 

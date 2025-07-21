@@ -28,12 +28,14 @@ impl<'a> SecureStorage<'a> {
         Ok(())
     }
 
-    pub async fn store_data(&self, key: &str, data: &[u8]) -> Result<(), WalletError> {
-        self.storage.store(key, data)
+    pub async fn store_data(&self, key: &str, data: &[u8], password: &str) -> Result<(), WalletError> {
+        let encrypted = self.encrypt_data(data, password).await?;
+        self.storage.store(key, &encrypted)
     }
 
-    pub async fn retrieve_data(&self, key: &str) -> Result<Vec<u8>, WalletError> {
-        self.storage.retrieve(key)
+    pub async fn retrieve_data(&self, key: &str, password: &str) -> Result<Vec<u8>, WalletError> {
+        let encrypted = self.storage.retrieve(key)?;
+        self.decrypt_data(&encrypted, password).await
     }
 
     pub async fn delete_data(&self, key: &str) -> Result<(), WalletError> {
@@ -97,20 +99,57 @@ impl<'a> SecureStorage<'a> {
         Ok(wallet)
     }
 
-    async fn encrypt_data(&self, _data: &[u8], _password: &str) -> Result<Vec<u8>, WalletError> {
-        // Mock implementation
-        Ok(vec![])
+    async fn encrypt_data(&self, data: &[u8], password: &str) -> Result<Vec<u8>, WalletError> {
+        use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::{Aead, generic_array::GenericArray}};
+        use rand::RngCore;
+        use argon2::{Argon2, PasswordHasher};
+        let mut salt = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut salt);
+        let salt_str = argon2::password_hash::SaltString::encode_b64(&salt)?;
+        let argon2 = Argon2::default();
+        let password_hash = argon2.hash_password(password.as_bytes(), &salt_str)
+            .map_err(|e| WalletError::crypto(format!("Password hashing failed: {}", e)))?;
+        let binding = password_hash.hash.unwrap();
+        let hash_bytes = binding.as_bytes();
+        let key = GenericArray::from_slice(&hash_bytes[..32]);
+        let cipher = Aes256Gcm::new(key);
+        let mut nonce = [0u8; 12];
+        rand::thread_rng().fill_bytes(&mut nonce);
+        let ciphertext = cipher.encrypt(GenericArray::from_slice(&nonce), data)
+            .map_err(|e| WalletError::crypto(format!("Encryption failed: {}", e)))?;
+        let mut result = Vec::new();
+        result.extend_from_slice(&salt);
+        result.extend_from_slice(&nonce);
+        result.extend_from_slice(&ciphertext);
+        Ok(result)
     }
 
-    async fn decrypt_data(&self, _encrypted_data: &[u8], _password: &str) -> Result<Vec<u8>, WalletError> {
-        // Mock implementation
-        Ok(vec![])
+    async fn decrypt_data(&self, encrypted_data: &[u8], password: &str) -> Result<Vec<u8>, WalletError> {
+        use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::{Aead, generic_array::GenericArray}};
+        use argon2::{Argon2, PasswordHasher};
+        if encrypted_data.len() < 32 + 12 {
+            return Err(WalletError::crypto("Encrypted data too short".to_string()));
+        }
+        let salt = &encrypted_data[..32];
+        let nonce = &encrypted_data[32..44];
+        let ciphertext = &encrypted_data[44..];
+        let salt_str = argon2::password_hash::SaltString::encode_b64(salt)?;
+        let argon2 = Argon2::default();
+        let password_hash = argon2.hash_password(password.as_bytes(), &salt_str)
+            .map_err(|e| WalletError::crypto(format!("Password hashing failed: {}", e)))?;
+        let binding = password_hash.hash.unwrap();
+        let hash_bytes = binding.as_bytes();
+        let key = GenericArray::from_slice(&hash_bytes[..32]);
+        let cipher = Aes256Gcm::new(key);
+        let plaintext = cipher.decrypt(GenericArray::from_slice(nonce), ciphertext)
+            .map_err(|e| WalletError::crypto(format!("Decryption failed: {}", e)))?;
+        Ok(plaintext)
     }
 }
 
 /// Storage manager for wallet data persistence
 pub struct StorageManager {
-    // TODO: Implement real storage backend
+    // Uses FileStorage and SecureStorage for real persistent storage
 }
 
 impl StorageManager {
@@ -130,6 +169,15 @@ impl StorageManager {
         let storage = SecureStorage::new(&file_storage);
         storage.restore_wallet(backup, password).await
     }
+
+    pub async fn load_wallet(&self, wallet_id: &str, password: &str) -> Result<Wallet, WalletError> {
+        let file_storage = FileStorage::new()?;
+        let storage = SecureStorage::new(&file_storage);
+        let data = storage.retrieve_data(wallet_id, password).await?;
+        let wallet: Wallet = serde_json::from_slice(&data)
+            .map_err(|e| WalletError::validation(format!("Wallet deserialization failed: {}", e)))?;
+        Ok(wallet)
+    }
 }
 
 /// Initialize storage
@@ -144,6 +192,15 @@ pub async fn cleanup() -> Result<(), WalletError> {
     Ok(())
 }
 
+/// Example function to generate a random AES-GCM Nonce using thread_rng
+pub fn generate_random_nonce() -> [u8; 12] {
+    use rand::RngCore;
+    let mut nonce = [0u8; 12];
+    rand::thread_rng().fill_bytes(&mut nonce);
+    nonce
+}
+
+/// Note: SecureWallet can be used for enhanced wallet security features.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,9 +224,15 @@ mod tests {
         storage.init().await.unwrap();
 
         let data = b"test data";
-        storage.store_data("test_key", data).await.unwrap();
-        
-        let retrieved = storage.retrieve_data("test_key").await.unwrap();
-        assert_eq!(retrieved, vec![]); // Mock returns empty
+        let password = "test_password";
+        storage.store_data("test_key", data, password).await.unwrap();
+        let retrieved = storage.retrieve_data("test_key", password).await.unwrap();
+        assert_eq!(retrieved, data);
+    }
+
+    #[test]
+    fn test_generate_random_nonce() {
+        let nonce = generate_random_nonce();
+        assert_eq!(nonce.len(), 12);
     }
 } 
