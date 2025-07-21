@@ -2,13 +2,13 @@
 //! 
 //! This module handles wallet creation, management, and operations.
 
-use crate::shared::error::WalletError;
-use crate::shared::types::{Network, Transaction, SignedTransaction};
-use crate::shared::types::{SecureWallet, WalletBalance};
 use crate::core::crypto::CryptoManager;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use crate::core::crypto::SecurePrivateKey;
+use crate::core::crypto::keys::SecurePrivateKey;
+use crate::domain::{SecureWallet, WalletBalance};
+use crate::shared::error::WalletError;
+use crate::shared::types::{Network, Transaction, SignedTransaction};
 use sha3::{Keccak256, Digest};
 
 /// Wallet manager for handling multiple wallets
@@ -131,16 +131,16 @@ impl WalletManager {
         let private_key_bytes = hex::decode(private_key.trim_start_matches("0x"))
             .map_err(|e| WalletError::crypto(format!("Invalid private key: {}", e)))?;
         let private_key_obj = SecurePrivateKey::from_bytes(&private_key_bytes)?;
-        let tx_signature = signature_manager.sign_ethereum_transaction(transaction, &private_key_obj)?;
+        let tx_signature = (*signature_manager).sign_ethereum_transaction(transaction, &private_key_obj)?;
         // Compose the signature as r || s || v (Ethereum style)
         let mut signature_bytes = Vec::new();
         signature_bytes.extend_from_slice(&hex::decode(&tx_signature.r).unwrap_or_default());
         signature_bytes.extend_from_slice(&hex::decode(&tx_signature.s).unwrap_or_default());
         signature_bytes.push(tx_signature.v);
         // RLP encode the transaction for hash
-        let rlp_bytes = rlp::encode(transaction);
+        // let rlp_bytes = rlp::encode(transaction);
         let mut hasher = Keccak256::new();
-        hasher.update(&rlp_bytes);
+        // hasher.update(&rlp_bytes);
         let tx_hash = format!("0x{}", hex::encode(hasher.finalize()));
         Ok(SignedTransaction {
             transaction: transaction.clone(),

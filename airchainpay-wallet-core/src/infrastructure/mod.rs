@@ -4,10 +4,10 @@
 //! for the wallet system, including storage, networking, and platform services.
 
 pub mod platform;
-pub mod network;
-pub mod persistence;
+// pub mod network;
+// pub mod persistence;
 
 // Re-export infrastructure components
 pub use platform::*;
-pub use network::*;
-pub use persistence::*; 
+// pub use network::*;
+// pub use persistence::*; 

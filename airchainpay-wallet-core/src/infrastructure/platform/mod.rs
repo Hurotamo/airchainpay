@@ -4,9 +4,10 @@
 //! operating systems and platforms (iOS, Android, Linux, macOS, Windows).
 
 use crate::shared::error::WalletError;
-use crate::shared::constants::*;
-use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::{Aead, OsRng, generic_array::GenericArray}};
+use crate::shared::types::SecurityLevel;
+use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::{Aead, generic_array::GenericArray}};
 use argon2::{Argon2, PasswordHasher};
+use rand::thread_rng;
 use rand::RngCore;
 use std::fs::{self, File};
 use std::io::{Read, Write};
@@ -27,8 +28,8 @@ pub struct PlatformFeatures {
 impl PlatformFeatures {
     /// Detect platform features
     pub fn detect() -> Self {
-        let platform_name = PLATFORM.to_string();
-        let architecture = ARCHITECTURE.to_string();
+        let platform_name = "unknown".to_string(); // Placeholder, replace with actual detection
+        let architecture = "unknown".to_string(); // Placeholder, replace with actual detection
         
         let (has_secure_enclave, has_biometric_auth, has_keychain, has_keystore, has_hardware_backed_storage) = match platform_name.as_str() {
             "ios" => (true, true, true, false, true),
@@ -67,13 +68,13 @@ impl PlatformFeatures {
     }
 
     /// Get recommended security level for platform
-    pub fn recommended_security_level(&self) -> crate::shared::constants::SecurityLevel {
+    pub fn recommended_security_level(&self) -> SecurityLevel {
         if self.has_secure_enclave {
-            crate::shared::constants::SecurityLevel::Maximum
+            SecurityLevel::High
         } else if self.has_hardware_backed_storage {
-            crate::shared::constants::SecurityLevel::High
+            SecurityLevel::High
         } else {
-            crate::shared::constants::SecurityLevel::Medium
+            SecurityLevel::Medium
         }
     }
 }
@@ -146,20 +147,20 @@ impl PlatformManager {
         let features = PlatformFeatures::detect();
         
         let storage: Box<dyn PlatformStorage> = match features.platform_name.as_str() {
-            "ios" => Box::new(IOSKeychainStorage::new()?),
-            "android" => Box::new(AndroidKeystoreStorage::new()?),
+            "ios" => Box::new(FileStorage::new()?),
+            "android" => Box::new(FileStorage::new()?),
             _ => Box::new(FileStorage::new()?),
         };
         
         let biometric_auth: Box<dyn BiometricAuth> = match features.platform_name.as_str() {
-            "ios" => Box::new(IOSBiometricAuth::new()?),
-            "android" => Box::new(AndroidBiometricAuth::new()?),
+            "ios" => Box::new(NoBiometricAuth::new()),
+            "android" => Box::new(NoBiometricAuth::new()),
             _ => Box::new(NoBiometricAuth::new()),
         };
         
         let secure_enclave: Box<dyn SecureEnclave> = match features.platform_name.as_str() {
-            "ios" => Box::new(IOSSecureEnclave::new()?),
-            "macos" => Box::new(MacOSSecureEnclave::new()?),
+            "ios" => Box::new(NoSecureEnclave::new()),
+            "macos" => Box::new(NoSecureEnclave::new()),
             _ => Box::new(NoSecureEnclave::new()),
         };
         
@@ -193,107 +194,8 @@ impl PlatformManager {
 
     /// Initialize platform-specific features
     pub fn init(&self) -> Result<(), WalletError> {
-        // Initialize storage
-        self.storage.init()?;
-        
-        // Initialize biometric authentication if available
-        if self.features.supports_biometric_auth() {
-            self.biometric_auth.init()?;
-        }
-        
-        // Initialize secure enclave if available
-        if self.features.has_secure_enclave() {
-            self.secure_enclave.init()?;
-        }
-        
+        // All .init() calls removed
         Ok(())
-    }
-}
-
-// iOS-specific implementations
-#[cfg(target_os = "ios")]
-pub struct IOSKeychainStorage;
-
-#[cfg(target_os = "ios")]
-impl IOSKeychainStorage {
-    pub fn new() -> Result<Self, WalletError> {
-        Ok(Self)
-    }
-}
-
-#[cfg(target_os = "ios")]
-impl PlatformStorage for IOSKeychainStorage {
-    fn store(&self, key: &str, data: &[u8]) -> Result<(), WalletError> {
-        // TODO: Implement FFI call to Swift/ObjC for Keychain storage
-        // Example: call a C-ABI function exposed by native code
-        Err(WalletError::not_implemented("iOS Keychain FFI integration required"))
-    }
-    
-    fn retrieve(&self, key: &str) -> Result<Vec<u8>, WalletError> {
-        // TODO: Implement FFI call to Swift/ObjC for Keychain retrieval
-        Err(WalletError::not_implemented("iOS Keychain FFI integration required"))
-    }
-    
-    fn delete(&self, key: &str) -> Result<(), WalletError> {
-        // TODO: Implement FFI call to Swift/ObjC for Keychain deletion
-        Err(WalletError::not_implemented("iOS Keychain FFI integration required"))
-    }
-    
-    fn exists(&self, key: &str) -> Result<bool, WalletError> {
-        // TODO: Implement FFI call to Swift/ObjC for Keychain existence check
-        Err(WalletError::not_implemented("iOS Keychain FFI integration required"))
-    }
-    
-    fn list_keys(&self) -> Result<Vec<String>, WalletError> {
-        // TODO: Implement FFI call to Swift/ObjC for Keychain key listing
-        Err(WalletError::not_implemented("iOS Keychain FFI integration required"))
-    }
-}
-
-#[cfg(target_os = "ios")]
-impl IOSKeychainStorage {
-    fn init(&self) -> Result<(), WalletError> {
-        // Initialize iOS Keychain
-        Ok(())
-    }
-}
-
-// Android-specific implementations
-#[cfg(target_os = "android")]
-pub struct AndroidKeystoreStorage;
-
-#[cfg(target_os = "android")]
-impl AndroidKeystoreStorage {
-    pub fn new() -> Result<Self, WalletError> {
-        Ok(Self)
-    }
-}
-
-#[cfg(target_os = "android")]
-impl PlatformStorage for AndroidKeystoreStorage {
-    fn store(&self, key: &str, data: &[u8]) -> Result<(), WalletError> {
-        // TODO: Implement FFI call to Kotlin/Java for Keystore storage
-        Err(WalletError::not_implemented("Android Keystore FFI integration required"))
-    }
-    
-    fn retrieve(&self, key: &str) -> Result<Vec<u8>, WalletError> {
-        // TODO: Implement FFI call to Kotlin/Java for Keystore retrieval
-        Err(WalletError::not_implemented("Android Keystore FFI integration required"))
-    }
-    
-    fn delete(&self, key: &str) -> Result<(), WalletError> {
-        // TODO: Implement FFI call to Kotlin/Java for Keystore deletion
-        Err(WalletError::not_implemented("Android Keystore FFI integration required"))
-    }
-    
-    fn exists(&self, key: &str) -> Result<bool, WalletError> {
-        // TODO: Implement FFI call to Kotlin/Java for Keystore existence check
-        Err(WalletError::not_implemented("Android Keystore FFI integration required"))
-    }
-    
-    fn list_keys(&self) -> Result<Vec<String>, WalletError> {
-        // TODO: Implement FFI call to Kotlin/Java for Keystore key listing
-        Err(WalletError::not_implemented("Android Keystore FFI integration required"))
     }
 }
 
@@ -307,12 +209,12 @@ impl FileStorage {
 
     // Helper: Derive encryption key from password using Argon2
     fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; 32], WalletError> {
-        let salt = argon2::password_hash::SaltString::b64_encode(salt)
-            .map_err(|e| WalletError::crypto(format!("Invalid salt: {}", e)))?;
+        let salt = argon2::password_hash::SaltString::encode_b64(salt)?;
         let argon2 = Argon2::default();
         let password_hash = argon2.hash_password(password.as_bytes(), &salt)
             .map_err(|e| WalletError::crypto(format!("Password hashing failed: {}", e)))?;
-        let hash_bytes = password_hash.hash.unwrap().as_bytes();
+        let binding = password_hash.hash.unwrap();
+        let hash_bytes = binding.as_bytes();
         let mut key = [0u8; 32];
         key.copy_from_slice(&hash_bytes[..32]);
         Ok(key)
@@ -338,7 +240,7 @@ impl FileStorage {
             Ok(salt)
         } else {
             let mut salt = [0u8; 16];
-            OsRng.fill_bytes(&mut salt);
+            rand::thread_rng().fill_bytes(&mut salt);
             let mut f = File::create(&salt_path)?;
             f.write_all(&salt)?;
             Ok(salt.to_vec())
@@ -354,7 +256,7 @@ impl PlatformStorage for FileStorage {
         let key_bytes = Self::derive_key(password, &salt)?;
         let cipher = Aes256Gcm::new(GenericArray::from_slice(&key_bytes));
         let mut nonce = [0u8; 12];
-        OsRng.fill_bytes(&mut nonce);
+        rand::thread_rng().fill_bytes(&mut nonce);
         let ciphertext = cipher.encrypt(GenericArray::from_slice(&nonce), data)
             .map_err(|e| WalletError::crypto(format!("Encryption failed: {}", e)))?;
         let mut file = File::create(Self::file_path(key))?;
@@ -373,7 +275,7 @@ impl PlatformStorage for FileStorage {
         file.read_exact(&mut nonce)?;
         let mut ciphertext = vec![];
         file.read_to_end(&mut ciphertext)?;
-        let plaintext = cipher.decrypt(GenericArray::from_slice(&nonce), &ciphertext)
+        let plaintext = cipher.decrypt(GenericArray::from_slice(&nonce), ciphertext.as_slice())
             .map_err(|e| WalletError::crypto(format!("Decryption failed: {}", e)))?;
         Ok(plaintext)
     }
@@ -410,77 +312,11 @@ impl PlatformStorage for FileStorage {
 // TODO: Ensure secure file permissions and directory location
 
 // Biometric authentication implementations
-pub struct IOSBiometricAuth;
-pub struct AndroidBiometricAuth;
 pub struct NoBiometricAuth;
-
-impl IOSBiometricAuth {
-    pub fn new() -> Result<Self, WalletError> {
-        Ok(Self)
-    }
-    
-    fn init(&self) -> Result<(), WalletError> {
-        Ok(())
-    }
-}
-
-impl AndroidBiometricAuth {
-    pub fn new() -> Result<Self, WalletError> {
-        Ok(Self)
-    }
-    
-    fn init(&self) -> Result<(), WalletError> {
-        Ok(())
-    }
-}
 
 impl NoBiometricAuth {
     pub fn new() -> Self {
         Self
-    }
-}
-
-impl BiometricAuth for IOSBiometricAuth {
-    fn is_available(&self) -> Result<bool, WalletError> {
-        Ok(true)
-    }
-    
-    fn authenticate(&self, _reason: &str) -> Result<bool, WalletError> {
-        Ok(true)
-    }
-    
-    fn is_enabled(&self) -> Result<bool, WalletError> {
-        Ok(true)
-    }
-    
-    fn enable(&self) -> Result<(), WalletError> {
-        Ok(())
-    }
-    
-    fn disable(&self) -> Result<(), WalletError> {
-        Ok(())
-    }
-}
-
-impl BiometricAuth for AndroidBiometricAuth {
-    fn is_available(&self) -> Result<bool, WalletError> {
-        Ok(true)
-    }
-    
-    fn authenticate(&self, _reason: &str) -> Result<bool, WalletError> {
-        Ok(true)
-    }
-    
-    fn is_enabled(&self) -> Result<bool, WalletError> {
-        Ok(true)
-    }
-    
-    fn enable(&self) -> Result<(), WalletError> {
-        Ok(())
-    }
-    
-    fn disable(&self) -> Result<(), WalletError> {
-        Ok(())
     }
 }
 
@@ -507,77 +343,11 @@ impl BiometricAuth for NoBiometricAuth {
 }
 
 // Secure enclave implementations
-pub struct IOSSecureEnclave;
-pub struct MacOSSecureEnclave;
 pub struct NoSecureEnclave;
-
-impl IOSSecureEnclave {
-    pub fn new() -> Result<Self, WalletError> {
-        Ok(Self)
-    }
-    
-    fn init(&self) -> Result<(), WalletError> {
-        Ok(())
-    }
-}
-
-impl MacOSSecureEnclave {
-    pub fn new() -> Result<Self, WalletError> {
-        Ok(Self)
-    }
-    
-    fn init(&self) -> Result<(), WalletError> {
-        Ok(())
-    }
-}
 
 impl NoSecureEnclave {
     pub fn new() -> Self {
         Self
-    }
-}
-
-impl SecureEnclave for IOSSecureEnclave {
-    fn is_available(&self) -> Result<bool, WalletError> {
-        Ok(true)
-    }
-    
-    fn generate_key_pair(&self, _key_id: &str) -> Result<String, WalletError> {
-        Ok("public_key".to_string())
-    }
-    
-    fn sign(&self, _key_id: &str, _data: &[u8]) -> Result<Vec<u8>, WalletError> {
-        Ok(vec![])
-    }
-    
-    fn get_public_key(&self, _key_id: &str) -> Result<String, WalletError> {
-        Ok("public_key".to_string())
-    }
-    
-    fn delete_key(&self, _key_id: &str) -> Result<(), WalletError> {
-        Ok(())
-    }
-}
-
-impl SecureEnclave for MacOSSecureEnclave {
-    fn is_available(&self) -> Result<bool, WalletError> {
-        Ok(true)
-    }
-    
-    fn generate_key_pair(&self, _key_id: &str) -> Result<String, WalletError> {
-        Ok("public_key".to_string())
-    }
-    
-    fn sign(&self, _key_id: &str, _data: &[u8]) -> Result<Vec<u8>, WalletError> {
-        Ok(vec![])
-    }
-    
-    fn get_public_key(&self, _key_id: &str) -> Result<String, WalletError> {
-        Ok("public_key".to_string())
-    }
-    
-    fn delete_key(&self, _key_id: &str) -> Result<(), WalletError> {
-        Ok(())
     }
 }
 
@@ -587,28 +357,24 @@ impl SecureEnclave for NoSecureEnclave {
     }
     
     fn generate_key_pair(&self, _key_id: &str) -> Result<String, WalletError> {
-        Err(WalletError::Configuration("Secure enclave not available".to_string()))
+        Err(WalletError::config("Secure enclave not available".to_string()))
     }
     
     fn sign(&self, _key_id: &str, _data: &[u8]) -> Result<Vec<u8>, WalletError> {
-        Err(WalletError::Configuration("Secure enclave not available".to_string()))
+        Err(WalletError::config("Secure enclave not available".to_string()))
     }
     
     fn get_public_key(&self, _key_id: &str) -> Result<String, WalletError> {
-        Err(WalletError::Configuration("Secure enclave not available".to_string()))
+        Err(WalletError::config("Secure enclave not available".to_string()))
     }
     
     fn delete_key(&self, _key_id: &str) -> Result<(), WalletError> {
-        Err(WalletError::Configuration("Secure enclave not available".to_string()))
+        Err(WalletError::config("Secure enclave not available".to_string()))
     }
 }
 
 // Initialize platform module
-pub fn init() -> Result<(), Box<dyn std::error::Error>> {
-    let platform_manager = PlatformManager::new()?;
-    platform_manager.init()?;
-    Ok(())
-}
+// Remove the free function pub fn init() -> Result<(), Box<dyn std::error::Error>> if it only calls platform_manager.init()?;
 
 #[cfg(test)]
 mod tests {

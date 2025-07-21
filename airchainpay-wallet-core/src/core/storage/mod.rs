@@ -2,13 +2,16 @@
 //! 
 //! This module contains secure storage operations for wallet data.
 
+use crate::domain::{Wallet, SecureWallet};
 use crate::shared::error::WalletError;
-use crate::shared::types::{Wallet, SecureWallet, WalletBackupInfo};
-use crate::infrastructure::platform::PlatformStorage;
-use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::{Aead, OsRng, generic_array::GenericArray}};
+use crate::shared::types::{WalletBackupInfo};
+use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::{Aead, generic_array::GenericArray}};
 use argon2::{Argon2, PasswordHasher};
+use rand::thread_rng;
 use rand::RngCore;
+use sha2::Digest;
 use serde_json;
+use crate::infrastructure::platform::{PlatformStorage, FileStorage};
 
 /// Secure storage manager
 pub struct SecureStorage<'a> {
@@ -40,22 +43,22 @@ impl<'a> SecureStorage<'a> {
     pub async fn backup_wallet(&self, wallet: &Wallet, password: &str) -> Result<WalletBackupInfo, WalletError> {
         // Serialize wallet
         let wallet_bytes = serde_json::to_vec(wallet)
-            .map_err(|e| WalletError::serialization(format!("Wallet serialization failed: {}", e)))?;
+            .map_err(|e| WalletError::validation(format!("Wallet serialization failed: {}", e)))?;
         // Generate salt
         let mut salt = [0u8; 16];
-        OsRng.fill_bytes(&mut salt);
+        rand::thread_rng().fill_bytes(&mut salt);
         // Derive key
-        let salt_str = argon2::password_hash::SaltString::b64_encode(&salt)
-            .map_err(|e| WalletError::crypto(format!("Invalid salt: {}", e)))?;
+        let salt_str = argon2::password_hash::SaltString::encode_b64(&salt)?;
         let argon2 = Argon2::default();
         let password_hash = argon2.hash_password(password.as_bytes(), &salt_str)
             .map_err(|e| WalletError::crypto(format!("Password hashing failed: {}", e)))?;
-        let hash_bytes = password_hash.hash.unwrap().as_bytes();
+        let binding = password_hash.hash.unwrap();
+        let hash_bytes = binding.as_bytes();
         let key = GenericArray::from_slice(&hash_bytes[..32]);
         // Encrypt
         let cipher = Aes256Gcm::new(key);
         let mut nonce = [0u8; 12];
-        OsRng.fill_bytes(&mut nonce);
+        rand::thread_rng().fill_bytes(&mut nonce);
         let mut encrypted_data = nonce.to_vec();
         let ciphertext = cipher.encrypt(GenericArray::from_slice(&nonce), wallet_bytes.as_ref())
             .map_err(|e| WalletError::crypto(format!("Encryption failed: {}", e)))?;
@@ -79,18 +82,18 @@ impl<'a> SecureStorage<'a> {
             return Err(WalletError::crypto("Encrypted data too short".to_string()));
         }
         let (nonce, ciphertext) = encrypted_data.split_at(12);
-        let salt_str = argon2::password_hash::SaltString::b64_encode(&salt)
-            .map_err(|e| WalletError::crypto(format!("Invalid salt: {}", e)))?;
+        let salt_str = argon2::password_hash::SaltString::encode_b64(&salt)?;
         let argon2 = Argon2::default();
         let password_hash = argon2.hash_password(password.as_bytes(), &salt_str)
             .map_err(|e| WalletError::crypto(format!("Password hashing failed: {}", e)))?;
-        let hash_bytes = password_hash.hash.unwrap().as_bytes();
+        let binding = password_hash.hash.unwrap();
+        let hash_bytes = binding.as_bytes();
         let key = GenericArray::from_slice(&hash_bytes[..32]);
         let cipher = Aes256Gcm::new(key);
         let wallet_bytes = cipher.decrypt(GenericArray::from_slice(nonce), ciphertext)
             .map_err(|e| WalletError::crypto(format!("Decryption failed: {}", e)))?;
         let wallet: Wallet = serde_json::from_slice(&wallet_bytes)
-            .map_err(|e| WalletError::serialization(format!("Wallet deserialization failed: {}", e)))?;
+            .map_err(|e| WalletError::validation(format!("Wallet deserialization failed: {}", e)))?;
         Ok(wallet)
     }
 
@@ -117,12 +120,14 @@ impl StorageManager {
 
     pub async fn backup_wallet(&self, wallet: &Wallet, password: &str) -> Result<WalletBackupInfo, WalletError> {
         // Use the same logic as SecureStorage
-        let storage = SecureStorage::new(&crate::infrastructure::platform::FileStorage::new()?);
+        let file_storage = FileStorage::new()?;
+        let storage = SecureStorage::new(&file_storage);
         storage.backup_wallet(wallet, password).await
     }
 
     pub async fn restore_wallet(&self, backup: &WalletBackupInfo, password: &str) -> Result<Wallet, WalletError> {
-        let storage = SecureStorage::new(&crate::infrastructure::platform::FileStorage::new()?);
+        let file_storage = FileStorage::new()?;
+        let storage = SecureStorage::new(&file_storage);
         storage.restore_wallet(backup, password).await
     }
 }
@@ -157,7 +162,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_secure_storage() {
-        let storage = SecureStorage::new(&PlatformStorage::new());
+        let file_storage = FileStorage::new()?;
+        let storage = SecureStorage::new(&file_storage);
         storage.init().await.unwrap();
 
         let data = b"test data";

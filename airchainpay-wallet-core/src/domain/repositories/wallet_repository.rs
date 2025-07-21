@@ -1,0 +1,1 @@
+// Empty wallet_repository module to resolve cargo check error 

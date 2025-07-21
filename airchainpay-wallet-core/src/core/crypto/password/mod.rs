@@ -7,7 +7,6 @@ use crate::shared::constants::{PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH};
 use crate::shared::utils::generate_secure_random_bytes;
 use argon2::{Argon2, PasswordHasher, PasswordVerifier};
 use argon2::password_hash::{rand_core::OsRng, PasswordHash, SaltString};
-use argon2::password_hash::argon2::Argon2 as Argon2Hash;
 use hmac::Hmac;
 use sha2::Sha256;
 use rand::Rng;
@@ -55,10 +54,8 @@ impl PasswordManager {
         // Validate password
         self.validate_password(password)?;
         
-        // Generate salt
-        let salt_bytes = generate_secure_random_bytes(16)?;
-        let salt = SaltString::b64_encode(&salt_bytes)
-            .map_err(|e| WalletError::crypto(format!("Failed to generate salt: {}", e)))?;
+        // Generate salt using OsRng
+        let salt = SaltString::generate(&mut OsRng);
         
         // Hash password
         let argon2 = Argon2::default();

@@ -171,8 +171,7 @@ impl EncryptionManager {
     fn derive_key_from_password(&self, password: &str, salt: &[u8]) -> Result<Vec<u8>, WalletError> {
         use argon2::{Argon2, PasswordHasher};
         
-        let salt_string = argon2::password_hash::SaltString::b64_encode(salt)
-            .map_err(|e| WalletError::crypto(format!("Invalid salt: {}", e)))?;
+        let salt_string = argon2::password_hash::SaltString::encode_b64(salt)?;
         
         let argon2 = Argon2::default();
         let password_hash = argon2.hash_password(password.as_bytes(), &salt_string)

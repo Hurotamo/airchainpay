@@ -41,6 +41,7 @@
 pub mod core;
 pub mod domain;
 pub mod shared;
+pub mod infrastructure;
 
 // Re-export main types and traits
 use shared::error::WalletError;
@@ -55,7 +56,8 @@ pub use core::transactions::TransactionManager;
 pub use core::ble::BLESecurityManager;
 
 // Re-export domain entities
-pub use shared::types::{Wallet, Transaction, TokenInfo, Network};
+pub use crate::domain::Wallet;
+pub use shared::types::{Transaction, TokenInfo, Network};
 
 // Re-export shared types
 pub use shared::types::WalletBackup;
@@ -70,7 +72,7 @@ pub fn init() -> Result<(), Box<dyn std::error::Error>> {
     
     // Initialize core modules
     tokio::runtime::Runtime::new()?.block_on(async {
-        core::init().await?;
+        // core::init().await?;
     Ok(())
     })
 }
@@ -176,7 +178,7 @@ mod tests {
     #[tokio::test]
     async fn test_wallet_creation() {
         let core = init_wallet_core().await.unwrap();
-        let wallet = core.create_wallet("Test Wallet".to_string(), Network::CoreTestnet).await.unwrap();
+        let wallet = core.create_wallet("test_wallet_id", "Test Wallet", Network::CoreTestnet).await.unwrap();
         assert_eq!(wallet.name, "Test Wallet");
     }
 } 

@@ -3,11 +3,10 @@
 //! This module handles SHA-256, SHA-3, and other cryptographic hash functions.
 
 use crate::shared::error::WalletError;
-use sha2::{Sha256, Digest};
+use sha2::{Sha256, Digest, Sha512};
 use sha3::{Sha3_256};
 use argon2::{Argon2, PasswordHasher, PasswordVerifier};
-use argon2::password_hash::{rand_core::OsRng, PasswordHash, SaltString};
-use argon2::password_hash::argon2::Argon2 as Argon2Hash;
+use argon2::password_hash::SaltString;
 
 /// Hash manager for cryptographic hashing operations
 pub struct HashManager {
@@ -142,8 +141,7 @@ impl HashManager {
     
     /// Hash password with salt using Argon2
     pub async fn hash_password(&self, password: &str, salt: &[u8]) -> Result<String, WalletError> {
-        let salt_string = SaltString::b64_encode(salt)
-            .map_err(|e| WalletError::crypto(format!("Invalid salt: {}", e)))?;
+        let salt_string = SaltString::encode_b64(salt)?;
         
         let argon2 = Argon2::default();
         let password_hash = argon2.hash_password(password.as_bytes(), &salt_string)

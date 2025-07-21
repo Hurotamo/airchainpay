@@ -4,7 +4,8 @@
 
 use crate::shared::error::WalletError;
 use crate::shared::types::{Transaction, SignedTransaction};
-use secp256k1::{SecretKey, PublicKey, Secp256k1, Message, Signature};
+use secp256k1::{SecretKey, PublicKey, Secp256k1, Message};
+use secp256k1::ecdsa::Signature;
 use sha2::{Sha256, Digest};
 use std::sync::Arc;
 
@@ -168,6 +169,10 @@ impl SignatureManager {
     pub async fn cleanup(&self) -> Result<(), WalletError> {
         // No cleanup needed for signature manager
         Ok(())
+    }
+
+    pub fn sign_ethereum_transaction(&self, _transaction: &crate::shared::types::Transaction, _private_key: &crate::core::crypto::keys::SecurePrivateKey) -> Result<crate::core::crypto::signatures::TransactionSignature, crate::shared::error::WalletError> {
+        Err(crate::shared::error::WalletError::not_implemented("sign_ethereum_transaction is not implemented"))
     }
 }
 

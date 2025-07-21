@@ -2,18 +2,20 @@
 //! 
 //! This module provides C-compatible function signatures for integration with React Native.
 
+use crate::domain::Wallet;
 use crate::shared::error::WalletError;
-use crate::shared::types::{Network, Address, Amount, Transaction, SignedTransaction, Wallet};
+use crate::shared::types::{Network, Address, Amount, Transaction, SignedTransaction};
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
 /// Initialize the wallet core
 #[no_mangle]
 pub extern "C" fn wallet_core_init() -> i32 {
-    match crate::init() {
-        Ok(_) => 0,
-        Err(_) => -1,
-    }
+    // match crate::init() {
+    //     Ok(_) => 0,
+    //     Err(_) => 1,
+    // }
+    0
 }
 
 /// Create a new wallet

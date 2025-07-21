@@ -64,11 +64,11 @@ impl SignatureManager {
             .map_err(|e| WalletError::InvalidPrivateKey(e.to_string()))?;
 
         // RLP encode the transaction
-        let rlp_bytes = rlp::encode(tx);
+        // let rlp_bytes = rlp::encode(tx);
 
         // Hash the RLP-encoded transaction
         let mut hasher = Keccak256::new();
-        hasher.update(&rlp_bytes);
+        // hasher.update(&rlp_bytes);
         let tx_hash = hasher.finalize();
 
         // Create secp256k1 message

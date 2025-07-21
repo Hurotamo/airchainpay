@@ -10,9 +10,7 @@ fn main() {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
     let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
     
-    println!("cargo:rustc-cfg=target_os=\"{}\"", target_os);
-    println!("cargo:rustc-cfg=target_arch=\"{}\"", target_arch);
-    
+   
     // Set platform-specific features
     match target_os.as_str() {
         "ios" => {
