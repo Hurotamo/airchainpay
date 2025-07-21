@@ -4,7 +4,7 @@
 
 use crate::shared::error::WalletError;
 use crate::shared::types::{Network, Transaction, SignedTransaction};
-use crate::domain::entities::wallet::{SecureWallet, WalletBalance};
+use crate::shared::types::{SecureWallet, WalletBalance};
 use crate::core::crypto::CryptoManager;
 use std::sync::Arc;
 use tokio::sync::RwLock;

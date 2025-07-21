@@ -55,10 +55,7 @@ pub use core::transactions::TransactionManager;
 pub use core::ble::BLESecurityManager;
 
 // Re-export domain entities
-pub use domain::entities::Wallet;
-pub use domain::entities::Transaction;
-pub use domain::entities::TokenInfo;
-pub use shared::types::Network;
+pub use shared::types::{Wallet, Transaction, TokenInfo, Network};
 
 // Re-export shared types
 pub use shared::types::WalletBackup;

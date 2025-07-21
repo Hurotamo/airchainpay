@@ -200,7 +200,6 @@ pub type WalletResult<T> = Result<T, WalletError>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::entities::wallet::Network;
 
     #[test]
     fn test_transaction_creation() {

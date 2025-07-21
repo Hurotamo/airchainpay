@@ -3,8 +3,7 @@
 //! This module contains secure storage operations for wallet data.
 
 use crate::shared::error::WalletError;
-use crate::shared::types::WalletBackupInfo;
-use crate::domain::entities::wallet::Wallet;
+use crate::shared::types::{Wallet, SecureWallet, WalletBackupInfo};
 
 /// Secure storage manager
 pub struct SecureStorage {
