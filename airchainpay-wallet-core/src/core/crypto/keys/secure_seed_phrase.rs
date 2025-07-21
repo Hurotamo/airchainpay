@@ -1,32 +1,30 @@
 /// Secure seed phrase wrapper
 #[derive(Debug, Clone)]
 pub struct SecureSeedPhrase {
-    words: Vec<String>,
+    phrase: String,
 }
 
 impl SecureSeedPhrase {
     /// Create a new secure seed phrase
-    pub fn new(words: Vec<String>) -> Self {
-        Self { words }
+    pub fn new(phrase: String) -> Self {
+        Self { phrase }
     }
 
-    /// Get seed phrase words
-    pub fn as_words(&self) -> &[String] {
-        &self.words
+    /// Get the seed phrase as a &str
+    pub fn as_str(&self) -> &str {
+        &self.phrase
     }
 
-    /// Get seed phrase as string
-    pub fn to_string(&self) -> String {
-        self.words.join(" ")
+    /// Get the seed phrase as Vec<String>
+    pub fn as_words(&self) -> Vec<String> {
+        self.phrase.split_whitespace().map(|s| s.to_string()).collect()
     }
 }
 
 impl Drop for SecureSeedPhrase {
     fn drop(&mut self) {
         // Clear the seed phrase when dropped
-        for word in &mut self.words {
-            *word = String::new();
-        }
+        self.phrase.zeroize();
     }
 }
 
@@ -36,15 +34,9 @@ mod tests {
 
     #[test]
     fn test_secure_seed_phrase_creation() {
-        let words = vec!["test".to_string(), "seed".to_string(), "phrase".to_string()];
-        let seed_phrase = SecureSeedPhrase::new(words);
-        assert_eq!(seed_phrase.as_words().len(), 3);
-    }
-
-    #[test]
-    fn test_secure_seed_phrase_to_string() {
-        let words = vec!["test".to_string(), "seed".to_string(), "phrase".to_string()];
-        let seed_phrase = SecureSeedPhrase::new(words);
-        assert_eq!(seed_phrase.to_string(), "test seed phrase");
+        let phrase = "test seed phrase".to_string();
+        let seed_phrase = SecureSeedPhrase::new(phrase.clone());
+        assert_eq!(seed_phrase.as_words(), vec!["test", "seed", "phrase"]);
+        assert_eq!(seed_phrase.as_str(), phrase);
     }
 } 

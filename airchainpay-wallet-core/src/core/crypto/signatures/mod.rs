@@ -22,38 +22,38 @@ impl SignatureManager {
         })
     }
     
-    /// Sign a transaction
-    pub async fn sign_transaction(
-        &self,
-        transaction: &Transaction,
-        private_key: &[u8],
-    ) -> Result<SignedTransaction, WalletError> {
-        // Create the transaction hash
-        let tx_hash = self.create_transaction_hash(transaction)?;
+    /// Sign a transaction (DEPRECATED: use sign_ethereum_transaction for EVM compatibility)
+    // pub async fn sign_transaction(
+    //     &self,
+    //     transaction: &Transaction,
+    //     private_key: &[u8],
+    // ) -> Result<SignedTransaction, WalletError> {
+    //     // Create the transaction hash
+    //     let tx_hash = self.create_transaction_hash(transaction)?;
         
-        // Create the message to sign
-        let message = Message::from_digest(tx_hash);
+    //     // Create the message to sign
+    //     let message = Message::from_digest(tx_hash);
         
-        // Create the secret key
-        let secret_key = SecretKey::from_byte_array(private_key.try_into()
-            .map_err(|_| WalletError::validation("Invalid private key size"))?)
-            .map_err(|e| WalletError::crypto(format!("Invalid private key: {}", e)))?;
+    //     // Create the secret key
+    //     let secret_key = SecretKey::from_byte_array(private_key.try_into()
+    //         .map_err(|_| WalletError::validation("Invalid private key size"))?)
+    //         .map_err(|e| WalletError::crypto(format!("Invalid private key: {}", e)))?;
         
-        // Sign the message
-        let signature = self.secp.sign_ecdsa(message, &secret_key);
+    //     // Sign the message
+    //     let signature = self.secp.sign_ecdsa(message, &secret_key);
         
-        // Serialize the signature
-        let signature_bytes = signature.serialize_compact();
+    //     // Serialize the signature
+    //     let signature_bytes = signature.serialize_compact();
         
-        // Create the signed transaction
-        let signed_tx = SignedTransaction {
-            transaction: transaction.clone(),
-            signature: signature_bytes.to_vec(),
-            hash: format!("0x{}", hex::encode(&tx_hash)),
-        };
+    //     // Create the signed transaction
+    //     let signed_tx = SignedTransaction {
+    //         transaction: transaction.clone(),
+    //         signature: signature_bytes.to_vec(),
+    //         hash: format!("0x{}", hex::encode(&tx_hash)),
+    //     };
         
-        Ok(signed_tx)
-    }
+    //     Ok(signed_tx)
+    // }
     
     /// Verify a transaction signature
     pub async fn verify_transaction_signature(

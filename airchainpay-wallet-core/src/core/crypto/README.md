@@ -32,30 +32,28 @@ crypto/
     └── password_algorithm.rs # PasswordAlgorithm enum
 ```
 
-## Class Organization
+## Cryptographic Flows
 
-### Keys Module
-- **KeyManager**: Manages cryptographic key generation, derivation, and validation
-- **SecurePrivateKey**: Secure wrapper for private keys with automatic cleanup
-- **SecureSeedPhrase**: Secure wrapper for seed phrases with automatic cleanup
+### Key Generation and Management
+- **KeyManager**: Generates, imports, and manages cryptographic keys using secure random number generation. Keys are validated for correct size and format. Private keys are securely zeroized on drop.
+- **SecurePrivateKey**: Wraps private keys, ensures memory safety and zeroization.
+- **SecureSeedPhrase**: Handles BIP39 seed phrases, securely zeroized on drop.
 
-### Hashing Module
-- **HashManager**: Provides various hashing algorithms (SHA256, SHA512, Keccak256, Keccak512)
-- **HashAlgorithm**: Enum defining available hashing algorithms
+### Hashing
+- **HashManager**: Provides SHA-256, SHA-512, Keccak256, Keccak512. Used for address derivation, transaction/message hashing, and password hashing.
+- **WARNING**: The `ripemd160_sha256` method is a placeholder and does NOT implement true RIPEMD160. Do NOT use for production Bitcoin address generation until replaced with a secure implementation.
 
-### Signatures Module
-- **SignatureManager**: Handles digital signature creation and verification
-- **TransactionSignature**: Structure for Ethereum transaction signatures
+### Digital Signatures
+- **SignatureManager**: Handles ECDSA (secp256k1) signing and verification for messages and transactions. Used for Ethereum-compatible signatures.
+- **TransactionSignature**: Structure for Ethereum transaction signatures.
+- **WARNING**: Deprecated signature methods are commented out but present for reference. Do NOT use deprecated or commented code in production.
 
-### Encryption Module
-- **EncryptionManager**: Provides encryption/decryption functionality
-- **EncryptedData**: Structure for encrypted data with metadata
-- **EncryptionAlgorithm**: Enum defining available encryption algorithms
+### Encryption
+- **EncryptionManager**: Provides AES-256-GCM and ChaCha20-Poly1305 encryption/decryption for sensitive data. Keys and nonces are generated securely. All cryptographic material is zeroized on drop.
 
-### Password Module
-- **PasswordHasher**: Secure password hashing and verification
-- **PasswordConfig**: Configuration for password hashing parameters
-- **PasswordAlgorithm**: Enum defining available password hashing algorithms
+### Password Handling
+- **PasswordHasher**: Secure password hashing and verification using Argon2 or PBKDF2. Salt is generated securely. PHC string format is used for PBKDF2.
+- **WARNING**: Always use Argon2 for new deployments. PBKDF2 is supported for legacy compatibility only.
 
 ## Usage
 
@@ -73,4 +71,11 @@ use crate::crypto::{
 - All sensitive data is automatically zeroed when dropped
 - Secure random number generation for keys and nonces
 - Memory-safe handling of cryptographic materials
-- Proper error handling for cryptographic operations 
+- Proper error handling for cryptographic operations
+
+## Security Warnings
+
+- **PLACEHOLDER/INSECURE CODE**: Some methods (e.g., `ripemd160_sha256`) are placeholders and are NOT secure for production. These are clearly marked in code and documentation. Replace with secure, audited implementations before production use.
+- **DEPRECATED METHODS**: Deprecated or commented-out cryptographic methods are present for reference only. Do NOT use them in production.
+- **ALGORITHM CHOICE**: Always prefer Argon2 for password hashing. PBKDF2 is legacy only.
+- **AUDIT**: All cryptographic code should be reviewed and audited before production deployment. 

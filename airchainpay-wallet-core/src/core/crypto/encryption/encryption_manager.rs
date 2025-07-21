@@ -150,6 +150,8 @@ impl Drop for EncryptionManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+    use arbitrary::Arbitrary;
 
     #[test]
     fn test_aes_gcm_encryption() {
@@ -173,5 +175,44 @@ mod tests {
         let decrypted = manager.decrypt(&encrypted, &key).unwrap();
 
         assert_eq!(data, decrypted.as_slice());
+    }
+
+    // Property-based test: random data and keys
+    proptest! {
+        #[test]
+        fn prop_encrypt_decrypt_aes_gcm(data in any::<Vec<u8>>(), key in prop::array::uniform32(prop::num::u8::ANY)) {
+            let manager = EncryptionManager::new(EncryptionAlgorithm::AES256GCM);
+            let encrypted = manager.encrypt(&data, &key).unwrap();
+            let decrypted = manager.decrypt(&encrypted, &key).unwrap();
+            prop_assert_eq!(data, decrypted);
+        }
+    }
+
+    // Negative test: invalid key size
+    #[test]
+    fn test_invalid_key_size() {
+        let manager = EncryptionManager::new(EncryptionAlgorithm::AES256GCM);
+        let data = b"test";
+        let key = vec![1,2,3];
+        let result = manager.encrypt(data, &key);
+        assert!(result.is_err());
+    }
+
+    // Fuzz test: arbitrary input for FFI boundary
+    #[test]
+    fn fuzz_encryption_manager_arbitrary() {
+        #[derive(Debug, Arbitrary)]
+        struct FuzzInput {
+            data: Vec<u8>,
+            key: [u8; 32],
+        }
+        let mut raw = vec![0u8; 64];
+        for _ in 0..10 {
+            getrandom::getrandom(&mut raw).unwrap();
+            if let Ok(input) = FuzzInput::arbitrary(&mut raw.as_slice()) {
+                let manager = EncryptionManager::new(EncryptionAlgorithm::AES256GCM);
+                let _ = manager.encrypt(&input.data, &input.key);
+            }
+        }
     }
 } 

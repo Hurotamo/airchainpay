@@ -4,6 +4,7 @@
 
 use crate::shared::error::WalletError;
 use std::time::{SystemTime, UNIX_EPOCH};
+use bip39::Mnemonic;
 
 /// Generate a unique ID
 pub fn generate_id() -> String {
@@ -56,23 +57,10 @@ pub fn validate_private_key(private_key: &str) -> Result<(), WalletError> {
 
 /// Validate seed phrase
 pub fn validate_seed_phrase(seed_phrase: &str) -> Result<(), WalletError> {
-    let words: Vec<&str> = seed_phrase.split_whitespace().collect();
-    
-    match words.len() {
-        12 | 15 | 18 | 21 | 24 => {
-            // Valid lengths
-        }
-        _ => {
-            return Err(WalletError::validation("Seed phrase must be 12, 15, 18, 21, or 24 words"));
-        }
+    match Mnemonic::parse_in_normalized(bip39::Language::English, seed_phrase) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(WalletError::validation(format!("Invalid BIP39 seed phrase: {}", e))),
     }
-    
-    // Check if all words are non-empty
-    if words.iter().any(|word| word.is_empty()) {
-        return Err(WalletError::validation("Seed phrase contains empty words"));
-    }
-    
-    Ok(())
 }
 
 /// Validate password strength

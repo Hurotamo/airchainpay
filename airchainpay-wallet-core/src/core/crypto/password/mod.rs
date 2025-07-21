@@ -80,51 +80,48 @@ impl PasswordManager {
     }
     
     /// Hash a password using PBKDF2
+    ///
+    /// PHC string format: $pbkdf2-sha256$<iterations>$<base64(salt)>$<base64(hash)>
     pub async fn hash_password_pbkdf2(&self, password: &str) -> Result<String, WalletError> {
-        // Validate password
         self.validate_password(password)?;
-        
-        // Generate salt
         let salt = generate_secure_random_bytes(32)?;
-        
-        // Hash password
         let mut hash = [0u8; 32];
+        let iterations = 100_000;
         pbkdf2::pbkdf2::<hmac::Hmac<sha2::Sha256>>(
             password.as_bytes(),
             &salt,
-            100000, // iterations
+            iterations,
             &mut hash
         );
-        
-        // Combine salt and hash
-        let mut result = Vec::new();
-        result.extend_from_slice(&salt);
-        result.extend_from_slice(&hash);
-        
-        Ok(format!("0x{}", hex::encode(result)))
+        Ok(format!(
+            "$pbkdf2-sha256${}${}${}",
+            iterations,
+            base64::encode(&salt),
+            base64::encode(&hash)
+        ))
     }
-    
-    /// Verify a password against a PBKDF2 hash
+
+    /// Verify a password against a PBKDF2 hash (PHC string format)
     pub async fn verify_password_pbkdf2(&self, password: &str, hash: &str) -> Result<bool, WalletError> {
-        let hash_bytes = hex::decode(hash.trim_start_matches("0x"))
-            .map_err(|e| WalletError::crypto(format!("Invalid hash format: {}", e)))?;
-        
-        if hash_bytes.len() != 64 {
-            return Err(WalletError::crypto("Invalid hash length"));
+        // PHC format: $pbkdf2-sha256$<iterations>$<base64(salt)>$<base64(hash)>
+        let parts: Vec<&str> = hash.split('$').collect();
+        if parts.len() != 5 || parts[1] != "pbkdf2-sha256" {
+            return Err(WalletError::crypto("Invalid PBKDF2 PHC hash format"));
         }
-        
-        let salt = &hash_bytes[..32];
-        let stored_hash = &hash_bytes[32..];
-        
+        let iterations: u32 = parts[2].parse()
+            .map_err(|_| WalletError::crypto("Invalid iterations in hash"))?;
+        let salt = base64::decode(parts[3])
+            .map_err(|_| WalletError::crypto("Invalid salt encoding"))?;
+        let stored_hash = base64::decode(parts[4])
+            .map_err(|_| WalletError::crypto("Invalid hash encoding"))?;
         let mut computed_hash = [0u8; 32];
         pbkdf2::pbkdf2::<hmac::Hmac<sha2::Sha256>>(
             password.as_bytes(),
-            salt,
-            100000, // iterations
+            &salt,
+            iterations,
             &mut computed_hash
         );
-        
-        Ok(computed_hash == stored_hash)
+        Ok(computed_hash == stored_hash.as_slice())
     }
     
     /// Generate a secure password
@@ -311,7 +308,7 @@ mod tests {
         let hash = manager.hash_password_pbkdf2(password).await.unwrap();
         let is_valid = manager.verify_password_pbkdf2(password, &hash).await.unwrap();
         
-        assert!(hash.starts_with("0x"));
+        assert!(hash.starts_with("$pbkdf2-sha256$"));
         assert!(is_valid);
     }
 

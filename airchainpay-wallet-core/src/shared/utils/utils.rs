@@ -8,6 +8,7 @@ use crate::shared::error::WalletError;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use bip39::Mnemonic;
 
 /// Utility functions for common operations
 pub struct Utils;
@@ -58,21 +59,10 @@ impl Utils {
 
     /// Validate a seed phrase
     pub fn validate_seed_phrase(seed_phrase: &str) -> Result<bool, WalletError> {
-        let words: Vec<&str> = seed_phrase.split_whitespace().collect();
-        
-        if words.len() != RECOVERY_PHRASE_LENGTH {
-            return Ok(false);
+        match Mnemonic::parse_in_normalized(bip39::Language::English, seed_phrase) {
+            Ok(_) => Ok(true),
+            Err(_) => Ok(false),
         }
-        
-        // Check if all words are in the BIP39 word list
-        // This is a simplified check - in production, use a proper BIP39 implementation
-        for word in &words {
-            if word.is_empty() {
-                return Ok(false);
-            }
-        }
-        
-        Ok(true)
     }
 
     /// Validate a password

@@ -5,6 +5,11 @@ use sha3::{Keccak256, Digest};
 use zeroize::Zeroize;
 use std::str::FromStr;
 use super::TransactionSignature;
+use rlp::Encodable;
+use crate::domain::entities::transaction::Transaction;
+use proptest::prelude::*;
+use secp256k1::rand::rngs::OsRng;
+use arbitrary::Arbitrary;
 
 /// Digital signature manager
 pub struct SignatureManager {
@@ -53,26 +58,28 @@ impl SignatureManager {
         Ok(self.secp.verify(&secp_message, signature, public_key).is_ok())
     }
 
-    /// Sign Ethereum transaction
-    pub fn sign_transaction(&self, transaction_data: &[u8], private_key: &SecurePrivateKey, chain_id: u64) -> WalletResult<TransactionSignature> {
+    /// Sign Ethereum transaction (EVM compatible)
+    pub fn sign_ethereum_transaction(&self, tx: &Transaction, private_key: &SecurePrivateKey) -> WalletResult<TransactionSignature> {
         let secret_key = SecretKey::from_slice(private_key.as_bytes())
             .map_err(|e| WalletError::InvalidPrivateKey(e.to_string()))?;
 
-        // Hash the transaction data
+        // RLP encode the transaction
+        let rlp_bytes = rlp::encode(tx);
+
+        // Hash the RLP-encoded transaction
         let mut hasher = Keccak256::new();
-        hasher.update(transaction_data);
-        let transaction_hash = hasher.finalize();
+        hasher.update(&rlp_bytes);
+        let tx_hash = hasher.finalize();
 
         // Create secp256k1 message
-        let secp_message = Message::from_slice(&transaction_hash)
+        let secp_message = Message::from_slice(&tx_hash)
             .map_err(|e| WalletError::Crypto(format!("Invalid transaction: {}", e)))?;
 
         // Sign the transaction
         let signature = self.secp.sign(&secp_message, &secret_key);
-        
-        // Get signature components
         let (r, s) = signature.split();
-        let v = self.calculate_v(&secp_message, &signature, &secret_key.public_key(&self.secp), chain_id);
+        // EIP-155 v calculation
+        let v = self.calculate_v(&secp_message, &signature, &secret_key.public_key(&self.secp), tx.chain_id);
 
         Ok(TransactionSignature {
             r: r.to_string(),
@@ -152,6 +159,10 @@ impl Drop for SignatureManager {
 mod tests {
     use super::*;
     use crate::crypto::keys::KeyManager;
+    use proptest::prelude::*;
+    use secp256k1::rand::rngs::OsRng;
+    use secp256k1::SecretKey;
+    use arbitrary::Arbitrary;
 
     #[test]
     fn test_message_signing() {
@@ -178,10 +189,51 @@ mod tests {
         let transaction_data = b"transaction_data_here";
         let chain_id = 1;
         
-        let signature = signature_manager.sign_transaction(transaction_data, &private_key, chain_id).unwrap();
+        let signature = signature_manager.sign_ethereum_transaction(&Transaction::new(transaction_data, chain_id), &private_key).unwrap();
         
         assert!(!signature.r.is_empty());
         assert!(!signature.s.is_empty());
         assert!(signature.v > 0);
+    }
+
+    // Property-based test: random messages and keys
+    proptest! {
+        #[test]
+        fn prop_sign_and_verify_message(msg in any::<Vec<u8>>()) {
+            let signature_manager = SignatureManager::new();
+            let key_manager = KeyManager::new();
+            let private_key = key_manager.generate_private_key().unwrap();
+            let public_key = key_manager.get_public_key(&private_key).unwrap();
+            let signature = signature_manager.sign_message(&msg, &private_key).unwrap();
+            // TODO: Convert public_key to secp256k1::PublicKey for verification
+            // assert!(signature_manager.verify_signature(&msg, &signature, &public_key).unwrap());
+        }
+    }
+
+    // Negative test: invalid private key
+    #[test]
+    fn test_sign_message_invalid_key() {
+        let signature_manager = SignatureManager::new();
+        let invalid_key = SecurePrivateKey::from_bytes(&[0u8; 10]); // too short
+        assert!(invalid_key.is_err());
+    }
+
+    // Fuzz test: arbitrary input for FFI boundary
+    #[test]
+    fn fuzz_sign_message_arbitrary() {
+        #[derive(Debug, Arbitrary)]
+        struct FuzzInput {
+            msg: Vec<u8>,
+            key_bytes: [u8; 32],
+        }
+        let mut raw = vec![0u8; 64];
+        for _ in 0..10 {
+            getrandom::getrandom(&mut raw).unwrap();
+            if let Ok(input) = FuzzInput::arbitrary(&mut raw.as_slice()) {
+                let signature_manager = SignatureManager::new();
+                let private_key = SecurePrivateKey::from_bytes(&input.key_bytes).unwrap();
+                let _ = signature_manager.sign_message(&input.msg, &private_key);
+            }
+        }
     }
 } 

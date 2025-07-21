@@ -63,6 +63,8 @@ impl HashManager {
     }
 
     /// RIPEMD160(SHA256()) (Bitcoin address generation)
+    ///
+    /// WARNING: This is a placeholder and does NOT implement true RIPEMD160. Do NOT use for production Bitcoin address generation!
     pub fn ripemd160_sha256(&self, data: &[u8]) -> WalletResult<Vec<u8>> {
         let sha256_hash = self.sha256(data)?;
         // Note: RIPEMD160 would need an additional crate
@@ -92,6 +94,8 @@ impl Drop for HashManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+    use arbitrary::Arbitrary;
 
     #[test]
     fn test_sha256() {
@@ -121,5 +125,40 @@ mod tests {
         
         assert!(hash.starts_with("0x"));
         assert_eq!(hash.len(), 66); // 0x + 64 hex chars
+    }
+
+    // Property-based test: random data for sha256
+    proptest! {
+        #[test]
+        fn prop_sha256_random(data in any::<Vec<u8>>()) {
+            let manager = HashManager::new();
+            let hash = manager.sha256(&data).unwrap();
+            prop_assert_eq!(hash.len(), 32);
+        }
+    }
+
+    // Negative test: empty data for sha256
+    #[test]
+    fn test_sha256_empty() {
+        let manager = HashManager::new();
+        let hash = manager.sha256(&[]).unwrap();
+        assert_eq!(hash.len(), 32);
+    }
+
+    // Fuzz test: arbitrary input for FFI boundary
+    #[test]
+    fn fuzz_hash_manager_arbitrary() {
+        #[derive(Debug, Arbitrary)]
+        struct FuzzInput {
+            data: Vec<u8>,
+        }
+        let mut raw = vec![0u8; 32];
+        for _ in 0..10 {
+            getrandom::getrandom(&mut raw).unwrap();
+            if let Ok(input) = FuzzInput::arbitrary(&mut raw.as_slice()) {
+                let manager = HashManager::new();
+                let _ = manager.sha256(&input.data);
+            }
+        }
     }
 } 

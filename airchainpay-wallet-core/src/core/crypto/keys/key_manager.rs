@@ -11,19 +11,23 @@ use rand::RngCore;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use super::{SecurePrivateKey, SecureSeedPhrase};
+use bip39::{Mnemonic, Language, Seed};
+use bip32::{XPrv, DerivationPath, ExtendedPrivateKey, Prefix};
+use std::str::FromStr;
+use crate::infrastructure::platform::PlatformStorage;
 
 /// Key manager for cryptographic key operations
-pub struct KeyManager {
+pub struct KeyManager<'a> {
     secp256k1: Secp256k1<secp256k1::All>,
-    keys: Arc<RwLock<Vec<SecurePrivateKey>>>,
+    storage: &'a dyn PlatformStorage,
 }
 
-impl KeyManager {
-    /// Create a new key manager
-    pub fn new() -> Self {
+impl<'a> KeyManager<'a> {
+    /// Create a new key manager with a platform storage backend
+    pub fn new(storage: &'a dyn PlatformStorage) -> Self {
         Self {
             secp256k1: Secp256k1::new(),
-            keys: Arc::new(RwLock::new(Vec::new())),
+            storage,
         }
     }
 
@@ -33,23 +37,36 @@ impl KeyManager {
         Ok(())
     }
 
-    /// Generate a new private key
-    pub fn generate_private_key(&self) -> Result<SecurePrivateKey, WalletError> {
+    /// Generate a new private key and persist it securely
+    pub fn generate_private_key(&self, key_id: &str) -> Result<SecurePrivateKey, WalletError> {
         let mut rng = rand::thread_rng();
         let mut key_bytes = [0u8; PRIVATE_KEY_SIZE];
         rng.fill_bytes(&mut key_bytes);
 
         // Ensure the key is valid for secp256k1
-        let secret_key = SecretKey::from_slice(&key_bytes)
+        let _secret_key = SecretKey::from_slice(&key_bytes)
             .map_err(|e| WalletError::Crypto(format!("Invalid private key: {}", e)))?;
 
-        let secure_key = SecurePrivateKey::new(key_bytes);
-        
-        // Store key for cleanup
-        let mut keys = self.keys.blocking_write();
-        keys.push(secure_key.clone());
+        // Store the key securely
+        self.storage.store(key_id, &key_bytes)?;
+        Ok(SecurePrivateKey::new(key_bytes))
+    }
 
-        Ok(secure_key)
+    /// Import a private key and persist it securely
+    pub fn import_private_key(&self, key_id: &str, key_bytes: &[u8]) -> Result<SecurePrivateKey, WalletError> {
+        let _secret_key = SecretKey::from_slice(key_bytes)
+            .map_err(|e| WalletError::Crypto(format!("Invalid private key: {}", e)))?;
+        self.storage.store(key_id, key_bytes)?;
+        Ok(SecurePrivateKey::new(*array_ref::array_ref![key_bytes, 0, PRIVATE_KEY_SIZE]))
+    }
+
+    /// Retrieve a private key securely
+    pub fn get_private_key(&self, key_id: &str) -> Result<SecurePrivateKey, WalletError> {
+        let key_bytes = self.storage.retrieve(key_id)?;
+        if key_bytes.len() != PRIVATE_KEY_SIZE {
+            return Err(WalletError::Crypto("Stored private key is not 32 bytes".to_string()));
+        }
+        Ok(SecurePrivateKey::new(*array_ref::array_ref![key_bytes, 0, PRIVATE_KEY_SIZE]))
     }
 
     /// Generate a public key from a private key
@@ -84,32 +101,38 @@ impl KeyManager {
 
     /// Generate a seed phrase (BIP39)
     pub fn generate_seed_phrase(&self) -> Result<SecureSeedPhrase, WalletError> {
-        // In production, this would use proper BIP39 implementation
-        // For now, generate a simple 12-word phrase
-        let words = vec![
-            "abandon".to_string(), "ability".to_string(), "able".to_string(),
-            "about".to_string(), "above".to_string(), "absent".to_string(),
-            "absorb".to_string(), "abstract".to_string(), "absurd".to_string(),
-            "abuse".to_string(), "access".to_string(), "accident".to_string(),
-        ];
-
-        Ok(SecureSeedPhrase::new(words))
+        // Generate a new 12-word BIP39 mnemonic
+        let mnemonic = Mnemonic::new(bip39::MnemonicType::Words12, Language::English);
+        let phrase = mnemonic.phrase().to_string();
+        Ok(SecureSeedPhrase::new(phrase))
     }
 
     /// Derive private key from seed phrase
     pub fn derive_private_key_from_seed(&self, seed_phrase: &str) -> Result<SecurePrivateKey, WalletError> {
-        // In production, this would use BIP32/BIP44 derivation
-        // For now, use a simple hash of the seed phrase
-        let seed_bytes = seed_phrase.as_bytes();
-        let hash = self.sha256(seed_bytes);
+        use bip39::{Mnemonic, Language, Seed};
+        use bip32::{XPrv, DerivationPath, ExtendedPrivateKey, Prefix};
 
+        // Parse the mnemonic
+        let mnemonic = Mnemonic::parse_in_normalized(Language::English, seed_phrase)
+            .map_err(|e| WalletError::validation(format!("Invalid BIP39 seed phrase: {}", e)))?;
+        let seed = Seed::new(&mnemonic, ""); // No passphrase
+
+        // Derive the BIP32 root key
+        let xprv = XPrv::new(seed.as_bytes())
+            .map_err(|e| WalletError::Crypto(format!("Failed to create XPrv: {}", e)))?;
+
+        // Standard Ethereum path: m/44'/60'/0'/0/0
+        let derivation_path = DerivationPath::from_str("m/44'/60'/0'/0/0")
+            .map_err(|e| WalletError::Crypto(format!("Invalid derivation path: {}", e)))?;
+        let child_xprv = xprv.derive(&derivation_path)
+            .map_err(|e| WalletError::Crypto(format!("Failed to derive child XPrv: {}", e)))?;
+
+        let private_key_bytes = child_xprv.private_key().to_bytes();
+        if private_key_bytes.len() != PRIVATE_KEY_SIZE {
+            return Err(WalletError::Crypto("Derived private key is not 32 bytes".to_string()));
+        }
         let mut key_bytes = [0u8; PRIVATE_KEY_SIZE];
-        key_bytes.copy_from_slice(&hash[..PRIVATE_KEY_SIZE]);
-
-        // Ensure the key is valid for secp256k1
-        let _secret_key = SecretKey::from_slice(&key_bytes)
-            .map_err(|e| WalletError::Crypto(format!("Invalid derived private key: {}", e)))?;
-
+        key_bytes.copy_from_slice(&private_key_bytes);
         Ok(SecurePrivateKey::new(key_bytes))
     }
 
@@ -173,6 +196,8 @@ impl Drop for KeyManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+    use arbitrary::Arbitrary;
 
     #[test]
     fn test_key_manager_creation() {
@@ -228,5 +253,39 @@ mod tests {
         
         assert!(manager.validate_address(valid_address).unwrap());
         assert!(!manager.validate_address(invalid_address).unwrap());
+    }
+
+    // Property-based test: random private keys
+    proptest! {
+        #[test]
+        fn prop_generate_and_validate_private_key(key_bytes in prop::array::uniform32(prop::num::u8::ANY)) {
+            let private_key = SecurePrivateKey::from_bytes(&key_bytes);
+            if let Ok(pk) = private_key {
+                assert_eq!(pk.as_bytes().len(), PRIVATE_KEY_SIZE);
+            }
+        }
+    }
+
+    // Negative test: invalid private key size
+    #[test]
+    fn test_invalid_private_key_size() {
+        let invalid_key = SecurePrivateKey::from_bytes(&[1,2,3]);
+        assert!(invalid_key.is_err());
+    }
+
+    // Fuzz test: arbitrary input for FFI boundary
+    #[test]
+    fn fuzz_key_manager_arbitrary() {
+        #[derive(Debug, Arbitrary)]
+        struct FuzzInput {
+            key_bytes: [u8; 32],
+        }
+        let mut raw = vec![0u8; 32];
+        for _ in 0..10 {
+            getrandom::getrandom(&mut raw).unwrap();
+            if let Ok(input) = FuzzInput::arbitrary(&mut raw.as_slice()) {
+                let _ = SecurePrivateKey::from_bytes(&input.key_bytes);
+            }
+        }
     }
 } 

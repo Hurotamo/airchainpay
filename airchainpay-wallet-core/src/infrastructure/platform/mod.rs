@@ -5,6 +5,12 @@
 
 use crate::shared::error::WalletError;
 use crate::shared::constants::*;
+use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::{Aead, OsRng, generic_array::GenericArray}};
+use argon2::{Argon2, PasswordHasher};
+use rand::RngCore;
+use std::fs::{self, File};
+use std::io::{Read, Write};
+use std::path::PathBuf;
 
 /// Platform-specific features and capabilities
 pub struct PlatformFeatures {
@@ -218,28 +224,29 @@ impl IOSKeychainStorage {
 #[cfg(target_os = "ios")]
 impl PlatformStorage for IOSKeychainStorage {
     fn store(&self, key: &str, data: &[u8]) -> Result<(), WalletError> {
-        // iOS Keychain implementation
-        Ok(())
+        // TODO: Implement FFI call to Swift/ObjC for Keychain storage
+        // Example: call a C-ABI function exposed by native code
+        Err(WalletError::not_implemented("iOS Keychain FFI integration required"))
     }
     
     fn retrieve(&self, key: &str) -> Result<Vec<u8>, WalletError> {
-        // iOS Keychain implementation
-        Ok(vec![])
+        // TODO: Implement FFI call to Swift/ObjC for Keychain retrieval
+        Err(WalletError::not_implemented("iOS Keychain FFI integration required"))
     }
     
     fn delete(&self, key: &str) -> Result<(), WalletError> {
-        // iOS Keychain implementation
-        Ok(())
+        // TODO: Implement FFI call to Swift/ObjC for Keychain deletion
+        Err(WalletError::not_implemented("iOS Keychain FFI integration required"))
     }
     
     fn exists(&self, key: &str) -> Result<bool, WalletError> {
-        // iOS Keychain implementation
-        Ok(false)
+        // TODO: Implement FFI call to Swift/ObjC for Keychain existence check
+        Err(WalletError::not_implemented("iOS Keychain FFI integration required"))
     }
     
     fn list_keys(&self) -> Result<Vec<String>, WalletError> {
-        // iOS Keychain implementation
-        Ok(vec![])
+        // TODO: Implement FFI call to Swift/ObjC for Keychain key listing
+        Err(WalletError::not_implemented("iOS Keychain FFI integration required"))
     }
 }
 
@@ -265,28 +272,28 @@ impl AndroidKeystoreStorage {
 #[cfg(target_os = "android")]
 impl PlatformStorage for AndroidKeystoreStorage {
     fn store(&self, key: &str, data: &[u8]) -> Result<(), WalletError> {
-        // Android Keystore implementation
-        Ok(())
+        // TODO: Implement FFI call to Kotlin/Java for Keystore storage
+        Err(WalletError::not_implemented("Android Keystore FFI integration required"))
     }
     
     fn retrieve(&self, key: &str) -> Result<Vec<u8>, WalletError> {
-        // Android Keystore implementation
-        Ok(vec![])
+        // TODO: Implement FFI call to Kotlin/Java for Keystore retrieval
+        Err(WalletError::not_implemented("Android Keystore FFI integration required"))
     }
     
     fn delete(&self, key: &str) -> Result<(), WalletError> {
-        // Android Keystore implementation
-        Ok(())
+        // TODO: Implement FFI call to Kotlin/Java for Keystore deletion
+        Err(WalletError::not_implemented("Android Keystore FFI integration required"))
     }
     
     fn exists(&self, key: &str) -> Result<bool, WalletError> {
-        // Android Keystore implementation
-        Ok(false)
+        // TODO: Implement FFI call to Kotlin/Java for Keystore existence check
+        Err(WalletError::not_implemented("Android Keystore FFI integration required"))
     }
     
     fn list_keys(&self) -> Result<Vec<String>, WalletError> {
-        // Android Keystore implementation
-        Ok(vec![])
+        // TODO: Implement FFI call to Kotlin/Java for Keystore key listing
+        Err(WalletError::not_implemented("Android Keystore FFI integration required"))
     }
 }
 
@@ -295,36 +302,112 @@ pub struct FileStorage;
 
 impl FileStorage {
     pub fn new() -> Result<Self, WalletError> {
-        Ok(Self)
+        Ok(Self {})
+    }
+
+    // Helper: Derive encryption key from password using Argon2
+    fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; 32], WalletError> {
+        let salt = argon2::password_hash::SaltString::b64_encode(salt)
+            .map_err(|e| WalletError::crypto(format!("Invalid salt: {}", e)))?;
+        let argon2 = Argon2::default();
+        let password_hash = argon2.hash_password(password.as_bytes(), &salt)
+            .map_err(|e| WalletError::crypto(format!("Password hashing failed: {}", e)))?;
+        let hash_bytes = password_hash.hash.unwrap().as_bytes();
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&hash_bytes[..32]);
+        Ok(key)
+    }
+
+    // Helper: Get file path for a given key
+    fn file_path(key: &str) -> PathBuf {
+        // TODO: Use a secure app data directory
+        let mut path = PathBuf::from("./secure_storage");
+        fs::create_dir_all(&path).ok();
+        path.push(format!("{}.dat", key));
+        path
+    }
+
+    // Helper: Get or generate salt for a key
+    fn get_salt(key: &str) -> Result<Vec<u8>, WalletError> {
+        let mut salt_path = PathBuf::from("./secure_storage");
+        fs::create_dir_all(&salt_path).ok();
+        salt_path.push(format!("{}.salt", key));
+        if salt_path.exists() {
+            let mut salt = vec![];
+            File::open(&salt_path)?.read_to_end(&mut salt)?;
+            Ok(salt)
+        } else {
+            let mut salt = [0u8; 16];
+            OsRng.fill_bytes(&mut salt);
+            let mut f = File::create(&salt_path)?;
+            f.write_all(&salt)?;
+            Ok(salt.to_vec())
+        }
     }
 }
 
 impl PlatformStorage for FileStorage {
     fn store(&self, key: &str, data: &[u8]) -> Result<(), WalletError> {
-        // File-based storage implementation
+        // TODO: Prompt user for password or use a secure method to obtain it
+        let password = "change_this_password"; // WARNING: Replace in production
+        let salt = Self::get_salt(key)?;
+        let key_bytes = Self::derive_key(password, &salt)?;
+        let cipher = Aes256Gcm::new(GenericArray::from_slice(&key_bytes));
+        let mut nonce = [0u8; 12];
+        OsRng.fill_bytes(&mut nonce);
+        let ciphertext = cipher.encrypt(GenericArray::from_slice(&nonce), data)
+            .map_err(|e| WalletError::crypto(format!("Encryption failed: {}", e)))?;
+        let mut file = File::create(Self::file_path(key))?;
+        file.write_all(&nonce)?;
+        file.write_all(&ciphertext)?;
         Ok(())
     }
-    
+
     fn retrieve(&self, key: &str) -> Result<Vec<u8>, WalletError> {
-        // File-based storage implementation
-        Ok(vec![])
+        let password = "change_this_password"; // WARNING: Replace in production
+        let salt = Self::get_salt(key)?;
+        let key_bytes = Self::derive_key(password, &salt)?;
+        let cipher = Aes256Gcm::new(GenericArray::from_slice(&key_bytes));
+        let mut file = File::open(Self::file_path(key))?;
+        let mut nonce = [0u8; 12];
+        file.read_exact(&mut nonce)?;
+        let mut ciphertext = vec![];
+        file.read_to_end(&mut ciphertext)?;
+        let plaintext = cipher.decrypt(GenericArray::from_slice(&nonce), &ciphertext)
+            .map_err(|e| WalletError::crypto(format!("Decryption failed: {}", e)))?;
+        Ok(plaintext)
     }
-    
+
     fn delete(&self, key: &str) -> Result<(), WalletError> {
-        // File-based storage implementation
+        let _ = fs::remove_file(Self::file_path(key));
+        let mut salt_path = PathBuf::from("./secure_storage");
+        salt_path.push(format!("{}.salt", key));
+        let _ = fs::remove_file(salt_path);
         Ok(())
     }
-    
+
     fn exists(&self, key: &str) -> Result<bool, WalletError> {
-        // File-based storage implementation
-        Ok(false)
+        Ok(Self::file_path(key).exists())
     }
-    
+
     fn list_keys(&self) -> Result<Vec<String>, WalletError> {
-        // File-based storage implementation
-        Ok(vec![])
+        let mut keys = vec![];
+        let dir = PathBuf::from("./secure_storage");
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(name) = path.file_stem().and_then(|n| n.to_str()) {
+                    if path.extension().and_then(|e| e.to_str()) == Some("dat") {
+                        keys.push(name.to_string());
+                    }
+                }
+            }
+        }
+        Ok(keys)
     }
 }
+// TODO: Replace hardcoded password with secure password management (prompt, config, or OS keyring)
+// TODO: Ensure secure file permissions and directory location
 
 // Biometric authentication implementations
 pub struct IOSBiometricAuth;

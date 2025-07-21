@@ -74,59 +74,48 @@ impl PasswordHasher {
     }
 
     /// Hash password using PBKDF2
+    ///
+    /// PHC string format: $pbkdf2-sha256$<iterations>$<base64(salt)>$<base64(hash)>
     fn hash_pbkdf2(&self, password: &str, salt: &[u8]) -> WalletResult<String> {
         let mut key = vec![0u8; 32]; // 256-bit key
-        
         pbkdf2::<hmac::Hmac<sha2::Sha256>>(
             password.as_bytes(),
             salt,
             self.config.iterations,
             &mut key,
         );
-
         let hash = format!(
-            "pbkdf2:sha256:{}:{}:{}",
+            "$pbkdf2-sha256${}${}${}",
             self.config.iterations,
             base64::encode(salt),
             base64::encode(&key)
         );
-
-        // Zero out the key
         key.zeroize();
-        
         Ok(hash)
     }
 
-    /// Verify password using PBKDF2
+    /// Verify password using PBKDF2 (PHC string format)
     fn verify_pbkdf2(&self, password: &str, hash: &str) -> WalletResult<bool> {
-        let parts: Vec<&str> = hash.split(':').collect();
-        if parts.len() != 4 || parts[0] != "pbkdf2" {
-            return Err(WalletError::Crypto("Invalid PBKDF2 hash format".to_string()));
+        // PHC format: $pbkdf2-sha256$<iterations>$<base64(salt)>$<base64(hash)>
+        let parts: Vec<&str> = hash.split('$').collect();
+        if parts.len() != 5 || parts[1] != "pbkdf2-sha256" {
+            return Err(WalletError::Crypto("Invalid PBKDF2 PHC hash format".to_string()));
         }
-
         let iterations: u32 = parts[2].parse()
             .map_err(|_| WalletError::Crypto("Invalid iterations in hash".to_string()))?;
-        
         let salt = base64::decode(parts[3])
             .map_err(|_| WalletError::Crypto("Invalid salt encoding".to_string()))?;
-        
         let stored_key = base64::decode(parts[4])
             .map_err(|_| WalletError::Crypto("Invalid key encoding".to_string()))?;
-
         let mut computed_key = vec![0u8; stored_key.len()];
-        
         pbkdf2::<hmac::Hmac<sha2::Sha256>>(
             password.as_bytes(),
             &salt,
             iterations,
             &mut computed_key,
         );
-
         let result = computed_key == stored_key;
-        
-        // Zero out the keys
         computed_key.zeroize();
-        
         Ok(result)
     }
 }
@@ -140,6 +129,8 @@ impl Drop for PasswordHasher {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+    use arbitrary::Arbitrary;
 
     #[test]
     fn test_password_hashing_argon2() {
@@ -167,5 +158,40 @@ mod tests {
         
         assert!(hasher.verify_password(password, &hash).unwrap());
         assert!(!hasher.verify_password("wrong_password", &hash).unwrap());
+    }
+
+    // Property-based test: random passwords
+    proptest! {
+        #[test]
+        fn prop_hash_and_verify_password(password in "[a-zA-Z0-9]{1,32}") {
+            let hasher = PasswordHasher::new(PasswordConfig::default());
+            let hash = hasher.hash_password(&password).unwrap();
+            prop_assert!(hasher.verify_password(&password, &hash).unwrap());
+        }
+    }
+
+    // Negative test: empty password
+    #[test]
+    fn test_empty_password() {
+        let hasher = PasswordHasher::new(PasswordConfig::default());
+        let result = hasher.hash_password("");
+        assert!(result.is_err());
+    }
+
+    // Fuzz test: arbitrary input for FFI boundary
+    #[test]
+    fn fuzz_password_hasher_arbitrary() {
+        #[derive(Debug, Arbitrary)]
+        struct FuzzInput {
+            password: String,
+        }
+        let mut raw = vec![0u8; 32];
+        for _ in 0..10 {
+            getrandom::getrandom(&mut raw).unwrap();
+            if let Ok(input) = FuzzInput::arbitrary(&mut raw.as_slice()) {
+                let hasher = PasswordHasher::new(PasswordConfig::default());
+                let _ = hasher.hash_password(&input.password);
+            }
+        }
     }
 } 
