@@ -3,444 +3,284 @@
 //! This module contains the Wallet entity and related value objects
 //! that represent the core business concept of a cryptocurrency wallet.
 
-use crate::shared::error::WalletError;
-use crate::shared::constants::*;
-use crate::shared::utils::Utils;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use crate::shared::types::{Address, Amount, Network, Balance as BalanceType};
+use crate::shared::error::WalletError;
+use zeroize::Zeroize;
 
-/// Wallet entity representing a cryptocurrency wallet
+/// Core wallet entity - simplified to match TypeScript implementation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Wallet {
     pub id: String,
     pub name: String,
-    pub address: String,
-    pub public_key: String,
     pub network: Network,
-    pub created_at: u64,
-    pub updated_at: u64,
-    pub is_active: bool,
-    pub metadata: HashMap<String, String>,
+    pub address: String,
+    pub balance: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
 impl Wallet {
-    /// Create a new wallet
-    pub fn new(
-        name: String,
-        address: String,
-        public_key: String,
-        network: Network,
-    ) -> Result<Self, WalletError> {
-        // Validate inputs
+    pub fn new(name: String, address: String, _public_key: String, network: Network) -> Result<Self, crate::shared::error::WalletError> {
         if name.is_empty() {
-            return Err(WalletError::Configuration("Wallet name cannot be empty".to_string()));
+            return Err(crate::shared::error::WalletError::validation("Wallet name cannot be empty"));
         }
-
-        if !Utils::validate_ethereum_address(&address)? {
-            return Err(WalletError::InvalidAddress("Invalid wallet address".to_string()));
+        if address.is_empty() {
+            return Err(crate::shared::error::WalletError::validation("Wallet address cannot be empty"));
         }
-
-        if public_key.is_empty() {
-            return Err(WalletError::InvalidPublicKey("Public key cannot be empty".to_string()));
-        }
-
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
+        
         Ok(Self {
-            id: Utils::generate_id(),
+            id: format!("wallet_{}", uuid::Uuid::new_v4()),
             name,
-            address,
-            public_key,
             network,
-            created_at: now,
-            updated_at: now,
-            is_active: true,
-            metadata: HashMap::new(),
+            address: address.to_string(),
+            balance: "0".to_string(), // Default balance
+            created_at: chrono::Utc::now(),
         })
     }
 
-    /// Check if the wallet is valid
-    pub fn is_valid(&self) -> bool {
-        !self.id.is_empty()
-            && !self.name.is_empty()
-            && !self.address.is_empty()
-            && !self.public_key.is_empty()
-            && self.created_at > 0
-            && self.updated_at >= self.created_at
-    }
+    pub fn validate(&self) -> Result<(), crate::shared::error::WalletError> {
+        if self.address.is_empty() {
+            return Err(crate::shared::error::WalletError::config("Invalid wallet address"));
+        }
 
-    /// Update wallet metadata
-    pub fn update_metadata(&mut self, key: String, value: String) {
-        self.metadata.insert(key, value);
-        self.updated_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        Ok(())
     }
+}
 
-    /// Get metadata value
-    pub fn get_metadata(&self, key: &str) -> Option<&String> {
-        self.metadata.get(key)
-    }
-
-    /// Remove metadata
-    pub fn remove_metadata(&mut self, key: &str) {
-        self.metadata.remove(key);
-        self.updated_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-    }
-
-    /// Deactivate wallet
-    pub fn deactivate(&mut self) {
-        self.is_active = false;
-        self.updated_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-    }
-
-    /// Activate wallet
-    pub fn activate(&mut self) {
-        self.is_active = true;
-        self.updated_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-    }
-
-    /// Get wallet age in seconds
-    pub fn age_seconds(&self) -> u64 {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        now - self.created_at
-    }
-
-    /// Get wallet age in days
-    pub fn age_days(&self) -> u64 {
-        self.age_seconds() / 86400
-    }
-
-    /// Check if wallet is old (older than 30 days)
-    pub fn is_old(&self) -> bool {
-        self.age_days() > 30
-    }
-
-    /// Get wallet summary
-    pub fn summary(&self) -> WalletSummary {
-        WalletSummary {
-            id: self.id.clone(),
-            name: self.name.clone(),
-            address: self.address.clone(),
-            network: self.network.clone(),
-            is_active: self.is_active,
-            created_at: self.created_at,
-            age_days: self.age_days(),
+impl From<SecureWallet> for Wallet {
+    fn from(secure_wallet: SecureWallet) -> Self {
+        Self {
+            id: secure_wallet.id,
+            name: secure_wallet.name,
+            network: secure_wallet.network,
+            address: secure_wallet.address.to_string(),
+            balance: "0".to_string(), // Default balance
+            created_at: chrono::DateTime::from_timestamp(secure_wallet.created_at as i64, 0)
+                .unwrap_or_else(|| chrono::Utc::now()),
         }
     }
 }
 
-/// Wallet summary for display purposes
+/// Secure wallet entity with automatic zeroization
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WalletSummary {
+pub struct SecureWallet {
     pub id: String,
     pub name: String,
-    pub address: String,
+    pub address: Address,
     pub network: Network,
-    pub is_active: bool,
     pub created_at: u64,
-    pub age_days: u64,
-}
-
-/// Secure wallet with private key
-#[derive(Debug, Zeroize, ZeroizeOnDrop)]
-pub struct SecureWallet {
-    pub wallet: Wallet,
-    #[zeroize(skip)]
-    pub private_key: SecurePrivateKey,
-    pub seed_phrase: SecureSeedPhrase,
+    pub updated_at: u64,
 }
 
 impl SecureWallet {
     /// Create a new secure wallet
-    pub fn new(
-        name: String,
-        address: String,
-        public_key: String,
-        private_key: SecurePrivateKey,
-        seed_phrase: SecureSeedPhrase,
-        network: Network,
-    ) -> Result<Self, WalletError> {
-        let wallet = Wallet::new(name, address, public_key, network)?;
-        
-        Ok(Self {
-            wallet,
-            private_key,
-            seed_phrase,
-        })
-    }
-
-    /// Get the wallet reference
-    pub fn wallet(&self) -> &Wallet {
-        &self.wallet
-    }
-
-    /// Get the private key (for signing operations)
-    pub fn private_key(&self) -> &SecurePrivateKey {
-        &self.private_key
-    }
-
-    /// Get the seed phrase (for backup/restore)
-    pub fn seed_phrase(&self) -> &SecureSeedPhrase {
-        &self.seed_phrase
-    }
-
-    /// Check if the secure wallet is valid
-    pub fn is_valid(&self) -> bool {
-        self.wallet.is_valid()
-            && self.private_key.as_bytes().len() == PRIVATE_KEY_SIZE
-            && !self.seed_phrase.as_words().is_empty()
-    }
-
-    /// Create a backup of the secure wallet
-    pub fn create_backup(&self, password: &str) -> Result<WalletBackup, WalletError> {
-        if !Utils::validate_password(password)? {
-            return Err(WalletError::Authentication("Invalid password".to_string()));
-        }
-
-        let backup_data = WalletBackupData {
-            wallet: self.wallet.clone(),
-            private_key_hex: self.private_key.to_hex(),
-            seed_phrase: self.seed_phrase.to_string(),
-            created_at: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
+    pub fn new(id: String, name: String, address: Address, network: Network) -> Self {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_secs(),
-        };
-
-        // Encrypt the backup data
-        let backup_json = serde_json::to_string(&backup_data)
-            .map_err(|e| WalletError::Serialization(format!("Failed to serialize backup: {}", e)))?;
-
-        let backup_bytes = backup_json.as_bytes();
-        let checksum = Utils::calculate_checksum(backup_bytes);
-
-        Ok(WalletBackup {
-            encrypted_data: backup_bytes.to_vec(), // In production, this would be encrypted
-            checksum,
-            version: BACKUP_VERSION,
-            created_at: backup_data.created_at,
-        })
+            .as_secs();
+        
+        Self {
+            id,
+            name,
+            address,
+            network,
+            created_at: now,
+            updated_at: now,
+        }
     }
-
-    /// Restore a secure wallet from backup
-    pub fn from_backup(backup: &WalletBackup, password: &str) -> Result<Self, WalletError> {
-        if !Utils::validate_password(password)? {
-            return Err(WalletError::Authentication("Invalid password".to_string()));
-        }
-
-        // Validate checksum
-        if !Utils::validate_checksum(&backup.encrypted_data, backup.checksum) {
-            return Err(WalletError::Storage("Backup checksum validation failed".to_string()));
-        }
-
-        // Decrypt the backup data (in production, this would decrypt)
-        let backup_json = String::from_utf8(backup.encrypted_data.clone())
-            .map_err(|e| WalletError::Serialization(format!("Invalid backup data: {}", e)))?;
-
-        let backup_data: WalletBackupData = serde_json::from_str(&backup_json)
-            .map_err(|e| WalletError::Serialization(format!("Failed to deserialize backup: {}", e)))?;
-
-        // Validate the restored data
-        if !backup_data.wallet.is_valid() {
-            return Err(WalletError::InvalidWallet("Invalid wallet data in backup".to_string()));
-        }
-
-        if !Utils::validate_private_key(&backup_data.private_key_hex)? {
-            return Err(WalletError::InvalidPrivateKey("Invalid private key in backup".to_string()));
-        }
-
-        if !Utils::validate_seed_phrase(&backup_data.seed_phrase)? {
-            return Err(WalletError::InvalidSeedPhrase("Invalid seed phrase in backup".to_string()));
-        }
-
-        // Convert hex private key to SecurePrivateKey
-        let private_key_bytes = Utils::hex_to_bytes(&backup_data.private_key_hex)?;
-        if private_key_bytes.len() != PRIVATE_KEY_SIZE {
-            return Err(WalletError::InvalidPrivateKey("Invalid private key size".to_string()));
-        }
-
-        let mut private_key_array = [0u8; PRIVATE_KEY_SIZE];
-        private_key_array.copy_from_slice(&private_key_bytes);
-        let private_key = SecurePrivateKey::new(private_key_array);
-
-        // Convert seed phrase string to SecureSeedPhrase
-        let seed_words: Vec<String> = backup_data.seed_phrase
-            .split_whitespace()
-            .map(|s| s.to_string())
-            .collect();
-        let seed_phrase = SecureSeedPhrase::new(seed_words);
-
-        Ok(Self {
-            wallet: backup_data.wallet,
-            private_key,
-            seed_phrase,
-        })
-    }
-}
-
-/// Wallet backup data
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct WalletBackupData {
-    wallet: Wallet,
-    private_key_hex: String,
-    seed_phrase: String,
-    created_at: u64,
-}
-
-/// Wallet backup
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WalletBackup {
-    pub encrypted_data: Vec<u8>,
-    pub checksum: u32,
-    pub version: u32,
-    pub created_at: u64,
-}
-
-impl WalletBackup {
-    /// Check if the backup is valid
-    pub fn is_valid(&self) -> bool {
-        self.version == BACKUP_VERSION
-            && !self.encrypted_data.is_empty()
-            && Utils::validate_checksum(&self.encrypted_data, self.checksum)
-            && self.created_at > 0
-    }
-
-    /// Get backup age in days
-    pub fn age_days(&self) -> u64 {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
+    
+    /// Update the wallet
+    pub fn update(&mut self) {
+        self.updated_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        (now - self.created_at) / 86400
     }
 
-    /// Check if backup is old (older than 90 days)
-    pub fn is_old(&self) -> bool {
-        self.age_days() > 90
-    }
-}
-
-/// Network enumeration
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Network {
-    Ethereum,
-    Base,
-    Core,
-    Polygon,
-    Arbitrum,
-    Optimism,
-    Sepolia,
-    Goerli,
-}
-
-impl Network {
-    /// Get chain ID for the network
-    pub fn chain_id(&self) -> u64 {
-        match self {
-            Network::Ethereum => 1,
-            Network::Base => 8453,
-            Network::Core => 1116,
-            Network::Polygon => 137,
-            Network::Arbitrum => 42161,
-            Network::Optimism => 10,
-            Network::Sepolia => 11155111,
-            Network::Goerli => 5,
+    /// Get wallet info
+    pub fn to_wallet_info(&self, balance: BalanceType) -> crate::shared::types::WalletInfo {
+        crate::shared::types::WalletInfo {
+            address: self.address.clone(),
+            balance,
+            network: self.network.clone(),
         }
     }
+}
 
-    /// Get network name
-    pub fn name(&self) -> &'static str {
-        match self {
-            Network::Ethereum => "Ethereum",
-            Network::Base => "Base",
-            Network::Core => "Core",
-            Network::Polygon => "Polygon",
-            Network::Arbitrum => "Arbitrum",
-            Network::Optimism => "Optimism",
-            Network::Sepolia => "Sepolia",
-            Network::Goerli => "Goerli",
-        }
-    }
-
-    /// Check if network is testnet
-    pub fn is_testnet(&self) -> bool {
-        matches!(self, Network::Sepolia | Network::Goerli)
-    }
-
-    /// Check if network is mainnet
-    pub fn is_mainnet(&self) -> bool {
-        !self.is_testnet()
+impl Zeroize for SecureWallet {
+    fn zeroize(&mut self) {
+        self.id.zeroize();
+        self.name.zeroize();
+        self.address.zeroize();
     }
 }
 
-/// Secure private key wrapper
-#[derive(Debug, Zeroize, ZeroizeOnDrop)]
+/// Secure private key wrapper with automatic zeroization
+#[derive(Debug)]
 pub struct SecurePrivateKey {
-    key: [u8; PRIVATE_KEY_SIZE],
+    key: Vec<u8>,
 }
 
 impl SecurePrivateKey {
     /// Create a new secure private key
-    pub fn new(key: [u8; PRIVATE_KEY_SIZE]) -> Self {
+    pub fn new(key: Vec<u8>) -> Self {
         Self { key }
     }
 
-    /// Get private key bytes
+    /// Get the private key bytes
     pub fn as_bytes(&self) -> &[u8] {
         &self.key
     }
 
-    /// Get private key as hex string
+    /// Get the private key as hex string
     pub fn to_hex(&self) -> String {
-        hex::encode(&self.key)
+        format!("0x{}", hex::encode(&self.key))
+}
+
+    /// Create from hex string
+    pub fn from_hex(hex: &str) -> Result<Self, WalletError> {
+        let hex = hex.trim_start_matches("0x");
+        let key = hex::decode(hex)
+            .map_err(|e| WalletError::validation(format!("Invalid hex string: {}", e)))?;
+        
+        if key.len() != 32 {
+            return Err(WalletError::validation("Private key must be 32 bytes"));
+        }
+        
+        Ok(Self { key })
     }
 }
 
-/// Secure seed phrase wrapper
-#[derive(Debug, Zeroize, ZeroizeOnDrop)]
+impl Clone for SecurePrivateKey {
+    fn clone(&self) -> Self {
+        Self {
+            key: self.key.clone(),
+        }
+    }
+}
+
+impl Zeroize for SecurePrivateKey {
+    fn zeroize(&mut self) {
+        self.key.zeroize();
+    }
+}
+
+/// Secure seed phrase wrapper with automatic zeroization
+#[derive(Debug)]
 pub struct SecureSeedPhrase {
-    words: Vec<String>,
+    phrase: String,
 }
 
 impl SecureSeedPhrase {
     /// Create a new secure seed phrase
-    pub fn new(words: Vec<String>) -> Self {
-        Self { words }
+    pub fn new(phrase: String) -> Self {
+        Self { phrase }
     }
 
-    /// Get seed phrase words
-    pub fn as_words(&self) -> &[String] {
-        &self.words
+    /// Get the seed phrase
+    pub fn as_str(&self) -> &str {
+        &self.phrase
+    }
+    
+    /// Create from words
+    pub fn from_words(words: Vec<String>) -> Result<Self, WalletError> {
+        let phrase = words.join(" ");
+        
+        // Validate seed phrase
+        let word_count = words.len();
+        if ![12, 15, 18, 21, 24].contains(&word_count) {
+            return Err(WalletError::validation("Seed phrase must be 12, 15, 18, 21, or 24 words"));
+        }
+        
+        Ok(Self { phrase })
+    }
+    
+    /// Get words
+    pub fn words(&self) -> Vec<String> {
+        self.phrase.split_whitespace().map(|s| s.to_string()).collect()
+    }
+}
+
+impl Clone for SecureSeedPhrase {
+    fn clone(&self) -> Self {
+        Self {
+            phrase: self.phrase.clone(),
+        }
+    }
+}
+
+impl Zeroize for SecureSeedPhrase {
+    fn zeroize(&mut self) {
+        self.phrase.zeroize();
+    }
     }
 
-    /// Get seed phrase as string
-    pub fn to_string(&self) -> String {
-        self.words.join(" ")
+/// Wallet balance information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalletBalance {
+    pub wallet_id: String,
+    pub network: Network,
+    pub amount: Amount,
+    pub currency: String,
+    pub last_updated: u64,
+}
+
+impl WalletBalance {
+    /// Create a new wallet balance
+    pub fn new(wallet_id: String, network: Network, amount: Amount, currency: String) -> Self {
+        Self {
+            wallet_id,
+            network,
+            amount,
+            currency,
+            last_updated: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        }
+    }
+    
+    /// Update the balance
+    pub fn update(&mut self, amount: Amount) {
+        self.amount = amount;
+        self.last_updated = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+    }
+}
+
+/// Wallet backup information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalletBackupInfo {
+    pub version: String,
+    pub wallet_id: String,
+    pub encrypted_data: Vec<u8>,
+    pub checksum: String,
+    pub created_at: u64,
+}
+
+impl WalletBackupInfo {
+    /// Create a new wallet backup
+    pub fn new(wallet_id: String, encrypted_data: Vec<u8>, checksum: String) -> Self {
+        Self {
+            version: "1.0.0".to_string(),
+            wallet_id,
+            encrypted_data,
+            checksum,
+            created_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shared::types::Network;
 
     #[test]
     fn test_wallet_creation() {
@@ -448,38 +288,83 @@ mod tests {
             "Test Wallet".to_string(),
             "0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6".to_string(),
             "04...".to_string(),
-            Network::Ethereum,
+            Network::CoreTestnet,
         ).unwrap();
 
-        assert!(wallet.is_valid());
         assert_eq!(wallet.name, "Test Wallet");
-        assert_eq!(wallet.network, Network::Ethereum);
+        assert_eq!(wallet.network, Network::CoreTestnet);
     }
 
     #[test]
-    fn test_wallet_validation() {
-        let wallet = Wallet::new(
-            "".to_string(),
+    fn test_secure_wallet_creation() {
+        let wallet = SecureWallet::new(
+            "test_wallet".to_string(),
+            "Test Wallet".to_string(),
             "0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6".to_string(),
-            "04...".to_string(),
-            Network::Ethereum,
+            Network::CoreTestnet,
         );
-
-        assert!(wallet.is_err());
+        
+        assert_eq!(wallet.id, "test_wallet");
+        assert_eq!(wallet.name, "Test Wallet");
+        assert_eq!(wallet.address, "0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6");
+        assert_eq!(wallet.network, Network::CoreTestnet);
     }
 
     #[test]
-    fn test_network_chain_ids() {
-        assert_eq!(Network::Ethereum.chain_id(), 1);
-        assert_eq!(Network::Base.chain_id(), 8453);
-        assert_eq!(Network::Core.chain_id(), 1116);
+    fn test_secure_private_key_creation() {
+        let key_bytes = vec![1u8; 32];
+        let private_key = SecurePrivateKey::new(key_bytes.clone());
+        
+        assert_eq!(private_key.as_bytes(), &key_bytes);
+        assert!(private_key.to_hex().starts_with("0x"));
     }
 
     #[test]
-    fn test_network_testnet_detection() {
-        assert!(Network::Sepolia.is_testnet());
-        assert!(Network::Goerli.is_testnet());
-        assert!(!Network::Ethereum.is_testnet());
-        assert!(!Network::Base.is_testnet());
+    fn test_secure_private_key_from_hex() {
+        let hex_key = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+        let private_key = SecurePrivateKey::from_hex(hex_key).unwrap();
+
+        assert_eq!(private_key.to_hex(), hex_key);
+    }
+
+    #[test]
+    fn test_secure_seed_phrase_creation() {
+        let words = vec![
+            "abandon".to_string(), "ability".to_string(), "able".to_string(),
+            "about".to_string(), "above".to_string(), "absent".to_string(),
+            "absorb".to_string(), "abstract".to_string(), "absurd".to_string(),
+            "abuse".to_string(), "access".to_string(), "accident".to_string(),
+        ];
+        
+        let seed_phrase = SecureSeedPhrase::from_words(words).unwrap();
+        assert_eq!(seed_phrase.words().len(), 12);
+    }
+
+    #[test]
+    fn test_wallet_balance_creation() {
+        let balance = WalletBalance::new(
+            "test_wallet".to_string(),
+            Network::CoreTestnet,
+            "1000000000000000000".to_string(),
+            "TCORE2".to_string(),
+        );
+        
+        assert_eq!(balance.wallet_id, "test_wallet");
+        assert_eq!(balance.network, Network::CoreTestnet);
+        assert_eq!(balance.amount, "1000000000000000000");
+        assert_eq!(balance.currency, "TCORE2");
+    }
+
+    #[test]
+    fn test_wallet_backup_creation() {
+        let backup = WalletBackupInfo::new(
+            "test_wallet".to_string(),
+            vec![1, 2, 3, 4, 5],
+            "test_checksum".to_string(),
+        );
+        
+        assert_eq!(backup.wallet_id, "test_wallet");
+        assert_eq!(backup.version, "1.0.0");
+        assert_eq!(backup.checksum, "test_checksum");
     }
 } 

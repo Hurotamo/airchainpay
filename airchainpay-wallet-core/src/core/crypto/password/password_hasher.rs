@@ -3,33 +3,7 @@ use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, PasswordHas
 use pbkdf2::{pbkdf2, pbkdf2_verify};
 use rand::{Rng, RngCore};
 use zeroize::Zeroize;
-
-/// Password hashing configuration
-pub struct PasswordConfig {
-    pub algorithm: PasswordAlgorithm,
-    pub salt_length: usize,
-    pub iterations: u32,
-    pub memory_cost: u32,
-    pub parallelism: u32,
-}
-
-#[derive(Debug, Clone)]
-pub enum PasswordAlgorithm {
-    Argon2,
-    PBKDF2,
-}
-
-impl Default for PasswordConfig {
-    fn default() -> Self {
-        Self {
-            algorithm: PasswordAlgorithm::Argon2,
-            salt_length: 32,
-            iterations: 100_000,
-            memory_cost: 65536, // 64MB
-            parallelism: 4,
-        }
-    }
-}
+use super::{PasswordConfig, PasswordAlgorithm};
 
 /// Secure password hasher
 pub struct PasswordHasher {

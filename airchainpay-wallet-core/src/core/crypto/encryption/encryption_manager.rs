@@ -4,22 +4,7 @@ use aes_gcm::aead::{Aead, NewAead};
 use chacha20poly1305::{ChaCha20Poly1305, Key as ChaChaKey, Nonce as ChaChaNonce};
 use rand::{Rng, RngCore};
 use zeroize::Zeroize;
-
-/// Encryption algorithms
-#[derive(Debug, Clone)]
-pub enum EncryptionAlgorithm {
-    AES256GCM,
-    ChaCha20Poly1305,
-}
-
-/// Encrypted data structure
-#[derive(Debug, Clone)]
-pub struct EncryptedData {
-    pub algorithm: EncryptionAlgorithm,
-    pub ciphertext: Vec<u8>,
-    pub nonce: Vec<u8>,
-    pub tag: Vec<u8>,
-}
+use super::{EncryptionAlgorithm, EncryptedData};
 
 /// Secure encryption manager
 pub struct EncryptionManager {

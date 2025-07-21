@@ -1,5 +1,6 @@
 [workspace]
 members = [
-    "airchainpay-relay-rust/airchainpay-relay"
+    "airchainpay-relay-rust/airchainpay-relay",
+    "airchainpay-wallet-core"
 ]
 resolver = "2" 

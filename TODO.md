@@ -19,6 +19,27 @@
 
 ## 🔥 HIGH PRIORITY
 
+### Wallet Core (Rust) - Critical Compilation Fixes
+- [ ] **Fix Missing Constants** - Add missing `PRIVATE_KEY_SIZE`, `BACKUP_VERSION`, `PLATFORM`, `ARCHITECTURE` constants
+- [ ] **Fix Missing Types** - Add missing `Transaction`, `SignedTransaction`, `TransactionHash`, `TransactionStatus` types
+- [ ] **Fix Missing Functions** - Implement missing `init()` functions in crypto, storage, ble modules
+- [ ] **Fix Secp256k1 API** - Update deprecated `from_slice()` to `from_byte_array()` and fix signature methods
+- [ ] **Fix AES-GCM API** - Add missing `KeyInit` trait imports and fix cipher initialization
+- [ ] **Fix Argon2 API** - Add missing `PasswordHasher` trait imports
+- [ ] **Fix Clone Implementations** - Add `#[derive(Clone)]` to `SecurePrivateKey`, `SecureSeedPhrase`, `SecureWallet`
+- [ ] **Fix Missing Error Types** - Add missing `InvalidWallet` error variant
+- [ ] **Fix Platform Storage** - Implement missing `IOSKeychainStorage`, `AndroidKeystoreStorage` types
+- [ ] **Fix Missing Traits** - Add missing `init()` methods to platform traits
+
+### Wallet Core (Rust) - Missing Implementations
+- [ ] **Complete Crypto Module** - Implement missing crypto submodules and functions
+- [ ] **Complete Wallet Management** - Implement multi-chain wallet creation and management
+- [ ] **Complete Storage Module** - Implement secure storage with platform-specific backends
+- [ ] **Complete Transaction Module** - Implement transaction signing, validation, and broadcasting
+- [ ] **Complete BLE Module** - Implement BLE security, encryption, and pairing
+- [ ] **Complete FFI Interface** - Expand FFI interface with all necessary functions
+- [ ] **Complete Error Handling** - Implement comprehensive error handling and recovery
+
 ### Wallet (React Native)
 - [ ] **Biometric Authentication** - Implement Touch ID/Face ID
 - [ ] **PIN Code Protection** - Add PIN for sensitive operations
@@ -49,6 +70,15 @@
 - [ ] **Network Status Monitoring** - Add network health monitoring
 
 ## 🟡 MEDIUM PRIORITY
+
+### Wallet Core (Rust) - Code Quality
+- [ ] **Fix Deprecated Functions** - Update deprecated `rand::thread_rng()` to `rand::rng()`
+- [ ] **Fix Base64 API** - Update deprecated `base64::encode()` and `base64::decode()` to new API
+- [ ] **Remove Unused Imports** - Clean up all unused imports and variables
+- [ ] **Fix Ambiguous Re-exports** - Resolve ambiguous glob re-exports in lib.rs
+- [ ] **Add Missing Documentation** - Add comprehensive documentation for all public APIs
+- [ ] **Fix Build Script** - Remove vergen dependency and fix build.rs
+- [ ] **Fix Workspace Configuration** - Add wallet-core to workspace members
 
 ### User Experience
 - [ ] **Dark/Light Theme** - Implement theme toggle
@@ -192,6 +222,17 @@
 
 ## 📋 CURRENT KNOWN ISSUES
 
+### Wallet Core Issues (Critical)
+- 100+ compilation errors in Rust wallet core
+- Missing constants: `PRIVATE_KEY_SIZE`, `BACKUP_VERSION`, `PLATFORM`, `ARCHITECTURE`
+- Missing types: `Transaction`, `SignedTransaction`, `TransactionHash`, `TransactionStatus`
+- Missing functions: `init()` in crypto, storage, ble modules
+- Deprecated API usage: `secp256k1::from_slice()`, `rand::thread_rng()`, `base64::encode()`
+- Missing trait implementations: `Clone` for secure types
+- Missing error variants: `InvalidWallet`
+- Missing platform storage implementations
+- 82 warnings about unused imports and variables
+
 ### Wallet Issues
 - BLE connection stability needs improvement
 - QR code scanner error handling needs enhancement
@@ -211,11 +252,11 @@
 ## 🎯 NEXT STEPS
 
 ### Week 1-2 (Critical)
-1. Fix BLE security vulnerabilities
-2. Complete protobuf implementation
-3. Implement missing API endpoints
-4. Fix Expo configuration issues
-5. Add comprehensive error handling
+1. Fix all compilation errors in wallet-core Rust code
+2. Implement missing constants and types
+3. Fix deprecated API usage
+4. Add missing trait implementations
+5. Complete missing function implementations
 
 ### Week 3-4 (Beta Preparation)
 1. Complete security audit
@@ -248,25 +289,12 @@
 
 ### In Progress 🔄
 - Security improvements
-- BLE enhancement
-- API endpoint completion
-- Documentation
+- Wallet core Rust implementation (partially complete)
+- BLE security enhancements
+- Transaction validation improvements
 
-### Not Started ❌
-- Advanced features
-- Platform-specific optimizations
-- Comprehensive testing
-- Production deployment
-
----
-
-**Total TODO Items**: 100+  
-**Critical Items**: 15  
-**High Priority**: 25  
-**Medium Priority**: 30  
-**Low Priority**: 30+  
-
-**Estimated Time to Beta**: 4-6 weeks  
-**Estimated Time to Production**: 8-12 weeks  
-
-*Last Updated: $(date)* 
+### Blocked ❌
+- Wallet core compilation errors (100+ errors)
+- Missing implementations in Rust modules
+- Deprecated API usage throughout codebase
+- Missing platform-specific implementations 

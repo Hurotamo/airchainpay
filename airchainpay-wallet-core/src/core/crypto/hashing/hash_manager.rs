@@ -2,15 +2,7 @@ use crate::error::{WalletError, WalletResult};
 use sha2::{Sha256, Sha512, Digest};
 use sha3::{Keccak256, Keccak512, Digest as Sha3Digest};
 use zeroize::Zeroize;
-
-/// Hash algorithms
-#[derive(Debug, Clone)]
-pub enum HashAlgorithm {
-    SHA256,
-    SHA512,
-    Keccak256,
-    Keccak512,
-}
+use super::HashAlgorithm;
 
 /// Hash manager
 pub struct HashManager;
