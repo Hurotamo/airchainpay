@@ -316,7 +316,8 @@ export default function BLEPaymentScreen() {
       return;
     }
 
-    // Permissions are always granted now, so skip permission checks
+    // Request BLE permissions for Android 12+ (minimal, direct)
+    await bleManager.requestPermissionsEnhanced?.();
 
     // Check if advertising is truly supported
     const trulySupported = await bleManager.isAdvertisingTrulySupported();
