@@ -193,16 +193,21 @@ pub fn parse_amount(amount: &str, decimals: u8) -> Result<String, WalletError> {
 
 /// Generate random bytes
 pub fn generate_random_bytes(length: usize) -> Vec<u8> {
-    use rand::Rng;
-    let mut rng = rand::rng();
-    (0..length).map(|_| rng.random()).collect()
+    use rand::rngs::OsRng;
+    use rand::RngCore;
+    let mut bytes = vec![0u8; length];
+    let mut rng = OsRng;
+    rng.fill_bytes(&mut bytes);
+    bytes
 }
 
 /// Generate secure random bytes
 pub fn generate_secure_random_bytes(length: usize) -> Result<Vec<u8>, WalletError> {
+    use rand::rngs::OsRng;
     use rand::RngCore;
     let mut bytes = vec![0u8; length];
-    rand::rng().fill_bytes(&mut bytes);
+    let mut rng = OsRng;
+    rng.fill_bytes(&mut bytes);
     Ok(bytes)
 }
 

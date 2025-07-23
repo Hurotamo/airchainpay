@@ -4,13 +4,15 @@
 
 use crate::shared::error::WalletError;
 use crate::shared::types::{BLEPaymentData, BLEDeviceInfo, Network, Amount, Address};
-use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::{Aead, generic_array::GenericArray}};
-use rand::thread_rng;
+use aes_gcm::{Aes256Gcm, KeyInit, aead::{Aead, generic_array::GenericArray}};
+use rand::rngs::OsRng;
 use rand::RngCore;
+use bluest::Adapter;
+use futures::StreamExt;
 
 /// BLE security manager
 pub struct BLESecurityManager {
-    // BLE implementation would go here
+   
 }
 
 impl BLESecurityManager {
@@ -23,9 +25,11 @@ impl BLESecurityManager {
         Ok(())
     }
 
+    /// Start BLE advertising (peripheral role)
     pub async fn start_advertising(&self) -> Result<(), WalletError> {
         log::info!("Starting BLE advertising");
-        Ok(())
+        // Bluest does not support peripheral/advertising yet
+        Err(WalletError::ble("BLE advertising (peripheral role) not supported on this platform. AirChainPay is a mobile app, not a BLE device/peripheral."))
     }
 
     pub async fn stop_advertising(&self) -> Result<(), WalletError> {
@@ -33,6 +37,7 @@ impl BLESecurityManager {
         Ok(())
     }
 
+    /// Start BLE scanning (central role)
     pub async fn start_scanning(&self) -> Result<(), WalletError> {
         log::info!("Starting BLE scanning");
         Ok(())
@@ -43,32 +48,48 @@ impl BLESecurityManager {
         Ok(())
     }
 
-    pub async fn connect_to_device(&self, _device_info: &BLEDeviceInfo) -> Result<(), WalletError> {
-        log::info!("Connecting to BLE device");
+    /// Connect to a BLE device (central role)
+    pub async fn connect_to_device(&self, device_info: &BLEDeviceInfo) -> Result<(), WalletError> {
+        log::info!("Connecting to BLE device: {}", device_info.name);
+        // BLE device connection logic is stubbed for build
         Ok(())
     }
 
     pub async fn disconnect_from_device(&self) -> Result<(), WalletError> {
         log::info!("Disconnecting from BLE device");
+        // No-op: connection is managed per operation
         Ok(())
     }
 
+    /// Send payment data to a BLE receiver (central role)
     pub async fn send_payment(&self, payment_data: &BLEPaymentData) -> Result<(), WalletError> {
-        log::info!("Sending payment via BLE: {:?}", payment_data);
-        // Here, send the payment_data over BLE using a real BLE library
-        Ok(())
+        log::info!("Sending payment via BLE (central role)");
+        let adapter = Adapter::default().await.ok_or_else(|| WalletError::ble("No Bluetooth adapter found".to_string()))?;
+        adapter.wait_available().await.map_err(|_| WalletError::ble("Bluetooth adapter not available"))?;
+        let mut scan = adapter.scan(&[]).await.map_err(|_| WalletError::ble("Failed to start BLE scan"))?;
+        while let Some(discovered) = scan.next().await {
+            // BLE device scan logic is stubbed for build
+        }
+        Err(WalletError::ble("No suitable BLE receiver found"))
     }
 
+    /// Receive payment data from a BLE sender (central role)
     pub async fn receive_payment(&self) -> Result<BLEPaymentData, WalletError> {
-        log::info!("Receiving payment via BLE");
-        // Here, receive real payment data from BLE
-        Err(WalletError::not_implemented("BLE receive_payment not yet implemented"))
+        log::info!("Receiving payment via BLE (central role)");
+        let adapter = Adapter::default().await.ok_or_else(|| WalletError::ble("No Bluetooth adapter found".to_string()))?;
+        adapter.wait_available().await.map_err(|_| WalletError::ble("Bluetooth adapter not available"))?;
+        let mut scan = adapter.scan(&[]).await.map_err(|_| WalletError::ble("Failed to start BLE scan"))?;
+        while let Some(discovered) = scan.next().await {
+            // BLE device connect/write/disconnect logic is stubbed for build
+        }
+        Err(WalletError::ble("No valid BLE payment data found"))
     }
 
     pub async fn encrypt_payment_data(&self, payment_data: &BLEPaymentData, key: &[u8]) -> Result<Vec<u8>, WalletError> {
         let cipher = Aes256Gcm::new(GenericArray::from_slice(key));
         let mut nonce = [0u8; 12];
-        thread_rng().fill_bytes(&mut nonce);
+        let mut rng = OsRng;
+        rng.fill_bytes(&mut nonce);
         let serialized = serde_json::to_vec(payment_data).map_err(|e| WalletError::crypto(format!("Serialization failed: {}", e)))?;
         let ciphertext = cipher.encrypt(GenericArray::from_slice(&nonce), serialized.as_ref())
             .map_err(|e| WalletError::crypto(format!("Encryption failed: {}", e)))?;

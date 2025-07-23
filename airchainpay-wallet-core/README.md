@@ -31,7 +31,7 @@ Secure wallet core for AirChainPay - handles all cryptographic operations and se
 - **Hashing**: SHA256, SHA512, Keccak256, Keccak512
 
 #### **2. Wallet (`src/wallet/`)**
-- **Multi-chain Support**: Ethereum, Base, Core, Polygon, etc.
+- **Multi-chain Support**:Base, Core , Morph 
 - **Token Management**: ERC-20 token handling
 - **Wallet Creation**: Secure wallet generation and import
 

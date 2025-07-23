@@ -1,4 +1,5 @@
-use crate::error::{WalletError, WalletResult};
+use crate::shared::error::WalletError;
+use crate::shared::WalletResult;
 use sha2::{Sha256, Sha512, Digest};
 use sha3::{Keccak256, Keccak512, Digest as Sha3Digest};
 use zeroize::Zeroize;
@@ -60,16 +61,6 @@ impl HashManager {
     pub fn double_sha256(&self, data: &[u8]) -> WalletResult<Vec<u8>> {
         let first_hash = self.sha256(data)?;
         self.sha256(&first_hash)
-    }
-
-    /// RIPEMD160(SHA256()) (Bitcoin address generation)
-    ///
-    /// WARNING: This is a placeholder and does NOT implement true RIPEMD160. Do NOT use for production Bitcoin address generation!
-    pub fn ripemd160_sha256(&self, data: &[u8]) -> WalletResult<Vec<u8>> {
-        let sha256_hash = self.sha256(data)?;
-        // Note: RIPEMD160 would need an additional crate
-        // For now, we'll use a placeholder
-        Ok(sha256_hash[..20].to_vec()) // First 20 bytes as placeholder
     }
 
     /// Generate transaction hash

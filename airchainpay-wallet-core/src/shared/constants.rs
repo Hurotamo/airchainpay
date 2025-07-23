@@ -49,7 +49,7 @@ pub const STORAGE_KEY_PREFIX: &str = "airchainpay_wallet_";
 pub const BACKUP_KEY_PREFIX: &str = "airchainpay_backup_";
 
 // BLE constants
-pub const BLE_SERVICE_UUID: &str = "12345678-1234-1234-1234-123456789abc";
+pub const BLE_SERVICE_UUID: &str = "12345678-1234-1234-1234-abcdefabcdef";
 pub const BLE_CHARACTERISTIC_UUID: &str = "87654321-4321-4321-4321-cba987654321";
 pub const BLE_ADVERTISEMENT_INTERVAL: u32 = 100; // milliseconds
 pub const BLE_CONNECTION_TIMEOUT: u32 = 30000; // milliseconds

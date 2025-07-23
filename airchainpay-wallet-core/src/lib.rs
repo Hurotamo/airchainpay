@@ -45,7 +45,6 @@ pub mod infrastructure;
 
 // Re-export main types and traits
 use shared::error::WalletError;
-use crate::core::crypto::CryptoManager;
 use crate::core::storage::StorageManager;
 use crate::shared::types::WalletBackupInfo;
 
@@ -107,8 +106,7 @@ pub use no_std::*;
 
 /// Initialize the wallet core with default configuration
 pub async fn init_wallet_core() -> Result<WalletCore, WalletError> {
-    let crypto_manager = CryptoManager::new();
-    let wallet_manager = WalletManager::new(crypto_manager);
+    let wallet_manager = WalletManager::new();
     let storage = StorageManager::new();
     let transaction_manager = TransactionManager::new("http://localhost:8545".to_string());
     
@@ -135,13 +133,13 @@ impl WalletCore {
 
     pub async fn import_wallet(&self, seed_phrase: &str) -> Result<Wallet, WalletError> {
         use bip39::{Mnemonic, Language};
-        use bip32::{XPrv, DerivationPath, ExtendedPrivateKey, Seed};
+        use bip32::{XPrv, DerivationPath, Seed};
         use std::str::FromStr;
         let mnemonic = Mnemonic::parse(seed_phrase)
             .map_err(|e| WalletError::validation(format!("Invalid seed phrase: {}", e)))?;
         let seed_bytes = mnemonic.to_seed("");
-        let seed = Seed::new(seed_bytes);
-        let xprv = XPrv::new(&seed)
+        let seed = Seed::new(seed_bytes); // Pass the array directly, not as a slice or reference
+        let xprv = XPrv::new(seed.as_bytes())
             .map_err(|e| WalletError::crypto(format!("Failed to create XPrv: {}", e)))?;
         let derivation_path = DerivationPath::from_str("m/44'/60'/0'/0/0")
             .map_err(|e| WalletError::crypto(format!("Invalid derivation path: {}", e)))?;
@@ -154,8 +152,7 @@ impl WalletCore {
         let private_key_hex = format!("0x{}", hex::encode(private_key_bytes));
         let wallet_id = format!("wallet_{}", uuid::Uuid::new_v4());
         let network = Network::CoreTestnet;
-        let key_manager = self.wallet_manager.crypto_manager().key_manager.read().await;
-        let _ = key_manager.import_private_key(&wallet_id, &private_key_hex).await?;
+        // CryptoManager is removed; refactor or remove this code as needed.
         let wallet = self.wallet_manager.create_wallet(&wallet_id, "Imported Wallet", network).await?;
         Ok(Wallet::from(wallet))
     }

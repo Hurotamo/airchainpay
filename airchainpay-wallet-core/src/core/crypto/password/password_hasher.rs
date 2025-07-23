@@ -1,16 +1,20 @@
-use crate::error::{WalletError, WalletResult};
-use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, PasswordHashString};
-use pbkdf2::{pbkdf2, pbkdf2_verify};
+use crate::shared::error::WalletError;
+use crate::shared::WalletResult;
+use argon2::{Argon2, PasswordHash, PasswordVerifier};
+use pbkdf2::pbkdf2;
 use rand::{Rng, RngCore};
 use zeroize::Zeroize;
 use super::{PasswordConfig, PasswordAlgorithm};
+use rand::rngs::OsRng;
+use argon2::PasswordHasher;
+use argon2::password_hash::SaltString;
 
 /// Secure password hasher
-pub struct PasswordHasher {
+pub struct WalletPasswordHasher {
     config: PasswordConfig,
 }
 
-impl PasswordHasher {
+impl WalletPasswordHasher {
     pub fn new(config: PasswordConfig) -> Self {
         Self { config }
     }
@@ -40,7 +44,8 @@ impl PasswordHasher {
     /// Generate a secure random salt
     fn generate_salt(&self) -> Vec<u8> {
         let mut salt = vec![0u8; self.config.salt_length];
-        rand::thread_rng().fill_bytes(&mut salt);
+        let mut rng = OsRng;
+        rng.fill_bytes(&mut salt);
         salt
     }
 
@@ -54,12 +59,13 @@ impl PasswordHasher {
                 self.config.iterations,
                 self.config.parallelism,
                 Some(self.config.salt_length),
-            )?,
+            ).map_err(|e| WalletError::crypto(e.to_string()))?,
         );
 
+        let salt_str = SaltString::encode_b64(salt).unwrap();
         let password_hash = argon2.hash_password(
             password.as_bytes(),
-            salt,
+            &salt_str,
         )?;
 
         Ok(password_hash.to_string())
@@ -67,9 +73,7 @@ impl PasswordHasher {
 
     /// Verify password using Argon2
     fn verify_argon2(&self, password: &str, hash: &str) -> WalletResult<bool> {
-        let parsed_hash = PasswordHashString::new(hash)?;
-        let password_hash = PasswordHash::new(&parsed_hash)?;
-        
+        let password_hash = PasswordHash::new(hash)?;
         Ok(Argon2::default().verify_password(password.as_bytes(), &password_hash).is_ok())
     }
 
@@ -83,7 +87,7 @@ impl PasswordHasher {
             salt,
             self.config.iterations,
             &mut key,
-        );
+        ).map_err(|e| WalletError::Crypto(format!("PBKDF2 error: {:?}", e)))?;
         let hash = format!(
             "$pbkdf2-sha256${}${}${}",
             self.config.iterations,
@@ -113,14 +117,14 @@ impl PasswordHasher {
             &salt,
             iterations,
             &mut computed_key,
-        );
+        ).map_err(|e| WalletError::Crypto(format!("PBKDF2 error: {:?}", e)))?;
         let result = computed_key == stored_key;
         computed_key.zeroize();
         Ok(result)
     }
 }
 
-impl Drop for PasswordHasher {
+impl Drop for WalletPasswordHasher {
     fn drop(&mut self) {
         // Clear any sensitive data
     }
@@ -134,7 +138,7 @@ mod tests {
 
     #[test]
     fn test_password_hashing_argon2() {
-        let hasher = PasswordHasher::new(PasswordConfig {
+        let hasher = WalletPasswordHasher::new(PasswordConfig {
             algorithm: PasswordAlgorithm::Argon2,
             ..Default::default()
         });
@@ -148,7 +152,7 @@ mod tests {
 
     #[test]
     fn test_password_hashing_pbkdf2() {
-        let hasher = PasswordHasher::new(PasswordConfig {
+        let hasher = WalletPasswordHasher::new(PasswordConfig {
             algorithm: PasswordAlgorithm::PBKDF2,
             ..Default::default()
         });
@@ -164,7 +168,7 @@ mod tests {
     proptest! {
         #[test]
         fn prop_hash_and_verify_password(password in "[a-zA-Z0-9]{1,32}") {
-            let hasher = PasswordHasher::new(PasswordConfig::default());
+            let hasher = WalletPasswordHasher::new(PasswordConfig::default());
             let hash = hasher.hash_password(&password).unwrap();
             prop_assert!(hasher.verify_password(&password, &hash).unwrap());
         }
@@ -173,7 +177,7 @@ mod tests {
     // Negative test: empty password
     #[test]
     fn test_empty_password() {
-        let hasher = PasswordHasher::new(PasswordConfig::default());
+        let hasher = WalletPasswordHasher::new(PasswordConfig::default());
         let result = hasher.hash_password("");
         assert!(result.is_err());
     }
@@ -189,7 +193,7 @@ mod tests {
         for _ in 0..10 {
             getrandom::getrandom(&mut raw).unwrap();
             if let Ok(input) = FuzzInput::arbitrary(&mut raw.as_slice()) {
-                let hasher = PasswordHasher::new(PasswordConfig::default());
+                let hasher = WalletPasswordHasher::new(PasswordConfig::default());
                 let _ = hasher.hash_password(&input.password);
             }
         }

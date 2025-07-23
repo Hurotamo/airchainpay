@@ -4,6 +4,7 @@
 
 use crate::shared::error::WalletError;
 use async_trait::async_trait;
+use crate::infrastructure::platform::FileStorage;
 
 /// Storage repository trait
 #[async_trait]
@@ -21,39 +22,18 @@ pub trait StorageRepository {
     async fn exists(&self, key: &str) -> Result<bool, WalletError>;
 }
 
-/// In-memory storage repository implementation
-pub struct InMemoryStorageRepository {
-    storage: std::collections::HashMap<String, Vec<u8>>,
-}
-
-impl InMemoryStorageRepository {
-    /// Create a new in-memory storage repository
-    pub fn new() -> Self {
-        Self {
-            storage: std::collections::HashMap::new(),
-        }
-    }
-}
-
 #[async_trait]
-impl StorageRepository for InMemoryStorageRepository {
+impl StorageRepository for FileStorage {
     async fn store(&self, key: &str, data: &[u8]) -> Result<(), WalletError> {
-        // In a real implementation, this would use secure storage
-        Ok(())
+        FileStorage::store(self, key, data).await
     }
-    
     async fn retrieve(&self, key: &str) -> Result<Vec<u8>, WalletError> {
-        self.storage.get(key)
-            .cloned()
-            .ok_or_else(|| WalletError::storage(format!("Key not found: {}", key)))
+        FileStorage::retrieve(self, key).await
     }
-    
     async fn delete(&self, key: &str) -> Result<(), WalletError> {
-        // In a real implementation, this would securely delete
-        Ok(())
+        FileStorage::delete(self, key).await
     }
-    
     async fn exists(&self, key: &str) -> Result<bool, WalletError> {
-        Ok(self.storage.contains_key(key))
+        FileStorage::exists(self, key).await
     }
 } 

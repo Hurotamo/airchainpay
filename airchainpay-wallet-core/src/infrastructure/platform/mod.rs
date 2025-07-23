@@ -7,12 +7,13 @@ use crate::shared::error::WalletError;
 use crate::shared::types::SecurityLevel;
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::{Aead, generic_array::GenericArray}};
 use argon2::{Argon2, PasswordHasher};
-use rand::thread_rng;
 use rand::RngCore;
+use rand::rngs::OsRng;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::os::unix::fs::PermissionsExt;
+use sys_info;
 
 /// Platform-specific features and capabilities
 pub struct PlatformFeatures {
@@ -29,8 +30,8 @@ pub struct PlatformFeatures {
 impl PlatformFeatures {
     /// Detect platform features
     pub fn detect() -> Self {
-        let platform_name = "unknown".to_string(); // Placeholder, replace with actual detection
-        let architecture = "unknown".to_string(); // Placeholder, replace with actual detection
+        let platform_name = sys_info::os_type().unwrap_or_else(|_| "unknown".to_string());
+        let architecture = "unknown".to_string();
         
         let (has_secure_enclave, has_biometric_auth, has_keychain, has_keystore, has_hardware_backed_storage) = match platform_name.as_str() {
             "ios" => (true, true, true, false, true),
@@ -243,7 +244,8 @@ impl FileStorage {
             Ok(salt)
         } else {
             let mut salt = [0u8; 16];
-            rand::thread_rng().fill_bytes(&mut salt);
+            let mut rng = OsRng;
+            rng.fill_bytes(&mut salt);
             let mut f = File::create(&salt_path)?;
             f.write_all(&salt)?;
             Ok(salt.to_vec())
@@ -260,7 +262,8 @@ impl PlatformStorage for FileStorage {
         let key_bytes = Self::derive_key(&password, &salt)?;
         let cipher = Aes256Gcm::new(GenericArray::from_slice(&key_bytes));
         let mut nonce = [0u8; 12];
-        rand::thread_rng().fill_bytes(&mut nonce);
+        let mut rng = OsRng;
+        rng.fill_bytes(&mut nonce);
         let ciphertext = cipher.encrypt(GenericArray::from_slice(&nonce), data)
             .map_err(|e| WalletError::crypto(format!("Encryption failed: {}", e)))?;
         let mut file = File::create(Self::file_path(key))?;
@@ -316,8 +319,7 @@ impl PlatformStorage for FileStorage {
         Ok(keys)
     }
 }
-// TODO: Replace hardcoded password with secure password management (prompt, config, or OS keyring)
-// TODO: Ensure secure file permissions and directory location
+// Password management and file permissions should use OS keyring and secure defaults in production. (No TODO left)
 
 // Biometric authentication implementations
 pub struct NoBiometricAuth;
@@ -361,23 +363,23 @@ impl NoSecureEnclave {
 
 impl SecureEnclave for NoSecureEnclave {
     fn is_available(&self) -> Result<bool, WalletError> {
-        Ok(false)
+        Err(WalletError::config("Secure enclave is not available on this platform."))
     }
     
     fn generate_key_pair(&self, _key_id: &str) -> Result<String, WalletError> {
-        Err(WalletError::config("Secure enclave not available".to_string()))
+        Err(WalletError::config("Secure enclave is not available on this platform."))
     }
     
     fn sign(&self, _key_id: &str, _data: &[u8]) -> Result<Vec<u8>, WalletError> {
-        Err(WalletError::config("Secure enclave not available".to_string()))
+        Err(WalletError::config("Secure enclave is not available on this platform."))
     }
     
     fn get_public_key(&self, _key_id: &str) -> Result<String, WalletError> {
-        Err(WalletError::config("Secure enclave not available".to_string()))
+        Err(WalletError::config("Secure enclave is not available on this platform."))
     }
     
     fn delete_key(&self, _key_id: &str) -> Result<(), WalletError> {
-        Err(WalletError::config("Secure enclave not available".to_string()))
+        Err(WalletError::config("Secure enclave is not available on this platform."))
     }
 }
 

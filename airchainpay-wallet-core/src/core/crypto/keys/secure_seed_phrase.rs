@@ -1,3 +1,5 @@
+use zeroize::Zeroize;
+
 /// Secure seed phrase wrapper
 #[derive(Debug, Clone)]
 pub struct SecureSeedPhrase {
@@ -31,6 +33,7 @@ impl Drop for SecureSeedPhrase {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zeroize::Zeroize;
 
     #[test]
     fn test_secure_seed_phrase_creation() {

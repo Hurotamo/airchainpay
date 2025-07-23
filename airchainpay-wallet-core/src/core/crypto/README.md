@@ -41,12 +41,10 @@ crypto/
 
 ### Hashing
 - **HashManager**: Provides SHA-256, SHA-512, Keccak256, Keccak512. Used for address derivation, transaction/message hashing, and password hashing.
-- **WARNING**: The `ripemd160_sha256` method is a placeholder and does NOT implement true RIPEMD160. Do NOT use for production Bitcoin address generation until replaced with a secure implementation.
 
 ### Digital Signatures
 - **SignatureManager**: Handles ECDSA (secp256k1) signing and verification for messages and transactions. Used for Ethereum-compatible signatures.
 - **TransactionSignature**: Structure for Ethereum transaction signatures.
-- **WARNING**: Deprecated signature methods are commented out but present for reference. Do NOT use deprecated or commented code in production.
 
 ### Encryption
 - **EncryptionManager**: Provides AES-256-GCM and ChaCha20-Poly1305 encryption/decryption for sensitive data. Keys and nonces are generated securely. All cryptographic material is zeroized on drop.
@@ -75,7 +73,5 @@ use crate::crypto::{
 
 ## Security Warnings
 
-- **PLACEHOLDER/INSECURE CODE**: Some methods (e.g., `ripemd160_sha256`) are placeholders and are NOT secure for production. These are clearly marked in code and documentation. Replace with secure, audited implementations before production use.
-- **DEPRECATED METHODS**: Deprecated or commented-out cryptographic methods are present for reference only. Do NOT use them in production.
 - **ALGORITHM CHOICE**: Always prefer Argon2 for password hashing. PBKDF2 is legacy only.
 - **AUDIT**: All cryptographic code should be reviewed and audited before production deployment. 

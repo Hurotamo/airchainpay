@@ -5,9 +5,10 @@
 use crate::domain::{Wallet, SecureWallet};
 use crate::shared::error::WalletError;
 use crate::shared::types::{WalletBackupInfo};
-use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::{Aead, generic_array::GenericArray}};
+use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+use aes_gcm::aead::{Aead, generic_array::GenericArray};
 use argon2::{Argon2, PasswordHasher};
-use rand::thread_rng;
+use rand::rngs::OsRng;
 use rand::RngCore;
 use sha2::Digest;
 use serde_json;
@@ -48,7 +49,8 @@ impl<'a> SecureStorage<'a> {
             .map_err(|e| WalletError::validation(format!("Wallet serialization failed: {}", e)))?;
         // Generate salt
         let mut salt = [0u8; 16];
-        rand::thread_rng().fill_bytes(&mut salt);
+        let mut rng = OsRng;
+        rng.fill_bytes(&mut salt);
         // Derive key
         let salt_str = argon2::password_hash::SaltString::encode_b64(&salt)?;
         let argon2 = Argon2::default();
@@ -60,7 +62,8 @@ impl<'a> SecureStorage<'a> {
         // Encrypt
         let cipher = Aes256Gcm::new(key);
         let mut nonce = [0u8; 12];
-        rand::thread_rng().fill_bytes(&mut nonce);
+        let mut rng = OsRng;
+        rng.fill_bytes(&mut nonce);
         let mut encrypted_data = nonce.to_vec();
         let ciphertext = cipher.encrypt(GenericArray::from_slice(&nonce), wallet_bytes.as_ref())
             .map_err(|e| WalletError::crypto(format!("Encryption failed: {}", e)))?;
@@ -104,7 +107,8 @@ impl<'a> SecureStorage<'a> {
         use rand::RngCore;
         use argon2::{Argon2, PasswordHasher};
         let mut salt = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut salt);
+        let mut rng = OsRng;
+        rng.fill_bytes(&mut salt);
         let salt_str = argon2::password_hash::SaltString::encode_b64(&salt)?;
         let argon2 = Argon2::default();
         let password_hash = argon2.hash_password(password.as_bytes(), &salt_str)
@@ -114,7 +118,8 @@ impl<'a> SecureStorage<'a> {
         let key = GenericArray::from_slice(&hash_bytes[..32]);
         let cipher = Aes256Gcm::new(key);
         let mut nonce = [0u8; 12];
-        rand::thread_rng().fill_bytes(&mut nonce);
+        let mut rng = OsRng;
+        rng.fill_bytes(&mut nonce);
         let ciphertext = cipher.encrypt(GenericArray::from_slice(&nonce), data)
             .map_err(|e| WalletError::crypto(format!("Encryption failed: {}", e)))?;
         let mut result = Vec::new();
@@ -192,11 +197,11 @@ pub async fn cleanup() -> Result<(), WalletError> {
     Ok(())
 }
 
-/// Example function to generate a random AES-GCM Nonce using thread_rng
+/// Example function to generate a random AES-GCM Nonce using OsRng
 pub fn generate_random_nonce() -> [u8; 12] {
-    use rand::RngCore;
     let mut nonce = [0u8; 12];
-    rand::thread_rng().fill_bytes(&mut nonce);
+    let mut rng = OsRng;
+    rng.fill_bytes(&mut nonce);
     nonce
 }
 

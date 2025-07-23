@@ -12,6 +12,20 @@ impl SecurePrivateKey {
         Self { key }
     }
 
+    /// Create a SecurePrivateKey from a byte slice
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, crate::shared::error::WalletError> {
+        if bytes.len() != PRIVATE_KEY_SIZE {
+            return Err(crate::shared::error::WalletError::crypto(format!(
+                "Invalid private key length: expected {} bytes, got {}",
+                PRIVATE_KEY_SIZE,
+                bytes.len()
+            )));
+        }
+        let mut key = [0u8; PRIVATE_KEY_SIZE];
+        key.copy_from_slice(bytes);
+        Ok(SecurePrivateKey { key })
+    }
+
     /// Get private key bytes
     pub fn as_bytes(&self) -> &[u8] {
         &self.key

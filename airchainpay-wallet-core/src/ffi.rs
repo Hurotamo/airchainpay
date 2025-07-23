@@ -5,6 +5,7 @@
 use crate::core::storage::StorageManager;
 use crate::domain::Wallet;
 use crate::shared::types::{Network, Address, Amount, Transaction, SignedTransaction, WalletBackupInfo, WalletBackup};
+use crate::shared::types::BLEPaymentData;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use serde_json;
@@ -15,6 +16,7 @@ use ethers::contract::abigen;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use ethers::middleware::SignerMiddleware;
+use std::ptr;
 
 abigen!(ERC20, r#"[
     function balanceOf(address) view returns (uint256)
@@ -79,12 +81,17 @@ pub extern "C" fn wallet_core_create_wallet(
     };
 
     // Minimal: generate private key, get address, construct Wallet
-    let rt = Runtime::new().unwrap();
-    let private_key = match rt.block_on(crate::core::crypto::keys::KeyManager::new().get_private_key("temp_id")) {
+    let file_storage = crate::infrastructure::platform::FileStorage::new().unwrap();
+    let key_manager = crate::core::crypto::keys::KeyManager::new(&file_storage);
+    let private_key = match key_manager.get_private_key("temp_id") {
         Ok(pk) => pk,
         Err(_) => return std::ptr::null_mut(),
     };
-    let address = match private_key.address() {
+    let public_key = match key_manager.get_public_key(&private_key) {
+        Ok(pk) => pk,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let address = match key_manager.get_address(&public_key) {
         Ok(addr) => addr,
         Err(_) => return std::ptr::null_mut(),
     };
@@ -120,12 +127,17 @@ pub extern "C" fn wallet_core_import_wallet(
     };
 
     // Minimal: derive private key from seed, get address, construct Wallet
-    let rt = Runtime::new().unwrap();
-    let private_key = match rt.block_on(crate::core::crypto::keys::KeyManager::new().get_private_key(seed_phrase_str)) {
+    let file_storage = crate::infrastructure::platform::FileStorage::new().unwrap();
+    let key_manager = crate::core::crypto::keys::KeyManager::new(&file_storage);
+    let private_key = match key_manager.get_private_key(seed_phrase_str) {
         Ok(pk) => pk,
         Err(_) => return std::ptr::null_mut(),
     };
-    let address = match private_key.address() {
+    let public_key = match key_manager.get_public_key(&private_key) {
+        Ok(pk) => pk,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let address = match key_manager.get_address(&public_key) {
         Ok(addr) => addr,
         Err(_) => return std::ptr::null_mut(),
     };
@@ -170,13 +182,15 @@ pub extern "C" fn wallet_core_sign_message(
 
     // Minimal: sign the message with the private key for wallet_id
     // NOTE: For now, generate a key for demonstration (replace with real lookup when available)
-    let rt = Runtime::new().unwrap();
-    let private_key = match rt.block_on(crate::core::crypto::keys::KeyManager::new().get_private_key(wallet_id_str)) {
+    let file_storage = crate::infrastructure::platform::FileStorage::new().unwrap();
+    let key_manager = crate::core::crypto::keys::KeyManager::new(&file_storage);
+    let private_key = match key_manager.get_private_key(wallet_id_str) {
         Ok(pk) => pk,
         Err(_) => return std::ptr::null_mut(),
     };
-    let signature = match private_key.sign_message(message_str.as_bytes()) {
-        Ok(sig) => format!("0x{}", hex::encode(sig)),
+    let signature_manager = crate::core::crypto::signatures::SignatureManager::new();
+    let signature = match signature_manager.sign_message(message_str.as_bytes(), &private_key) {
+        Ok(sig) => format!("0x{}", hex::encode(sig.serialize_compact())),
         Err(_) => return std::ptr::null_mut(),
     };
     match CString::new(signature) {
@@ -225,8 +239,9 @@ pub extern "C" fn wallet_core_send_transaction(
     };
     // Minimal: load wallet, sign, and send real transaction
     let rt = Runtime::new().unwrap();
-    let storage = crate::core::storage::StorageManager::new();
-    let wallet = match rt.block_on(storage.load_wallet(wallet_id_str, password_str)) {
+    let file_storage = crate::infrastructure::platform::FileStorage::new().unwrap();
+    let key_manager = crate::core::crypto::keys::KeyManager::new(&file_storage);
+    let wallet = match rt.block_on(key_manager.load_wallet(wallet_id_str, password_str)) {
         Ok(w) => w,
         Err(_) => return std::ptr::null_mut(),
     };
@@ -278,8 +293,9 @@ pub extern "C" fn wallet_core_get_balance(
     };
     // Minimal: load wallet and query real balance
     let rt = Runtime::new().unwrap();
-    let storage = crate::core::storage::StorageManager::new();
-    let wallet = match rt.block_on(storage.load_wallet(wallet_id_str, password_str)) {
+    let file_storage = crate::infrastructure::platform::FileStorage::new().unwrap();
+    let key_manager = crate::core::crypto::keys::KeyManager::new(&file_storage);
+    let wallet = match rt.block_on(key_manager.load_wallet(wallet_id_str, password_str)) {
         Ok(w) => w,
         Err(_) => return std::ptr::null_mut(),
     };
@@ -351,8 +367,9 @@ pub extern "C" fn wallet_core_get_token_balance(
     };
     // Minimal: load wallet and query real token balance
     let rt = Runtime::new().unwrap();
-    let storage = crate::core::storage::StorageManager::new();
-    let wallet = match rt.block_on(storage.load_wallet(wallet_id_str, password_str)) {
+    let file_storage = crate::infrastructure::platform::FileStorage::new().unwrap();
+    let key_manager = crate::core::crypto::keys::KeyManager::new(&file_storage);
+    let wallet = match rt.block_on(key_manager.load_wallet(wallet_id_str, password_str)) {
         Ok(w) => w,
         Err(_) => return std::ptr::null_mut(),
     };
@@ -389,14 +406,15 @@ pub extern "C" fn wallet_core_backup_wallet(
         }
     };
     let rt = Runtime::new().unwrap();
-    let storage = crate::core::storage::StorageManager::new();
+    let file_storage = crate::infrastructure::platform::FileStorage::new().unwrap();
+    let key_manager = crate::core::crypto::keys::KeyManager::new(&file_storage);
     // Load wallet from storage
-    let wallet = match rt.block_on(storage.load_wallet(wallet_id_str, password_str)) {
+    let wallet = match rt.block_on(key_manager.load_wallet(wallet_id_str, password_str)) {
         Ok(w) => w,
         Err(_) => return std::ptr::null_mut(),
     };
     // Backup wallet using SecureStorage
-    let backup_info = match rt.block_on(storage.backup_wallet(&wallet, password_str)) {
+    let backup_info = match rt.block_on(key_manager.backup_wallet(&wallet, password_str)) {
         Ok(info) => info,
         Err(_) => return std::ptr::null_mut(),
     };
@@ -433,9 +451,10 @@ pub extern "C" fn wallet_core_restore_wallet(
         Err(_) => return std::ptr::null_mut(),
     };
     let rt = Runtime::new().unwrap();
-    let storage = crate::core::storage::StorageManager::new();
+    let file_storage = crate::infrastructure::platform::FileStorage::new().unwrap();
+    let key_manager = crate::core::crypto::keys::KeyManager::new(&file_storage);
     // Restore wallet using SecureStorage
-    let wallet = match rt.block_on(storage.restore_wallet(&backup_info, password_str)) {
+    let wallet = match rt.block_on(key_manager.restore_wallet(&backup_info, password_str)) {
         Ok(w) => w,
         Err(_) => return std::ptr::null_mut(),
     };
@@ -446,5 +465,48 @@ pub extern "C" fn wallet_core_restore_wallet(
     match CString::new(wallet_json) {
         Ok(c_string) => c_string.into_raw(),
         Err(_) => std::ptr::null_mut(),
+    }
+} 
+
+#[no_mangle]
+pub extern "C" fn wallet_core_ble_send_payment(payment_json: *const c_char) -> i32 {
+    let c_str = unsafe {
+        if payment_json.is_null() { return 1; }
+        CStr::from_ptr(payment_json)
+    };
+    let payment: BLEPaymentData = match serde_json::from_str(c_str.to_str().unwrap_or("")) {
+        Ok(p) => p,
+        Err(_) => return 1,
+    };
+    let rt = Runtime::new().unwrap();
+    let file_storage = crate::infrastructure::platform::FileStorage::new().unwrap();
+    let key_manager = crate::core::crypto::keys::KeyManager::new(&file_storage);
+    match rt.block_on(key_manager.send_payment(&payment)) {
+        Ok(_) => 0,
+        Err(_) => 1,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn wallet_core_ble_receive_payment(result_buf: *mut c_char, buf_len: usize) -> i32 {
+    if result_buf.is_null() || buf_len == 0 { return 1; }
+    let rt = Runtime::new().unwrap();
+    let file_storage = crate::infrastructure::platform::FileStorage::new().unwrap();
+    let key_manager = crate::core::crypto::keys::KeyManager::new(&file_storage);
+    match rt.block_on(key_manager.receive_payment()) {
+        Ok(payment) => {
+            let json = match serde_json::to_string(&payment) {
+                Ok(j) => j,
+                Err(_) => return 1,
+            };
+            let bytes = json.as_bytes();
+            let copy_len = usize::min(bytes.len(), buf_len - 1);
+            unsafe {
+                ptr::copy_nonoverlapping(bytes.as_ptr(), result_buf as *mut u8, copy_len);
+                *result_buf.add(copy_len) = 0;
+            }
+            0
+        },
+        Err(_) => 1,
     }
 } 

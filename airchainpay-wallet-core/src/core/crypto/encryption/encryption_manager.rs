@@ -1,10 +1,11 @@
-use crate::error::{WalletError, WalletResult};
-use aes_gcm::{Aes256Gcm, Key, Nonce};
-use aes_gcm::aead::{Aead, NewAead};
-use chacha20poly1305::{ChaCha20Poly1305, Key as ChaChaKey, Nonce as ChaChaNonce};
+use crate::shared::error::WalletError;
+use crate::shared::WalletResult;
+use aes_gcm::{Aes256Gcm, KeyInit, aead::{Aead, generic_array::GenericArray}, Key, Nonce};
+use chacha20poly1305::{ChaCha20Poly1305, Key as ChaChaKey, Nonce as ChaChaNonce, KeyInit as ChaChaKeyInit, aead::{Aead as ChaChaAead}};
 use rand::{Rng, RngCore};
 use zeroize::Zeroize;
 use super::{EncryptionAlgorithm, EncryptedData};
+use rand::rngs::OsRng;
 
 /// Secure encryption manager
 pub struct EncryptionManager {
@@ -42,7 +43,7 @@ impl EncryptionManager {
             return Err(WalletError::Crypto("AES-256-GCM requires 32-byte key".to_string()));
         }
 
-        let cipher = Aes256Gcm::new(Key::from_slice(key));
+        let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
         let nonce_bytes = self.generate_nonce(12);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
@@ -67,7 +68,7 @@ impl EncryptionManager {
             return Err(WalletError::Crypto("AES-256-GCM requires 32-byte key".to_string()));
         }
 
-        let cipher = Aes256Gcm::new(Key::from_slice(key));
+        let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
         let nonce = Nonce::from_slice(&encrypted_data.nonce);
 
         // Combine ciphertext and tag
@@ -129,14 +130,16 @@ impl EncryptionManager {
     /// Generate a secure random nonce
     fn generate_nonce(&self, length: usize) -> Vec<u8> {
         let mut nonce = vec![0u8; length];
-        rand::thread_rng().fill_bytes(&mut nonce);
+        let mut rng = OsRng;
+        rng.fill_bytes(&mut nonce);
         nonce
     }
 
     /// Generate a random encryption key
     pub fn generate_key(&self) -> Vec<u8> {
         let mut key = vec![0u8; 32];
-        rand::thread_rng().fill_bytes(&mut key);
+        let mut rng = OsRng;
+        rng.fill_bytes(&mut key);
         key
     }
 }

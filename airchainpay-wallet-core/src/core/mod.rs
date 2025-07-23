@@ -13,9 +13,6 @@ pub mod ble;
 pub async fn init() -> Result<(), crate::shared::error::WalletError> {
     log::info!("Initializing core modules");
     
-    // Initialize crypto module
-    crypto::init().await?;
-    
     // Initialize storage module
     storage::init().await?;
     
@@ -32,9 +29,6 @@ pub async fn init() -> Result<(), crate::shared::error::WalletError> {
 /// Cleanup core modules
 pub async fn cleanup() -> Result<(), crate::shared::error::WalletError> {
     log::info!("Cleaning up core modules");
-    
-    // Cleanup crypto module
-    crypto::cleanup().await?;
     
     // Cleanup storage module
     storage::cleanup().await?;

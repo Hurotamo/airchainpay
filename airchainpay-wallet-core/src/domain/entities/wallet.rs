@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::shared::types::{Address, Amount, Network, Balance as BalanceType};
 use crate::shared::error::WalletError;
 use zeroize::Zeroize;
+use crate::core::crypto::keys::SecurePrivateKey;
 
 /// Core wallet entity - simplified to match TypeScript implementation
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,56 +114,6 @@ impl Zeroize for SecureWallet {
         self.id.zeroize();
         self.name.zeroize();
         self.address.zeroize();
-    }
-}
-
-/// Secure private key wrapper with automatic zeroization
-#[derive(Debug)]
-pub struct SecurePrivateKey {
-    key: Vec<u8>,
-}
-
-impl SecurePrivateKey {
-    /// Create a new secure private key
-    pub fn new(key: Vec<u8>) -> Self {
-        Self { key }
-    }
-
-    /// Get the private key bytes
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.key
-    }
-
-    /// Get the private key as hex string
-    pub fn to_hex(&self) -> String {
-        format!("0x{}", hex::encode(&self.key))
-}
-
-    /// Create from hex string
-    pub fn from_hex(hex: &str) -> Result<Self, WalletError> {
-        let hex = hex.trim_start_matches("0x");
-        let key = hex::decode(hex)
-            .map_err(|e| WalletError::validation(format!("Invalid hex string: {}", e)))?;
-        
-        if key.len() != 32 {
-            return Err(WalletError::validation("Private key must be 32 bytes"));
-        }
-        
-        Ok(Self { key })
-    }
-}
-
-impl Clone for SecurePrivateKey {
-    fn clone(&self) -> Self {
-        Self {
-            key: self.key.clone(),
-        }
-    }
-}
-
-impl Zeroize for SecurePrivateKey {
-    fn zeroize(&mut self) {
-        self.key.zeroize();
     }
 }
 
@@ -281,6 +232,7 @@ impl WalletBackupInfo {
 mod tests {
     use super::*;
     use crate::shared::types::Network;
+    use hex;
 
     #[test]
     fn test_wallet_creation() {
@@ -312,19 +264,18 @@ mod tests {
 
     #[test]
     fn test_secure_private_key_creation() {
-        let key_bytes = vec![1u8; 32];
-        let private_key = SecurePrivateKey::new(key_bytes.clone());
-        
+        let key_bytes = [1u8; 32];
+        let private_key = SecurePrivateKey::new(key_bytes);
         assert_eq!(private_key.as_bytes(), &key_bytes);
-        assert!(private_key.to_hex().starts_with("0x"));
+        assert!(private_key.to_hex().len() == 64);
     }
 
     #[test]
     fn test_secure_private_key_from_hex() {
         let hex_key = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
-        let private_key = SecurePrivateKey::from_hex(hex_key).unwrap();
-
-        assert_eq!(private_key.to_hex(), hex_key);
+        let key_bytes = hex::decode(hex_key.trim_start_matches("0x")).unwrap();
+        let private_key = SecurePrivateKey::from_bytes(&key_bytes).unwrap();
+        assert_eq!(private_key.to_hex(), hex_key.trim_start_matches("0x"));
     }
 
     #[test]

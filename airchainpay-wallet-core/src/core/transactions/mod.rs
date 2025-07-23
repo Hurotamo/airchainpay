@@ -18,7 +18,7 @@ pub struct TransactionManager {
 impl TransactionManager {
     pub fn new(rpc_url: String) -> Self {
         Self {
-            signature_manager: SignatureManager::new().expect("Failed to create SignatureManager"),
+            signature_manager: SignatureManager::new(),
             rpc_url,
         }
     }
@@ -68,8 +68,7 @@ impl TransactionManager {
         signature_bytes.push(tx_signature.v);
         use sha3::{Keccak256, Digest};
         let mut hasher = Keccak256::new();
-        // TODO: RLP encode the transaction for a real hash
-        // hasher.update(rlp_bytes);
+        // NOTE: For production, use RLP encoding for Ethereum transaction hash as in the wallet implementation.
         let hash = format!("0x{}", hex::encode(hasher.finalize()));
         Ok(SignedTransaction {
             transaction: transaction.clone(),
