@@ -6,8 +6,8 @@
 use crate::shared::error::WalletError;
 use crate::shared::constants::*;
 use secp256k1::{SecretKey, PublicKey, Secp256k1};
-use rand::RngCore;
-use rand::rngs::OsRng;
+use rand_core::OsRng;
+use rand_core::RngCore;
 use super::{SecurePrivateKey, SecureSeedPhrase};
 use bip32::{XPrv, DerivationPath};
 use std::str::FromStr;

@@ -7,9 +7,9 @@ use crate::shared::types::BLEPaymentData;
 use crate::shared::types::BLEDeviceInfo;
 use aes_gcm::{Aes256Gcm, aead::{Aead}};
 use aes_gcm::KeyInit;
-use generic_array::GenericArray;
-use rand::rngs::OsRng;
-use rand::RngCore;
+use aes_gcm::aead::generic_array::GenericArray;
+use rand_core::OsRng;
+use rand_core::RngCore;
 use bluest::Adapter;
 use futures::StreamExt;
 

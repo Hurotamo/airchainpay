@@ -5,14 +5,16 @@
 
 use crate::shared::error::WalletError;
 use crate::shared::types::SecurityLevel;
-use aes_gcm::{Aes256Gcm, KeyInit, aead::{Aead, generic_array::GenericArray}};
+use aes_gcm::{Aes256Gcm, KeyInit, aead::{Aead}};
+use aes_gcm::aead::generic_array::GenericArray;
 use argon2::{Argon2, PasswordHasher};
-use rand::RngCore;
-use rand::rngs::OsRng;
+use rand_core::OsRng;
+use rand_core::RngCore;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::os::unix::fs::PermissionsExt;
+#[cfg(not(target_os = "android"))]
 use sys_info;
 
 /// Platform-specific features and capabilities
@@ -30,6 +32,9 @@ pub struct PlatformFeatures {
 impl PlatformFeatures {
     /// Detect platform features
     pub fn detect() -> Self {
+        #[cfg(target_os = "android")]
+        let platform_name = "android".to_string();
+        #[cfg(not(target_os = "android"))]
         let platform_name = sys_info::os_type().unwrap_or_else(|_| "unknown".to_string());
         let architecture = "unknown".to_string();
         

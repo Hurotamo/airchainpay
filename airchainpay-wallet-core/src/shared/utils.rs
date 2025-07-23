@@ -5,6 +5,8 @@
 use crate::shared::error::WalletError;
 use std::time::{SystemTime, UNIX_EPOCH};
 use bip39::Mnemonic;
+use rand_core::OsRng;
+use rand_core::RngCore;
 
 /// Generate a unique ID
 pub fn generate_id() -> String {
@@ -193,8 +195,6 @@ pub fn parse_amount(amount: &str, decimals: u8) -> Result<String, WalletError> {
 
 /// Generate random bytes
 pub fn generate_random_bytes(length: usize) -> Vec<u8> {
-    use rand::rngs::OsRng;
-    use rand::RngCore;
     let mut bytes = vec![0u8; length];
     let mut rng = OsRng;
     rng.fill_bytes(&mut bytes);
@@ -203,8 +203,6 @@ pub fn generate_random_bytes(length: usize) -> Vec<u8> {
 
 /// Generate secure random bytes
 pub fn generate_secure_random_bytes(length: usize) -> Result<Vec<u8>, WalletError> {
-    use rand::rngs::OsRng;
-    use rand::RngCore;
     let mut bytes = vec![0u8; length];
     let mut rng = OsRng;
     rng.fill_bytes(&mut bytes);

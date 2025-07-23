@@ -3,9 +3,9 @@ use crate::shared::WalletResult;
 use aes_gcm::{Aes256Gcm, KeyInit, Key, Nonce};
 use aes_gcm::aead::Aead;
 use chacha20poly1305::{ChaCha20Poly1305, Key as ChaChaKey, Nonce as ChaChaNonce};
-use rand::{RngCore};
+use rand_core::OsRng;
+use rand_core::RngCore;
 use super::{EncryptionAlgorithm, EncryptedData};
-use rand::rngs::OsRng;
 
 /// Secure encryption manager
 pub struct EncryptionManager {

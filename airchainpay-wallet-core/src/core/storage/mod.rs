@@ -8,8 +8,8 @@ use crate::shared::types::{WalletBackupInfo};
 use aes_gcm::{Aes256Gcm, KeyInit};
 use aes_gcm::aead::{Aead, generic_array::GenericArray};
 use argon2::{Argon2, PasswordHasher};
-use rand::rngs::OsRng;
-use rand::RngCore;
+use rand_core::OsRng;
+use rand_core::RngCore;
 use sha2::Digest;
 use serde_json;
 use crate::infrastructure::platform::{PlatformStorage, FileStorage};
@@ -106,7 +106,7 @@ impl<'a> SecureStorage<'a> {
 
     async fn encrypt_data(&self, data: &[u8], password: &str) -> Result<Vec<u8>, WalletError> {
         use aes_gcm::{Aes256Gcm, aead::{Aead, generic_array::GenericArray}};
-        use rand::RngCore;
+        use rand_core::RngCore;
         use argon2::{Argon2, PasswordHasher};
         let mut salt = [0u8; 32];
         let mut rng = OsRng;
