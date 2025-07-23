@@ -10,8 +10,6 @@ use aes_gcm::KeyInit;
 use aes_gcm::aead::generic_array::GenericArray;
 use rand_core::OsRng;
 use rand_core::RngCore;
-use bluest::Adapter;
-use futures::StreamExt;
 
 /// BLE security manager
 pub struct BLESecurityManager {
@@ -67,25 +65,39 @@ impl BLESecurityManager {
     /// Send payment data to a BLE receiver (central role)
     pub async fn send_payment(&self) -> Result<(), WalletError> {
         log::info!("Sending payment via BLE (central role)");
-        let adapter = Adapter::default().await.ok_or_else(|| WalletError::ble("No Bluetooth adapter found".to_string()))?;
-        adapter.wait_available().await.map_err(|_| WalletError::ble("Bluetooth adapter not available"))?;
-        let mut scan = adapter.scan(&[]).await.map_err(|_| WalletError::ble("Failed to start BLE scan"))?;
-        while let Some(_) = scan.next().await {
-            // BLE device scan logic is stubbed for build
+        #[cfg(target_os = "android")]
+        {
+            return Err(WalletError::ble("BLE functionality is not yet implemented for Android (JNI required for Adapter::new)".to_string()));
         }
-        Err(WalletError::ble("No suitable BLE receiver found"))
+        #[cfg(not(target_os = "android"))]
+        {
+            let adapter = bluest::Adapter::open().await.ok_or_else(|| WalletError::ble("No Bluetooth adapter found".to_string()))?;
+            adapter.wait_available().await.map_err(|_| WalletError::ble("Bluetooth adapter not available"))?;
+            let mut scan = adapter.scan(&[]).await.map_err(|_| WalletError::ble("Failed to start BLE scan"))?;
+            while let Some(_) = scan.next().await {
+                // BLE device scan logic is stubbed for build
+            }
+            Err(WalletError::ble("No suitable BLE receiver found"))
+        }
     }
 
     /// Receive payment data from a BLE sender (central role)
     pub async fn receive_payment(&self) -> Result<BLEPaymentData, WalletError> {
         log::info!("Receiving payment via BLE (central role)");
-        let adapter = Adapter::default().await.ok_or_else(|| WalletError::ble("No Bluetooth adapter found".to_string()))?;
-        adapter.wait_available().await.map_err(|_| WalletError::ble("Bluetooth adapter not available"))?;
-        let mut scan = adapter.scan(&[]).await.map_err(|_| WalletError::ble("Failed to start BLE scan"))?;
-        while let Some(_discovered) = scan.next().await {
-            // BLE device connect/write/disconnect logic is stubbed for build
+        #[cfg(target_os = "android")]
+        {
+            return Err(WalletError::ble("BLE functionality is not yet implemented for Android (JNI required for Adapter::new)".to_string()));
         }
-        Err(WalletError::ble("No valid BLE payment data found"))
+        #[cfg(not(target_os = "android"))]
+        {
+            let adapter = bluest::Adapter::open().await.ok_or_else(|| WalletError::ble("No Bluetooth adapter found".to_string()))?;
+            adapter.wait_available().await.map_err(|_| WalletError::ble("Bluetooth adapter not available"))?;
+            let mut scan = adapter.scan(&[]).await.map_err(|_| WalletError::ble("Failed to start BLE scan"))?;
+            while let Some(_discovered) = scan.next().await {
+                // BLE device connect/write/disconnect logic is stubbed for build
+            }
+            Err(WalletError::ble("No valid BLE payment data found"))
+        }
     }
 
     pub async fn encrypt_payment_data(&self, payment_data: &BLEPaymentData, key: &[u8]) -> Result<Vec<u8>, WalletError> {
