@@ -132,7 +132,7 @@ impl WalletCore {
     }
 
     pub async fn import_wallet(&self, seed_phrase: &str) -> Result<Wallet, WalletError> {
-        use bip39::{Mnemonic, Language};
+        use bip39::{Mnemonic};
         use bip32::{XPrv, DerivationPath, Seed};
         use std::str::FromStr;
         let mnemonic = Mnemonic::parse(seed_phrase)
@@ -148,8 +148,7 @@ impl WalletCore {
             child_xprv = child_xprv.derive_child(child_number)
                 .map_err(|e| WalletError::crypto(format!("Failed to derive child XPrv: {}", e)))?;
         }
-        let private_key_bytes = child_xprv.private_key().to_bytes();
-        let private_key_hex = format!("0x{}", hex::encode(private_key_bytes));
+        let _private_key_bytes = child_xprv.private_key().to_bytes();
         let wallet_id = format!("wallet_{}", uuid::Uuid::new_v4());
         let network = Network::CoreTestnet;
         // CryptoManager is removed; refactor or remove this code as needed.

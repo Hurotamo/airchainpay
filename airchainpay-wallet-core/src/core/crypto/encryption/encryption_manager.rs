@@ -1,9 +1,9 @@
 use crate::shared::error::WalletError;
 use crate::shared::WalletResult;
-use aes_gcm::{Aes256Gcm, KeyInit, aead::{Aead, generic_array::GenericArray}, Key, Nonce};
-use chacha20poly1305::{ChaCha20Poly1305, Key as ChaChaKey, Nonce as ChaChaNonce, KeyInit as ChaChaKeyInit, aead::{Aead as ChaChaAead}};
-use rand::{Rng, RngCore};
-use zeroize::Zeroize;
+use aes_gcm::{Aes256Gcm, KeyInit, Key, Nonce};
+use aes_gcm::aead::Aead;
+use chacha20poly1305::{ChaCha20Poly1305, Key as ChaChaKey, Nonce as ChaChaNonce};
+use rand::{RngCore};
 use super::{EncryptionAlgorithm, EncryptedData};
 use rand::rngs::OsRng;
 

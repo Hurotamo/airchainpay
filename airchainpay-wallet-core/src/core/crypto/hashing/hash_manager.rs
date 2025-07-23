@@ -1,8 +1,6 @@
-use crate::shared::error::WalletError;
 use crate::shared::WalletResult;
 use sha2::{Sha256, Sha512, Digest};
-use sha3::{Keccak256, Keccak512, Digest as Sha3Digest};
-use zeroize::Zeroize;
+use sha3::{Keccak256, Keccak512};
 use super::HashAlgorithm;
 
 /// Hash manager

@@ -8,11 +8,7 @@ use crate::shared::constants::*;
 use secp256k1::{SecretKey, PublicKey, Secp256k1};
 use rand::RngCore;
 use rand::rngs::OsRng;
-use std::sync::Arc;
-use tokio::sync::RwLock;
 use super::{SecurePrivateKey, SecureSeedPhrase};
-use bip39::{Mnemonic, Language};
-use bip32::Seed;
 use bip32::{XPrv, DerivationPath};
 use std::str::FromStr;
 use crate::infrastructure::platform::PlatformStorage;
@@ -46,7 +42,7 @@ impl<'a> KeyManager<'a> {
         rng.fill_bytes(&mut key_bytes);
 
         // Ensure the key is valid for secp256k1
-        let _secret_key = SecretKey::from_slice(&key_bytes)
+        let _secret_key = SecretKey::from_byte_array(key_bytes)
             .map_err(|e| WalletError::crypto(format!("Invalid private key: {}", e)))?;
 
         // Store the key securely
@@ -56,7 +52,7 @@ impl<'a> KeyManager<'a> {
 
     /// Import a private key and persist it securely
     pub fn import_private_key(&self, key_id: &str, key_bytes: &[u8]) -> Result<SecurePrivateKey, WalletError> {
-        let _secret_key = SecretKey::from_slice(key_bytes)
+        let _secret_key = SecretKey::from_byte_array(key_bytes.try_into().map_err(|_| WalletError::crypto("Invalid private key length".to_string()))?)
             .map_err(|e| WalletError::crypto(format!("Invalid private key: {}", e)))?;
         self.storage.store(key_id, key_bytes)?;
         Ok(SecurePrivateKey::new(*array_ref![key_bytes, 0, PRIVATE_KEY_SIZE]))
@@ -73,7 +69,7 @@ impl<'a> KeyManager<'a> {
 
     /// Generate a public key from a private key
     pub fn get_public_key(&self, private_key: &SecurePrivateKey) -> Result<String, WalletError> {
-        let secret_key = SecretKey::from_slice(private_key.as_bytes())
+        let secret_key = SecretKey::from_byte_array(private_key.as_bytes().try_into().map_err(|_| WalletError::crypto("Invalid private key length".to_string()))?)
             .map_err(|e| WalletError::crypto(format!("Invalid private key: {}", e)))?;
 
         let public_key = PublicKey::from_secret_key(&self.secp256k1, &secret_key);
@@ -107,7 +103,7 @@ impl<'a> KeyManager<'a> {
         // Generate secure random entropy for a 12-word BIP39 mnemonic (128 bits)
         let mut entropy = [0u8; 16];
         rng.fill_bytes(&mut entropy);
-        let mnemonic = Mnemonic::from_entropy(&entropy)
+        let mnemonic = bip39::Mnemonic::from_entropy(&entropy)
             .map_err(|e| WalletError::crypto(format!("Mnemonic generation failed: {}", e)))?;
         let phrase = mnemonic.to_string();
         Ok(SecureSeedPhrase::new(phrase))
@@ -115,12 +111,11 @@ impl<'a> KeyManager<'a> {
 
     /// Derive private key from seed phrase
     pub fn derive_private_key_from_seed(&self, seed_phrase: &str) -> Result<SecurePrivateKey, WalletError> {
-        use bip39::{Mnemonic, Language};
-        use bip32::Seed;
+        use bip39::Mnemonic;
         // Parse the mnemonic
-        let mnemonic = Mnemonic::parse_in_normalized(Language::English, seed_phrase)
+        let mnemonic = Mnemonic::parse_in_normalized(bip39::Language::English, seed_phrase)
             .map_err(|e| WalletError::validation(format!("Invalid BIP39 seed phrase: {}", e)))?;
-        let seed = Seed::new(mnemonic.to_seed_normalized("")); // No passphrase
+        let seed = bip32::Seed::new(mnemonic.to_seed_normalized("")); // No passphrase
         // Derive the BIP32 root key
         let xprv = XPrv::new(seed.as_bytes())
             .map_err(|e| WalletError::crypto(format!("Failed to create XPrv: {}", e)))?;
@@ -143,7 +138,7 @@ impl<'a> KeyManager<'a> {
 
     /// Validate a private key
     pub fn validate_private_key(&self, private_key: &SecurePrivateKey) -> Result<bool, WalletError> {
-        let secret_key = SecretKey::from_slice(private_key.as_bytes());
+        let secret_key = SecretKey::from_byte_array(private_key.as_bytes().try_into().map_err(|_| WalletError::crypto("Invalid private key length".to_string()))?);
         Ok(secret_key.is_ok())
     }
 
@@ -174,14 +169,6 @@ impl<'a> KeyManager<'a> {
         Ok(true)
     }
 
-    /// SHA256 hash function
-    fn sha256(&self, data: &[u8]) -> Vec<u8> {
-        use sha2::{Sha256, Digest};
-        let mut hasher = Sha256::new();
-        hasher.update(data);
-        hasher.finalize().to_vec()
-    }
-
     /// Keccak256 hash function
     fn keccak256(&self, data: &[u8]) -> Vec<u8> {
         use sha3::{Keccak256, Digest};
@@ -209,10 +196,10 @@ impl<'a> KeyManager<'a> {
         storage.restore_wallet(backup, password).await
     }
 
-    pub async fn send_payment(&self, payment: &crate::shared::types::BLEPaymentData) -> Result<(), WalletError> {
+    pub async fn send_payment(&self) -> Result<(), WalletError> {
         use crate::core::ble::BLESecurityManager;
         let ble = BLESecurityManager::new();
-        ble.send_payment(payment).await
+        ble.send_payment().await
     }
 
     pub async fn receive_payment(&self) -> Result<crate::shared::types::BLEPaymentData, WalletError> {

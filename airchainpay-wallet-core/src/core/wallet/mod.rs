@@ -2,26 +2,22 @@
 //! 
 //! This module handles wallet creation, management, and operations.
 
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use crate::core::crypto::keys::SecurePrivateKey;
 use crate::domain::{SecureWallet, WalletBalance};
 use crate::shared::error::WalletError;
 use crate::shared::types::{Network, Transaction, SignedTransaction};
-use sha3::{Keccak256, Digest};
 
 /// Wallet manager for handling multiple wallets
 pub struct WalletManager {
     // Removed CryptoManager for simplicity
-    wallets: Arc<RwLock<std::collections::HashMap<String, SecureWallet>>>,
-    balances: Arc<RwLock<std::collections::HashMap<String, WalletBalance>>>,
+    wallets: std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, SecureWallet>>>,
+    balances: std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, WalletBalance>>>,
 }
 
 impl WalletManager {
     pub fn new() -> Self {
         Self {
-            wallets: Arc::new(RwLock::new(std::collections::HashMap::new())),
-            balances: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            wallets: std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
+            balances: std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
         }
     }
 
@@ -32,6 +28,9 @@ impl WalletManager {
         name: &str,
         network: Network,
     ) -> Result<SecureWallet, WalletError> {
+        let _wallet_id = wallet_id;
+        let _name = name;
+        let _network = network;
         // Key generation is not implemented yet
         return Err(WalletError::crypto("Wallet creation not available: key generation not implemented".to_string()));
     }
@@ -90,7 +89,6 @@ impl WalletManager {
     
     /// Remove a wallet
     pub async fn remove_wallet(&self, wallet_id: &str) -> Result<(), WalletError> {
-        let _wallet_id = wallet_id;
         // Remove from wallets
         {
         let mut wallets = self.wallets.write().await;

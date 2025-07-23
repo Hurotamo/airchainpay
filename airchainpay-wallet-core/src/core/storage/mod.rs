@@ -2,10 +2,10 @@
 //! 
 //! This module contains secure storage operations for wallet data.
 
-use crate::domain::{Wallet, SecureWallet};
+use crate::domain::{Wallet};
 use crate::shared::error::WalletError;
 use crate::shared::types::{WalletBackupInfo};
-use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+use aes_gcm::{Aes256Gcm, KeyInit};
 use aes_gcm::aead::{Aead, generic_array::GenericArray};
 use argon2::{Argon2, PasswordHasher};
 use rand::rngs::OsRng;
@@ -13,6 +13,8 @@ use rand::RngCore;
 use sha2::Digest;
 use serde_json;
 use crate::infrastructure::platform::{PlatformStorage, FileStorage};
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 
 /// Secure storage manager
 pub struct SecureStorage<'a> {
@@ -69,19 +71,19 @@ impl<'a> SecureStorage<'a> {
             .map_err(|e| WalletError::crypto(format!("Encryption failed: {}", e)))?;
         encrypted_data.extend_from_slice(&ciphertext);
         // Compute checksum (SHA256 of ciphertext)
-        let checksum = format!("{:x}", sha2::Sha256::digest(&encrypted_data));
+        let _checksum = format!("{:x}", sha2::Sha256::digest(&encrypted_data));
         Ok(WalletBackupInfo {
             wallet_id: wallet.id.clone(),
-            encrypted_data: base64::encode(&encrypted_data),
-            salt: base64::encode(&salt),
+            encrypted_data: STANDARD.encode(&encrypted_data),
+            salt: STANDARD.encode(&salt),
             version: "1.0".to_string(),
         })
     }
 
     pub async fn restore_wallet(&self, backup: &WalletBackupInfo, password: &str) -> Result<Wallet, WalletError> {
-        let encrypted_data = base64::decode(&backup.encrypted_data)
+        let encrypted_data = STANDARD.decode(&backup.encrypted_data)
             .map_err(|e| WalletError::crypto(format!("Base64 decode failed: {}", e)))?;
-        let salt = base64::decode(&backup.salt)
+        let salt = STANDARD.decode(&backup.salt)
             .map_err(|e| WalletError::crypto(format!("Base64 decode failed: {}", e)))?;
         if encrypted_data.len() < 12 {
             return Err(WalletError::crypto("Encrypted data too short".to_string()));
@@ -103,7 +105,7 @@ impl<'a> SecureStorage<'a> {
     }
 
     async fn encrypt_data(&self, data: &[u8], password: &str) -> Result<Vec<u8>, WalletError> {
-        use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::{Aead, generic_array::GenericArray}};
+        use aes_gcm::{Aes256Gcm, aead::{Aead, generic_array::GenericArray}};
         use rand::RngCore;
         use argon2::{Argon2, PasswordHasher};
         let mut salt = [0u8; 32];
@@ -130,7 +132,7 @@ impl<'a> SecureStorage<'a> {
     }
 
     async fn decrypt_data(&self, encrypted_data: &[u8], password: &str) -> Result<Vec<u8>, WalletError> {
-        use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::{Aead, generic_array::GenericArray}};
+        use aes_gcm::{Aes256Gcm, aead::{Aead, generic_array::GenericArray}};
         use argon2::{Argon2, PasswordHasher};
         if encrypted_data.len() < 32 + 12 {
             return Err(WalletError::crypto("Encrypted data too short".to_string()));

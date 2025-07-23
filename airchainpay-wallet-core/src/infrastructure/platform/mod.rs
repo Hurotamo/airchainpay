@@ -5,7 +5,7 @@
 
 use crate::shared::error::WalletError;
 use crate::shared::types::SecurityLevel;
-use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::{Aead, generic_array::GenericArray}};
+use aes_gcm::{Aes256Gcm, KeyInit, aead::{Aead, generic_array::GenericArray}};
 use argon2::{Argon2, PasswordHasher};
 use rand::RngCore;
 use rand::rngs::OsRng;

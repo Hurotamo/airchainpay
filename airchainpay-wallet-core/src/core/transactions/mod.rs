@@ -67,7 +67,7 @@ impl TransactionManager {
         signature_bytes.extend_from_slice(&hex::decode(&tx_signature.s).unwrap_or_default());
         signature_bytes.push(tx_signature.v);
         use sha3::{Keccak256, Digest};
-        let mut hasher = Keccak256::new();
+        let hasher = Keccak256::new();
         // NOTE: For production, use RLP encoding for Ethereum transaction hash as in the wallet implementation.
         let hash = format!("0x{}", hex::encode(hasher.finalize()));
         Ok(SignedTransaction {

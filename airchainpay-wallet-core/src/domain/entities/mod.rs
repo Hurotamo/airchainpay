@@ -4,12 +4,10 @@
 //! that represent the business concepts in the wallet system.
 
 pub mod wallet;
-pub mod transaction;
 pub mod token;
 // pub mod network;
 
 // Re-export entities
 pub use wallet::*;
-pub use transaction::*;
 pub use token::*;
 // pub use network::*;

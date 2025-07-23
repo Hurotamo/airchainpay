@@ -2,12 +2,13 @@ use crate::shared::error::WalletError;
 use crate::shared::WalletResult;
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use pbkdf2::pbkdf2;
-use rand::{Rng, RngCore};
+use rand::{RngCore};
 use zeroize::Zeroize;
 use super::{PasswordConfig, PasswordAlgorithm};
 use rand::rngs::OsRng;
 use argon2::PasswordHasher;
 use argon2::password_hash::SaltString;
+use base64::Engine;
 
 /// Secure password hasher
 pub struct WalletPasswordHasher {
@@ -91,8 +92,8 @@ impl WalletPasswordHasher {
         let hash = format!(
             "$pbkdf2-sha256${}${}${}",
             self.config.iterations,
-            base64::encode(salt),
-            base64::encode(&key)
+            base64::engine::general_purpose::STANDARD.encode(salt),
+            base64::engine::general_purpose::STANDARD.encode(&key)
         );
         key.zeroize();
         Ok(hash)
@@ -107,9 +108,9 @@ impl WalletPasswordHasher {
         }
         let iterations: u32 = parts[2].parse()
             .map_err(|_| WalletError::Crypto("Invalid iterations in hash".to_string()))?;
-        let salt = base64::decode(parts[3])
+        let salt = base64::engine::general_purpose::STANDARD.decode(parts[3])
             .map_err(|_| WalletError::Crypto("Invalid salt encoding".to_string()))?;
-        let stored_key = base64::decode(parts[4])
+        let stored_key = base64::engine::general_purpose::STANDARD.decode(parts[4])
             .map_err(|_| WalletError::Crypto("Invalid key encoding".to_string()))?;
         let mut computed_key = vec![0u8; stored_key.len()];
         pbkdf2::<hmac::Hmac<sha2::Sha256>>(

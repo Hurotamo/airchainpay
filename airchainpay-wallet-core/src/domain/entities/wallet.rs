@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use crate::shared::types::{Address, Amount, Network, Balance as BalanceType};
 use crate::shared::error::WalletError;
 use zeroize::Zeroize;
-use crate::core::crypto::keys::SecurePrivateKey;
 
 /// Core wallet entity - simplified to match TypeScript implementation
 #[derive(Debug, Clone, Serialize, Deserialize)]

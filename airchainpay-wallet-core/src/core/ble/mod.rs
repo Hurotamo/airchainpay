@@ -3,8 +3,11 @@
 //! This module contains BLE communication for payment processing.
 
 use crate::shared::error::WalletError;
-use crate::shared::types::{BLEPaymentData, BLEDeviceInfo, Network, Amount, Address};
-use aes_gcm::{Aes256Gcm, KeyInit, aead::{Aead, generic_array::GenericArray}};
+use crate::shared::types::BLEPaymentData;
+use crate::shared::types::BLEDeviceInfo;
+use aes_gcm::{Aes256Gcm, aead::{Aead}};
+use aes_gcm::KeyInit;
+use generic_array::GenericArray;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use bluest::Adapter;
@@ -62,12 +65,12 @@ impl BLESecurityManager {
     }
 
     /// Send payment data to a BLE receiver (central role)
-    pub async fn send_payment(&self, payment_data: &BLEPaymentData) -> Result<(), WalletError> {
+    pub async fn send_payment(&self) -> Result<(), WalletError> {
         log::info!("Sending payment via BLE (central role)");
         let adapter = Adapter::default().await.ok_or_else(|| WalletError::ble("No Bluetooth adapter found".to_string()))?;
         adapter.wait_available().await.map_err(|_| WalletError::ble("Bluetooth adapter not available"))?;
         let mut scan = adapter.scan(&[]).await.map_err(|_| WalletError::ble("Failed to start BLE scan"))?;
-        while let Some(discovered) = scan.next().await {
+        while let Some(_) = scan.next().await {
             // BLE device scan logic is stubbed for build
         }
         Err(WalletError::ble("No suitable BLE receiver found"))
@@ -79,7 +82,7 @@ impl BLESecurityManager {
         let adapter = Adapter::default().await.ok_or_else(|| WalletError::ble("No Bluetooth adapter found".to_string()))?;
         adapter.wait_available().await.map_err(|_| WalletError::ble("Bluetooth adapter not available"))?;
         let mut scan = adapter.scan(&[]).await.map_err(|_| WalletError::ble("Failed to start BLE scan"))?;
-        while let Some(discovered) = scan.next().await {
+        while let Some(_discovered) = scan.next().await {
             // BLE device connect/write/disconnect logic is stubbed for build
         }
         Err(WalletError::ble("No valid BLE payment data found"))
@@ -158,6 +161,6 @@ mod tests {
             reference: Some("Test Payment".to_string()),
         };
 
-        manager.send_payment(&payment_data).await.unwrap();
+        manager.send_payment().await.unwrap();
     }
 } 

@@ -3,7 +3,7 @@
 //! This module handles transaction data persistence and retrieval.
 
 use crate::shared::error::WalletError;
-use crate::shared::types::{Transaction, SignedTransaction, TransactionReceipt};
+use crate::shared::types::{SignedTransaction};
 use async_trait::async_trait;
 use crate::infrastructure::platform::FileStorage;
 use serde_json;
@@ -12,7 +12,6 @@ use std::fs;
 use ethers::providers::{Provider, Http, Middleware};
 use ethers::types::H256;
 use crate::shared::types::{TransactionStatus, Network};
-use ethers::prelude::*;
 
 /// Transaction repository trait
 #[async_trait]

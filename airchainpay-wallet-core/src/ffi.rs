@@ -2,15 +2,13 @@
 //! 
 //! This module provides C-compatible function signatures for integration with React Native.
 
-use crate::core::storage::StorageManager;
 use crate::domain::Wallet;
-use crate::shared::types::{Network, Address, Amount, Transaction, SignedTransaction, WalletBackupInfo, WalletBackup};
-use crate::shared::types::BLEPaymentData;
+use crate::shared::types::Network;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use serde_json;
 use ethers::providers::{Provider, Http, Middleware};
-use ethers::types::{Address as EthersAddress, U256, TransactionRequest};
+use ethers::types::U256;
 use ethers::signers::{LocalWallet, Signer};
 use ethers::contract::abigen;
 use std::sync::Arc;
@@ -24,31 +22,18 @@ abigen!(ERC20, r#"[
 
 async fn get_wallet_balance(address: &str, network: Network) -> Result<String, Box<dyn std::error::Error>> {
     let provider = Arc::new(Provider::<Http>::try_from(network.rpc_url())?);
-    let addr: EthersAddress = address.parse()?;
+    let addr: ethers::types::Address = address.parse()?;
     let balance = provider.get_balance(addr, None).await?;
     Ok(balance.to_string())
 }
 
 async fn get_token_balance(address: &str, token_address: &str, network: Network) -> Result<String, Box<dyn std::error::Error>> {
     let provider = Arc::new(Provider::<Http>::try_from(network.rpc_url())?);
-    let addr: EthersAddress = address.parse()?;
-    let token_addr: EthersAddress = token_address.parse()?;
+    let addr: ethers::types::Address = address.parse()?;
+    let token_addr: ethers::types::Address = token_address.parse()?;
     let contract = ERC20::new(token_addr, provider.clone());
     let balance: U256 = contract.balance_of(addr).call().await?;
     Ok(balance.to_string())
-}
-
-async fn send_transaction(wallet_private_key: &str, to: &str, amount: &str, network: Network) -> Result<String, Box<dyn std::error::Error>> {
-    let provider = Arc::new(Provider::<Http>::try_from(network.rpc_url())?);
-    let wallet: LocalWallet = wallet_private_key.parse()?;
-    let wallet = wallet.with_chain_id(network.chain_id());
-    let client = Arc::new(SignerMiddleware::new(provider, wallet));
-    let to_addr: EthersAddress = to.parse()?;
-    let value = U256::from_dec_str(amount)?;
-    let tx = TransactionRequest::pay(to_addr, value);
-    let pending_tx = client.send_transaction(tx, None).await?;
-    let tx_hash = pending_tx.tx_hash();
-    Ok(format!("0x{:x}", tx_hash))
 }
 
 /// Initialize the wallet core
@@ -251,9 +236,9 @@ pub extern "C" fn wallet_core_send_transaction(
         let local_wallet: LocalWallet = private_key.parse().unwrap();
         let local_wallet = local_wallet.with_chain_id(network_enum.chain_id());
         let client = Arc::new(SignerMiddleware::new(provider, local_wallet));
-        let to_addr: EthersAddress = to_address_str.parse().unwrap();
+        let to_addr: ethers::types::Address = to_address_str.parse().unwrap();
         let value = U256::from_dec_str(amount_str).unwrap();
-        let tx = TransactionRequest::pay(to_addr, value);
+        let tx = ethers::types::TransactionRequest::pay(to_addr, value);
         let pending_tx = client.send_transaction(tx, None).await.unwrap();
         let tx_hash = pending_tx.tx_hash();
         Ok::<_, ()>(format!("0x{:x}", tx_hash))
@@ -469,19 +454,11 @@ pub extern "C" fn wallet_core_restore_wallet(
 } 
 
 #[no_mangle]
-pub extern "C" fn wallet_core_ble_send_payment(payment_json: *const c_char) -> i32 {
-    let c_str = unsafe {
-        if payment_json.is_null() { return 1; }
-        CStr::from_ptr(payment_json)
-    };
-    let payment: BLEPaymentData = match serde_json::from_str(c_str.to_str().unwrap_or("")) {
-        Ok(p) => p,
-        Err(_) => return 1,
-    };
+pub extern "C" fn wallet_core_ble_send_payment() -> i32 {
     let rt = Runtime::new().unwrap();
     let file_storage = crate::infrastructure::platform::FileStorage::new().unwrap();
     let key_manager = crate::core::crypto::keys::KeyManager::new(&file_storage);
-    match rt.block_on(key_manager.send_payment(&payment)) {
+    match rt.block_on(key_manager.send_payment()) {
         Ok(_) => 0,
         Err(_) => 1,
     }
