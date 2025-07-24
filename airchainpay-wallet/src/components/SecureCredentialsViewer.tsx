@@ -41,7 +41,7 @@ export default function SecureCredentialsViewer({
       }
       Clipboard.setString('');
     };
-  }, []);
+  }, [clipboardTimer]);
 
   const handleClose = () => {
     setPassword('');

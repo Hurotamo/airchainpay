@@ -5,6 +5,7 @@ import { MultiChainWalletManager } from '../wallet/MultiChainWalletManager';
 import { TokenInfo } from '../wallet/TokenWalletManager';
 import { ethers } from 'ethers';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { WalletError, TransactionError } from '../utils/ErrorClasses';
 
 export interface OfflineBalanceTracking {
   pendingAmount: string;
@@ -46,7 +47,7 @@ export class OfflineSecurityService {
     try {
       const walletInfo = await this.walletManager.getWalletInfo(chainId);
       if (!walletInfo) {
-        throw new Error('No wallet found for chain');
+        throw new WalletError('No wallet found for chain');
       }
 
       // Get current balance
@@ -72,12 +73,16 @@ export class OfflineSecurityService {
       });
 
       if (availableBalance < BigInt(requiredAmount)) {
-        throw new Error(`Insufficient available balance. Required: ${ethers.formatEther(requiredAmount)}, Available: ${ethers.formatEther(availableBalance)}`);
+        throw new TransactionError(`Insufficient available balance. Required: ${ethers.formatEther(requiredAmount)}, Available: ${ethers.formatEther(availableBalance)}`);
       }
 
       logger.info('[OfflineSecurity] Balance validation passed');
-    } catch (error) {
-      logger.error('[OfflineSecurity] Balance validation failed:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[OfflineSecurity] Balance validation failed:', error);
+      } else {
+        logger.error('[OfflineSecurity] Balance validation failed with unknown error:', error);
+      }
       throw error;
     }
   }
@@ -102,7 +107,7 @@ export class OfflineSecurityService {
       );
 
       if (duplicate) {
-        throw new Error('Duplicate transaction detected. This transaction is already queued.');
+        throw new TransactionError('Duplicate transaction detected. This transaction is already queued.');
       }
 
       // Check for similar transactions within a time window (5 minutes)
@@ -123,8 +128,12 @@ export class OfflineSecurityService {
       }
 
       logger.info('[OfflineSecurity] Duplicate check passed');
-    } catch (error) {
-      logger.error('[OfflineSecurity] Duplicate check failed:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[OfflineSecurity] Duplicate check failed:', error);
+      } else {
+        logger.error('[OfflineSecurity] Duplicate check failed with unknown error:', error);
+      }
       throw error;
     }
   }
@@ -146,15 +155,19 @@ export class OfflineSecurityService {
 
       // Ensure offline nonce is not ahead of current nonce
       if (offlineNonce >= currentNonce) {
-        throw new Error('Invalid nonce for offline transaction. Please sync with network first.');
+        throw new TransactionError('Invalid nonce for offline transaction. Please sync with network first.');
       }
 
       // Update offline nonce
       await this.updateOfflineNonce(chainId, offlineNonce + 1);
       
       logger.info('[OfflineSecurity] Nonce validation passed');
-    } catch (error) {
-      logger.error('[OfflineSecurity] Nonce validation failed:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[OfflineSecurity] Nonce validation failed:', error);
+      } else {
+        logger.error('[OfflineSecurity] Nonce validation failed with unknown error:', error);
+      }
       throw error;
     }
   }
@@ -180,8 +193,12 @@ export class OfflineSecurityService {
         const storedNonce = await this.getStoredNonce(chainId);
         return storedNonce;
       }
-    } catch (error) {
-      logger.error('[OfflineSecurity] Failed to get current nonce:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[OfflineSecurity] Failed to get current nonce:', error);
+      } else {
+        logger.error('[OfflineSecurity] Failed to get current nonce with unknown error:', error);
+      }
       // Fallback to stored nonce
       return await this.getStoredNonce(chainId);
     }
@@ -195,8 +212,12 @@ export class OfflineSecurityService {
       const key = `offline_nonce_${chainId}`;
       const stored = await AsyncStorage.getItem(key);
       return stored ? parseInt(stored, 10) : 0;
-    } catch (error) {
-      logger.error('[OfflineSecurity] Failed to get offline nonce:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[OfflineSecurity] Failed to get offline nonce:', error);
+      } else {
+        logger.error('[OfflineSecurity] Failed to get offline nonce with unknown error:', error);
+      }
       return 0;
     }
   }
@@ -209,8 +230,12 @@ export class OfflineSecurityService {
       const key = `offline_nonce_${chainId}`;
       await AsyncStorage.setItem(key, nonce.toString());
       logger.info('[OfflineSecurity] Updated offline nonce', { chainId, nonce });
-    } catch (error) {
-      logger.error('[OfflineSecurity] Failed to update offline nonce:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[OfflineSecurity] Failed to update offline nonce:', error);
+      } else {
+        logger.error('[OfflineSecurity] Failed to update offline nonce with unknown error:', error);
+      }
       throw error;
     }
   }
@@ -223,8 +248,12 @@ export class OfflineSecurityService {
       const key = `stored_nonce_${chainId}`;
       await AsyncStorage.setItem(key, nonce.toString());
       logger.info('[OfflineSecurity] Stored current nonce', { chainId, nonce });
-    } catch (error) {
-      logger.error('[OfflineSecurity] Failed to store current nonce:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[OfflineSecurity] Failed to store current nonce:', error);
+      } else {
+        logger.error('[OfflineSecurity] Failed to store current nonce with unknown error:', error);
+      }
     }
   }
 
@@ -236,8 +265,12 @@ export class OfflineSecurityService {
       const key = `stored_nonce_${chainId}`;
       const stored = await AsyncStorage.getItem(key);
       return stored ? parseInt(stored, 10) : 0;
-    } catch (error) {
-      logger.error('[OfflineSecurity] Failed to get stored nonce:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[OfflineSecurity] Failed to get stored nonce:', error);
+      } else {
+        logger.error('[OfflineSecurity] Failed to get stored nonce with unknown error:', error);
+      }
       return 0;
     }
   }
@@ -266,8 +299,12 @@ export class OfflineSecurityService {
       });
 
       return total;
-    } catch (error) {
-      logger.error('[OfflineSecurity] Failed to get pending transactions total:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[OfflineSecurity] Failed to get pending transactions total:', error);
+      } else {
+        logger.error('[OfflineSecurity] Failed to get pending transactions total with unknown error:', error);
+      }
       return BigInt(0);
     }
   }
@@ -309,8 +346,12 @@ export class OfflineSecurityService {
         transactionAmount: amount,
         tokenSymbol: tokenInfo.symbol
       });
-    } catch (error) {
-      logger.error('[OfflineSecurity] Failed to update offline balance tracking:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[OfflineSecurity] Failed to update offline balance tracking:', error);
+      } else {
+        logger.error('[OfflineSecurity] Failed to update offline balance tracking with unknown error:', error);
+      }
       // Don't throw error as this is not critical
     }
   }
@@ -346,8 +387,12 @@ export class OfflineSecurityService {
         processedAmount: amount,
         tokenSymbol: tokenInfo.symbol
       });
-    } catch (error) {
-      logger.error('[OfflineSecurity] Failed to clear offline balance tracking:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[OfflineSecurity] Failed to clear offline balance tracking:', error);
+      } else {
+        logger.error('[OfflineSecurity] Failed to clear offline balance tracking with unknown error:', error);
+      }
     }
   }
 
@@ -359,8 +404,12 @@ export class OfflineSecurityService {
       const key = `offline_balance_${chainId}`;
       const stored = await AsyncStorage.getItem(key);
       return stored ? JSON.parse(stored) : null;
-    } catch (error) {
-      logger.error('[OfflineSecurity] Failed to get offline balance tracking:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[OfflineSecurity] Failed to get offline balance tracking:', error);
+      } else {
+        logger.error('[OfflineSecurity] Failed to get offline balance tracking with unknown error:', error);
+      }
       return null;
     }
   }
@@ -379,8 +428,12 @@ export class OfflineSecurityService {
         lastUpdated: Date.now(),
         chainId
       };
-    } catch (error) {
-      logger.error('[OfflineSecurity] Failed to get offline nonce tracking:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[OfflineSecurity] Failed to get offline nonce tracking:', error);
+      } else {
+        logger.error('[OfflineSecurity] Failed to get offline nonce tracking with unknown error:', error);
+      }
       return null;
     }
   }
@@ -397,8 +450,12 @@ export class OfflineSecurityService {
       await AsyncStorage.removeItem(offlineNonceKey);
       
       logger.info('[OfflineSecurity] Reset offline tracking', { chainId });
-    } catch (error) {
-      logger.error('[OfflineSecurity] Failed to reset offline tracking:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[OfflineSecurity] Failed to reset offline tracking:', error);
+      } else {
+        logger.error('[OfflineSecurity] Failed to reset offline tracking with unknown error:', error);
+      }
     }
   }
 
@@ -432,8 +489,12 @@ export class OfflineSecurityService {
       await this.updateOfflineBalanceTracking(chainId, amount, tokenInfo);
 
       logger.info('[OfflineSecurity] Comprehensive security check passed');
-    } catch (error) {
-      logger.error('[OfflineSecurity] Comprehensive security check failed:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[OfflineSecurity] Comprehensive security check failed:', error);
+      } else {
+        logger.error('[OfflineSecurity] Comprehensive security check failed with unknown error:', error);
+      }
       throw error;
     }
   }

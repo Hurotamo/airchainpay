@@ -18,16 +18,56 @@ import { Ionicons } from '@expo/vector-icons';
 import { ethers } from 'ethers';
 import { SUPPORTED_CHAINS } from '../src/constants/AppConfig';
 import { TokenInfo } from '../src/types/token';
-import { MultiChainWalletManager } from '../src/wallet/MultiChainWalletManager';
-import { TxQueue } from '../src/services/TxQueue';
 import { TokenSelector } from '../src/components/TokenSelector';
 import { QRCodeScanner } from '../src/components/QRCodeScanner';
 import { ThemedView } from '../components/ThemedView';
 import { logger } from '../src/utils/Logger';
 import { Colors, ChainColors, getBlueBlackGradient, getChainColor } from '../constants/Colors';
 import { useThemeContext } from '../hooks/useThemeContext';
-import { QRCodeSigner } from '../src/utils/crypto/QRCodeSigner';
-import { PaymentService } from '../src/services/PaymentService';
+import { QRCodeSigner, SignedQRPayload } from '../src/utils/crypto/QRCodeSigner';
+import { PaymentService, PaymentRequest } from '../src/services/PaymentService';
+
+function isPaymentRequest(obj: unknown): obj is PaymentRequest {
+  return (
+    typeof obj === 'object' && obj !== null &&
+    'to' in obj && typeof (obj as PaymentRequest).to === 'string' &&
+    'amount' in obj && typeof (obj as PaymentRequest).amount === 'string' &&
+    'chainId' in obj && typeof (obj as PaymentRequest).chainId === 'string' &&
+    'transport' in obj && typeof (obj as PaymentRequest).transport === 'string'
+  );
+}
+
+function isSignedQRPayload(obj: unknown): obj is SignedQRPayload {
+  return (
+    typeof obj === 'object' && obj !== null &&
+    'type' in obj && typeof (obj as SignedQRPayload).type === 'string' &&
+    'to' in obj && typeof (obj as SignedQRPayload).to === 'string' &&
+    'amount' in obj && typeof (obj as SignedQRPayload).amount === 'string' &&
+    'chainId' in obj && typeof (obj as SignedQRPayload).chainId === 'string' &&
+    'signature' in obj && typeof (obj as SignedQRPayload).signature === 'string'
+  );
+}
+
+function buildTokenInfo(obj: any, selectedChain: string): TokenInfo | undefined {
+  if (
+    obj && typeof obj === 'object' &&
+    'address' in obj && typeof obj.address === 'string' &&
+    'symbol' in obj && typeof obj.symbol === 'string' &&
+    'decimals' in obj && typeof obj.decimals === 'number' &&
+    'isNative' in obj && typeof obj.isNative === 'boolean'
+  ) {
+    return {
+      address: obj.address,
+      symbol: obj.symbol,
+      decimals: obj.decimals,
+      isNative: obj.isNative,
+      name: obj.name || obj.symbol || '',
+      chainId: obj.chainId || selectedChain,
+      chainName: obj.chainName || '',
+    };
+  }
+  return undefined;
+}
 
 export default function SendPaymentScreen() {
   // Get URL parameters from QR code scan
@@ -57,16 +97,17 @@ export default function SendPaymentScreen() {
       const chain = SUPPORTED_CHAINS[params.chainId];
       if (chain) {
         // Find token by symbol
-        const token: TokenInfo = {
+        const tokenObj = {
           symbol: params.token,
           name: params.token === chain.nativeCurrency.symbol ? chain.nativeCurrency.name : params.token,
-          address: '0x0000000000000000000000000000000000000000', 
+          address: '0x0000000000000000000000000000000000000000',
           decimals: chain.nativeCurrency.decimals,
           chainId: params.chainId,
           chainName: chain.name,
           isNative: params.token === chain.nativeCurrency.symbol,
         };
-        setSelectedToken(token);
+        const token = buildTokenInfo(tokenObj, params.chainId);
+        if (token) setSelectedToken(token);
       }
     }
   }, [params.token, params.chainId]);
@@ -82,16 +123,16 @@ export default function SendPaymentScreen() {
     setShowQRScanner(false);
 
     try {
-      // Try to parse as JSON payment request
-      let parsed: any = {};
+      // When parsing QR data, ensure parsed is always a Record<string, unknown> (never null)
+      let parsed: Record<string, unknown> = {};
       try {
         parsed = JSON.parse(data);
       } catch {
-        parsed = null;
+        parsed = { address: data };
       }
 
       // Check if this is a signed QR payload and verify signature
-      if (parsed && QRCodeSigner.isSignedPayload(parsed)) {
+      if (parsed && isSignedQRPayload(parsed)) {
         logger.info('Signed QR payload detected, verifying signature');
         
         const verificationResult = await QRCodeSigner.verifyQRPayload(parsed);
@@ -117,7 +158,7 @@ export default function SendPaymentScreen() {
           `QR code verified successfully!\n\nSigner: ${verificationResult.signer}\nChain: ${verificationResult.chainId}`,
           [{ text: 'OK' }]
         );
-      } else if (parsed && parsed.to) {
+      } else if (parsed && isPaymentRequest(parsed)) {
         // Unsigned QR payload - show warning
         Alert.alert(
           'Unverified QR Code',
@@ -129,10 +170,10 @@ export default function SendPaymentScreen() {
         );
       }
 
-      if (parsed && parsed.to) {
-        setRecipient(parsed.to);
-        if (parsed.amount) setAmount(parsed.amount);
-        if (parsed.chainId) setSelectedChain(parsed.chainId);
+      if (isPaymentRequest(parsed)) {
+        setRecipient((parsed as PaymentRequest).to);
+        if ((parsed as PaymentRequest).amount) setAmount((parsed as PaymentRequest).amount);
+        if ((parsed as PaymentRequest).chainId) setSelectedChain((parsed as PaymentRequest).chainId);
         Alert.alert('Payment Request Scanned', 'Recipient address and details have been filled from the QR code.');
         return;
       }
@@ -183,12 +224,11 @@ export default function SendPaymentScreen() {
 
     setLoading(true);
     try {
-      // Choose transport type (for demo, use 'onchain' if available)
-      // You may want to let the user select this in your UI
-      const transport: string = 'onchain';
+      // Set transport as the string literal 'onchain'
+      const transport: 'onchain' = 'onchain';
 
       // Build payment request
-      const paymentRequest: any = {
+      const paymentRequest: PaymentRequest = {
         to: recipient,
         amount: amount,
         chainId: selectedToken.chainId,
@@ -197,16 +237,7 @@ export default function SendPaymentScreen() {
         paymentReference: reference || undefined,
       };
 
-      // For manual/onchain, sign and attach signedTx
-      if (transport === 'manual' || transport === 'onchain') {
-        const transaction = {
-          to: recipient,
-          value: selectedToken.isNative ? ethers.parseEther(amount) : ethers.parseUnits(amount, selectedToken.decimals),
-          data: reference ? ethers.hexlify(ethers.toUtf8Bytes(reference)) : undefined
-        };
-        const signedTx = await MultiChainWalletManager.getInstance().signTransaction(transaction, selectedToken.chainId);
-        paymentRequest.signedTx = signedTx;
-      }
+      // If you need to sign a transaction, handle it in the PaymentService or elsewhere as needed.
 
       // Use PaymentService to send
       const paymentService = PaymentService.getInstance();

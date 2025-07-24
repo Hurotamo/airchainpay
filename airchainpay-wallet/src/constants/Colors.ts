@@ -41,9 +41,6 @@ interface ThemeColors {
   icon?: string;
 }
 
-const tintColorLight = '#0052FF';  // Base blue as default
-const tintColorDark = '#4A90FF';   // Lighter blue for dark mode
-
 export const Colors = {
   light: {
     text: '#000',

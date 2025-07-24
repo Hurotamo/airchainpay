@@ -4,9 +4,6 @@ import 'react-native-get-random-values';
 
 // Set up Buffer globally
 import { Buffer } from 'buffer';
-if (typeof global !== 'undefined') {
-  global.Buffer = Buffer;
-}
 
 // Import other shims
 import './shims/ens-normalize';
@@ -14,6 +11,9 @@ import './shims/websocket';
 
 // Import and set up crypto shim
 import cryptoShim from './shims/crypto';
+if (typeof global !== 'undefined') {
+  global.Buffer = Buffer;
+}
 
 // Set up crypto globally - this must be done before any ethers imports
 if (typeof global !== 'undefined') {

@@ -10,9 +10,8 @@ import { logger } from '../../src/utils/Logger';
 import WalletSetupScreen from '../../src/components/WalletSetupScreen';
 import { BlockchainTransactionService, BlockchainTransaction } from '../../src/services/BlockchainTransactionService';
 import { DEFAULT_CHAIN_ID, SUPPORTED_CHAINS } from '../../src/constants/AppConfig';
-import { getChainColor } from '../../constants/Colors';
+import { getChainColor , Colors } from '../../constants/Colors';
 import { useThemeContext } from '../../hooks/useThemeContext';
-import { Colors } from '../../constants/Colors';
 import { ThemedView } from '../../components/ThemedView';
 
 export default function TransactionHistoryScreen() {

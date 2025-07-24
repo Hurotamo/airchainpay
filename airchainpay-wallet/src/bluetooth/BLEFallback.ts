@@ -1,5 +1,5 @@
 // BLE Fallback Module for when native module is not available
-import { Platform } from 'react-native';
+import { BLEError } from '../utils/ErrorClasses';
 
 export class BLEFallback {
   private isAvailable: boolean = false;
@@ -31,7 +31,7 @@ export class BLEFallback {
 
   async startScan(): Promise<void> {
     console.warn('[BLE] Scan requested but BLE not available - using fallback');
-    throw new Error('BLE not available - native module missing. Please ensure react-native-ble-plx is properly installed and linked.');
+    throw new BLEError('BLE not available - native module missing. Please ensure react-native-ble-plx is properly installed and linked.');
   }
 
   async stopScan(): Promise<void> {
@@ -39,9 +39,9 @@ export class BLEFallback {
     // No-op
   }
 
-  async connectToDevice(deviceId: string): Promise<any> {
+  async connectToDevice(deviceId: string): Promise<unknown> {
     console.warn('[BLE] Connect requested but BLE not available - using fallback');
-    throw new Error('BLE not available - native module missing. Please ensure react-native-ble-plx is properly installed and linked.');
+    throw new BLEError('BLE not available - native module missing. Please ensure react-native-ble-plx is properly installed and linked.');
   }
 
   async disconnectFromDevice(deviceId: string): Promise<void> {
@@ -51,7 +51,7 @@ export class BLEFallback {
 
   async startAdvertising(): Promise<void> {
     console.warn('[BLE] Advertising requested but BLE not available - using fallback');
-    throw new Error('BLE not available - native module missing. Please ensure react-native-ble-plx is properly installed and linked.');
+    throw new BLEError('BLE not available - native module missing. Please ensure react-native-ble-plx is properly installed and linked.');
   }
 
   async stopAdvertising(): Promise<void> {
@@ -66,7 +66,7 @@ export class BLEFallback {
 
   async checkAdvertisingSupport(): Promise<{
     supported: boolean;
-    details: any;
+    details: unknown;
     missingRequirements: string[];
   }> {
     return {

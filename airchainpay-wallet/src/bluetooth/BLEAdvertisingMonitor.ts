@@ -65,7 +65,7 @@ export class BLEAdvertisingMonitor {
   private performanceMetrics: Map<string, PerformanceMetrics> = new Map();
   private errorMetrics: Map<string, ErrorMetrics[]> = new Map();
   private usageAnalytics: Map<string, UsageAnalytics> = new Map();
-  private eventHistory: Array<{ type: string; data: any; timestamp: number }> = [];
+  private eventHistory: { type: string; data: unknown; timestamp: number }[] = [];
   private config: MonitoringConfig;
 
   private constructor() {
@@ -177,7 +177,7 @@ export class BLEAdvertisingMonitor {
   /**
    * Record error metrics
    */
-  recordErrorMetrics(sessionId: string, error: Error, context: any): void {
+  recordErrorMetrics(sessionId: string, error: Error, context: unknown): void {
     if (!this.config.enableErrorTracking) {
       return;
     }
@@ -192,9 +192,9 @@ export class BLEAdvertisingMonitor {
         model: 'unknown'
       },
       context: {
-        advertisingState: context.advertisingState || 'unknown',
-        bluetoothState: context.bluetoothState || 'unknown',
-        permissions: context.permissions || []
+        advertisingState: (context as any).advertisingState || 'unknown',
+        bluetoothState: (context as any).bluetoothState || 'unknown',
+        permissions: (context as any).permissions || []
       }
     };
 
@@ -223,7 +223,7 @@ export class BLEAdvertisingMonitor {
   /**
    * Record event for analytics
    */
-  private recordEvent(type: string, data: any): void {
+  private recordEvent(type: string, data: unknown): void {
     if (Math.random() * 100 > this.config.samplingRate) {
       return; // Skip based on sampling rate
     }
@@ -270,7 +270,7 @@ export class BLEAdvertisingMonitor {
     analytics: UsageAnalytics | undefined;
     eventCount: number;
   } {
-    const events = this.eventHistory.filter(e => e.data.sessionId === sessionId);
+    const events = this.eventHistory.filter(e => (e.data as any).sessionId === sessionId);
     
     return {
       performance: this.getPerformanceMetrics(sessionId),
@@ -293,8 +293,7 @@ export class BLEAdvertisingMonitor {
   } {
     const sessions = Array.from(this.usageAnalytics.values());
     const errors = Array.from(this.errorMetrics.values()).flat();
-    const performances = Array.from(this.performanceMetrics.values());
-
+    
     const totalSessions = sessions.length;
     const totalErrors = errors.length;
     const averageSessionDuration = sessions.length > 0 
@@ -324,7 +323,7 @@ export class BLEAdvertisingMonitor {
     performanceMetrics: Map<string, PerformanceMetrics>;
     errorMetrics: Map<string, ErrorMetrics[]>;
     usageAnalytics: Map<string, UsageAnalytics>;
-    eventHistory: Array<{ type: string; data: any; timestamp: number }>;
+    eventHistory: { type: string; data: unknown; timestamp: number }[];
     statistics: {
       totalSessions: number;
       totalErrors: number;

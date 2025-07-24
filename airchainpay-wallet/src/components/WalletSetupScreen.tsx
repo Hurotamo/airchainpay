@@ -20,6 +20,7 @@ import { Colors, getChainColor, getChainGradient } from '../../constants/Colors'
 import { useThemeContext } from '../../hooks/useThemeContext';
 import { useSelectedChain } from '../components/ChainSelector';
 import { WalletBackupScreen } from './WalletBackupScreen';
+import { WalletError, BLEError, TransactionError } from '../utils/ErrorClasses';
 
 interface WalletSetupScreenProps {
   onWalletCreated?: () => void;
@@ -62,17 +63,21 @@ export default function WalletSetupScreen({
       setBackupSeedPhrase(seedPhrase);
       setShowBackupModal(true);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      let errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       const errorDetails = error instanceof Error ? {
         name: error.name,
         message: error.message,
         stack: error.stack
       } : { message: String(error) };
-      
       console.error('[WalletSetup] Failed to create wallet:', errorMessage);
       logger.error('Failed to create wallet:', errorMessage, errorDetails);
-      
-      if (errorMessage.includes('not supported')) {
+      if (error instanceof WalletError) {
+        Alert.alert('Wallet Error', error.message);
+      } else if (error instanceof BLEError) {
+        Alert.alert('Bluetooth Error', error.message);
+      } else if (error instanceof TransactionError) {
+        Alert.alert('Transaction Error', error.message);
+      } else if (errorMessage.includes('not supported')) {
         Alert.alert('Create Wallet Error', 'Selected network is not supported. Please choose a different network.');
       } else if (errorMessage.includes('RPC URL')) {
         Alert.alert('Create Wallet Error', 'Network RPC URL is not configured. Please check your app settings or network configuration.');
@@ -130,25 +135,30 @@ export default function WalletSetupScreen({
         ]
       );
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      let errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       const errorDetails = error instanceof Error ? {
         name: error.name,
         message: error.message,
         stack: error.stack
       } : { message: String(error) };
-      
       console.error('[WalletSetup] Failed to set password or confirm backup:', errorMessage);
       logger.error('Failed to set password or confirm backup:', errorMessage, errorDetails);
-      
-      // Provide more specific error messages
-      let userFriendlyMessage = errorMessage;
-      if (errorMessage.includes('No seed phrase found in temporary storage')) {
-        userFriendlyMessage = 'Wallet setup incomplete. Please try creating the wallet again.';
-      } else if (errorMessage.includes('Failed to set item')) {
-        userFriendlyMessage = 'Failed to save wallet data. Please check your device storage and try again.';
+      if (error instanceof WalletError) {
+        Alert.alert('Wallet Error', error.message);
+      } else if (error instanceof BLEError) {
+        Alert.alert('Bluetooth Error', error.message);
+      } else if (error instanceof TransactionError) {
+        Alert.alert('Transaction Error', error.message);
+      } else {
+        // Provide more specific error messages
+        let userFriendlyMessage = errorMessage;
+        if (errorMessage.includes('No seed phrase found in temporary storage')) {
+          userFriendlyMessage = 'Wallet setup incomplete. Please try creating the wallet again.';
+        } else if (errorMessage.includes('Failed to set item')) {
+          userFriendlyMessage = 'Failed to save wallet data. Please check your device storage and try again.';
+        }
+        Alert.alert('Setup Error', userFriendlyMessage);
       }
-      
-      Alert.alert('Setup Error', userFriendlyMessage);
     }
   };
 
@@ -227,24 +237,29 @@ export default function WalletSetupScreen({
       setBackupSeedPhrase('');
       setShowBackupModal(true);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      let errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       const errorDetails = error instanceof Error ? {
         name: error.name,
         message: error.message,
         stack: error.stack
       } : { message: String(error) };
-      
       logger.error('Failed to import seed phrase:', errorMessage, errorDetails);
-      
-      // Provide more specific error messages
-      let userFriendlyMessage = errorMessage;
-      if (errorMessage.includes('does not match the existing')) {
-        userFriendlyMessage = 'The seed phrase conflicts with an existing wallet. Please clear the wallet first or use a different seed phrase.';
-      } else if (errorMessage.includes('Invalid mnemonic')) {
-        userFriendlyMessage = 'Invalid seed phrase. Please check the 12 or 24 words and try again.';
+      if (error instanceof WalletError) {
+        Alert.alert('Wallet Error', error.message);
+      } else if (error instanceof BLEError) {
+        Alert.alert('Bluetooth Error', error.message);
+      } else if (error instanceof TransactionError) {
+        Alert.alert('Transaction Error', error.message);
+      } else {
+        // Provide more specific error messages
+        let userFriendlyMessage = errorMessage;
+        if (errorMessage.includes('does not match the existing')) {
+          userFriendlyMessage = 'The seed phrase conflicts with an existing wallet. Please clear the wallet first or use a different seed phrase.';
+        } else if (errorMessage.includes('Invalid mnemonic')) {
+          userFriendlyMessage = 'Invalid seed phrase. Please check the 12 or 24 words and try again.';
+        }
+        Alert.alert('Import Error', userFriendlyMessage);
       }
-      
-      Alert.alert('Import Error', userFriendlyMessage);
     } finally {
       setLoading(false);
     }
@@ -295,24 +310,29 @@ export default function WalletSetupScreen({
       setBackupSeedPhrase('');
       setShowBackupModal(true);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      let errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       const errorDetails = error instanceof Error ? {
         name: error.name,
         message: error.message,
         stack: error.stack
       } : { message: String(error) };
-      
       logger.error('Failed to import private key:', errorMessage, errorDetails);
-      
-      // Provide more specific error messages
-      let userFriendlyMessage = errorMessage;
-      if (errorMessage.includes('does not match the existing')) {
-        userFriendlyMessage = 'The private key conflicts with an existing wallet. Please clear the wallet first or use a different private key.';
-      } else if (errorMessage.includes('invalid private key')) {
-        userFriendlyMessage = 'Invalid private key. Please check the format and try again.';
+      if (error instanceof WalletError) {
+        Alert.alert('Wallet Error', error.message);
+      } else if (error instanceof BLEError) {
+        Alert.alert('Bluetooth Error', error.message);
+      } else if (error instanceof TransactionError) {
+        Alert.alert('Transaction Error', error.message);
+      } else {
+        // Provide more specific error messages
+        let userFriendlyMessage = errorMessage;
+        if (errorMessage.includes('does not match the existing')) {
+          userFriendlyMessage = 'The private key conflicts with an existing wallet. Please clear the wallet first or use a different private key.';
+        } else if (errorMessage.includes('invalid private key')) {
+          userFriendlyMessage = 'Invalid private key. Please check the format and try again.';
+        }
+        Alert.alert('Import Error', userFriendlyMessage);
       }
-      
-      Alert.alert('Import Error', userFriendlyMessage);
     } finally {
       setLoading(false);
     }

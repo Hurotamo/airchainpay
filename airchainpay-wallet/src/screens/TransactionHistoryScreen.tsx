@@ -20,38 +20,16 @@ import { TokenWalletManager } from '../wallet/TokenWalletManager';
 import { logger } from '../utils/Logger';
 import { SUPPORTED_CHAINS, DEFAULT_CHAIN_ID } from '../constants/AppConfig';
 import { getChainColor } from '../../constants/Colors';
+import { Transaction } from '../types/transaction';
 
 // Import themed components
 import { ThemedView } from '../../components/ThemedView';
-import { ThemedText } from '../../components/ThemedText';
 import { useThemeColor } from '../../hooks/useThemeColor';
-
-interface Transaction {
-  id: string;
-  hash: string;
-  type: 'send' | 'receive';
-  amount: string;
-  token: string;
-  status: 'pending' | 'confirmed' | 'failed';
-  timestamp: string;
-  chainId: string;
-  to: string;
-  from: string;
-  transport?: 'qr' | 'ble' | 'onchain' | 'unknown';
-  metadata?: {
-    token?: any;
-    paymentReference?: string;
-    merchant?: string;
-    location?: string;
-    [key: string]: any;
-  };
-}
 
 export default function TransactionHistoryScreen() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [selectedChain, setSelectedChain] = useState(DEFAULT_CHAIN_ID);
   
   const textColor = useThemeColor({ light: '#000', dark: '#fff' }, 'text');
@@ -70,7 +48,7 @@ export default function TransactionHistoryScreen() {
     try {
       const walletInfo = await MultiChainWalletManager.getInstance().getWalletInfo(selectedChain);
       const address = walletInfo.address;
-      setWalletAddress(address);
+      // setWalletAddress(address); // This line was removed as per the edit hint
     } catch (error) {
       logger.error('Failed to load wallet in history screen:', error);
     }
@@ -87,10 +65,10 @@ export default function TransactionHistoryScreen() {
       const address = (await MultiChainWalletManager.getInstance().getWalletInfo(selectedChain)).address;
       
       // For now, only use queued transactions since getTokenTransactionHistory doesn't exist
-      const tokenTxs: any[] = [];
+      const tokenTxs: Transaction[] = [];
 
       // Convert queued transactions to common format
-      const formattedQueuedTxs: Transaction[] = queuedTxs.map((tx: any) => {
+      const formattedQueuedTxs: Transaction[] = queuedTxs.map((tx: TxRow) => {
         try {
           // Handle new transaction format with transport and metadata
           const transport = tx.transport || 'unknown';
@@ -117,12 +95,12 @@ export default function TransactionHistoryScreen() {
       }).filter(tx => tx !== null) as Transaction[];
 
       // Convert token transactions to common format
-      const formattedTokenTxs: Transaction[] = tokenTxs.map((tx: any) => ({
+      const formattedTokenTxs: Transaction[] = tokenTxs.map((tx: Transaction) => ({
         id: tx.hash,
         hash: tx.hash,
         type: tx.from.toLowerCase() === address.toLowerCase() ? 'send' : 'receive',
         amount: tx.amount,
-        token: tx.token.symbol,
+        token: tx.token,
         status: tx.status,
         timestamp: new Date(tx.timestamp).toISOString(),
         chainId: tx.chainId,

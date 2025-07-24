@@ -15,7 +15,6 @@ import { MultiChainWalletManager } from '../wallet/MultiChainWalletManager';
 import { SUPPORTED_CHAINS } from '../constants/AppConfig';
 import { getTokenLogo } from '../constants/logos';
 import { useThemeColor } from '../../hooks/useThemeColor';
-import { LinearGradient } from 'expo-linear-gradient';
 
 // Correct token addresses for each network
 const TOKEN_ADDRESSES = {

@@ -10,8 +10,12 @@ export class TxQueue {
       if (!queueStr) return [];
       const queue = JSON.parse(queueStr);
       return queue.filter((tx: Transaction) => tx.status === 'pending');
-    } catch (error) {
-      console.error('Error getting pending transactions:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error('Error getting pending transactions:', error);
+      } else {
+        console.error('Error getting pending transactions:', error);
+      }
       return [];
     }
   }
@@ -22,8 +26,12 @@ export class TxQueue {
       const queue = queueStr ? JSON.parse(queueStr) : [];
       queue.push(tx);
       await AsyncStorage.setItem(TX_QUEUE_KEY, JSON.stringify(queue));
-    } catch (error) {
-      console.error('Error adding transaction to queue:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error('Error adding transaction to queue:', error);
+      } else {
+        console.error('Error adding transaction to queue:', error);
+      }
     }
   }
 
@@ -36,16 +44,24 @@ export class TxQueue {
       if (index === -1) return;
       queue[index] = { ...queue[index], ...updates };
       await AsyncStorage.setItem(TX_QUEUE_KEY, JSON.stringify(queue));
-    } catch (error) {
-      console.error('Error updating transaction:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error('Error updating transaction:', error);
+      } else {
+        console.error('Error updating transaction:', error);
+      }
     }
   }
 
   static async clearQueue(): Promise<void> {
     try {
       await AsyncStorage.setItem(TX_QUEUE_KEY, JSON.stringify([]));
-    } catch (error) {
-      console.error('Error clearing transaction queue:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error('Error clearing transaction queue:', error);
+      } else {
+        console.error('Error clearing transaction queue:', error);
+      }
     }
   }
 
@@ -55,8 +71,12 @@ export class TxQueue {
       if (!queueStr) return [];
       const queue = JSON.parse(queueStr);
       return queue.filter((tx: Transaction) => tx.status === 'queued');
-    } catch (error) {
-      console.error('Error getting queued transactions:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error('Error getting queued transactions:', error);
+      } else {
+        console.error('Error getting queued transactions:', error);
+      }
       return [];
     }
   }
@@ -68,8 +88,12 @@ export class TxQueue {
       let queue = JSON.parse(queueStr);
       queue = queue.filter((tx: Transaction) => tx.id !== txId);
       await AsyncStorage.setItem(TX_QUEUE_KEY, JSON.stringify(queue));
-    } catch (error) {
-      console.error('Error removing transaction from queue:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error('Error removing transaction from queue:', error);
+      } else {
+        console.error('Error removing transaction from queue:', error);
+      }
     }
   }
 }
@@ -81,8 +105,12 @@ export async function getAllTransactions(): Promise<Transaction[]> {
     const queueStr = await AsyncStorage.getItem(TX_QUEUE_KEY);
     if (!queueStr) return [];
     return JSON.parse(queueStr);
-  } catch (error) {
-    console.error('Error getting all transactions:', error);
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      console.error('Error getting all transactions:', error);
+    } else {
+      console.error('Error getting all transactions:', error);
+    }
     return [];
   }
 } 

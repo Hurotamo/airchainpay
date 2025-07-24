@@ -7,10 +7,12 @@ import { MultiChainWalletManager } from '../../wallet/MultiChainWalletManager';
 import { ethers } from 'ethers';
 import { TokenInfo } from '../../wallet/TokenWalletManager';
 import { QRCodeSigner, SignedQRPayload } from '../../utils/crypto/QRCodeSigner';
+import { WalletError, TransactionError } from '../../utils/ErrorClasses';
+import { PaymentRequest, PaymentResult } from '../PaymentService';
 // See global type declaration for 'qrcode' in qrcode.d.ts
 
 export class QRTransport implements IPaymentTransport {
-  async send(txData: any): Promise<any> {
+  async send(txData: PaymentRequest): Promise<PaymentResult> {
     try {
       logger.info('[QRTransport] Processing QR payment', txData);
       
@@ -21,7 +23,7 @@ export class QRTransport implements IPaymentTransport {
       } = txData;
       
       if (!to || !amount || !chainId) {
-        throw new Error('Missing required payment fields: to, amount, chainId');
+        throw new WalletError('Missing required payment fields: to, amount, chainId');
       }
 
       // Check if we're offline by attempting to connect to the network
@@ -80,7 +82,7 @@ export class QRTransport implements IPaymentTransport {
   /**
    * Enhanced offline transaction queueing with comprehensive security checks
    */
-  private async queueOfflineTransactionWithSecurity(txData: any): Promise<any> {
+  private async queueOfflineTransactionWithSecurity(txData: PaymentRequest): Promise<PaymentResult> {
     try {
       logger.info('[QRTransport] Performing security checks for offline transaction');
 
@@ -156,7 +158,7 @@ export class QRTransport implements IPaymentTransport {
   /**
    * Validate balance before allowing offline transaction
    */
-  private async validateOfflineBalance(txData: any): Promise<void> {
+  private async validateOfflineBalance(txData: PaymentRequest): Promise<void> {
     try {
       const { to, amount, chainId, token } = txData;
       const walletManager = MultiChainWalletManager.getInstance();
@@ -204,7 +206,7 @@ export class QRTransport implements IPaymentTransport {
       });
 
       if (availableBalance < BigInt(requiredAmount)) {
-        throw new Error(`Insufficient available balance. Required: ${ethers.formatEther(requiredAmount)}, Available: ${ethers.formatEther(availableBalance)}`);
+        throw new TransactionError(`Insufficient available balance. Required: ${ethers.formatEther(requiredAmount)}, Available: ${ethers.formatEther(availableBalance)}`);
       }
 
       logger.info('[QRTransport] Balance validation passed');
@@ -217,7 +219,7 @@ export class QRTransport implements IPaymentTransport {
   /**
    * Check for duplicate transactions
    */
-  private async checkForDuplicateTransaction(txData: any): Promise<void> {
+  private async checkForDuplicateTransaction(txData: PaymentRequest): Promise<void> {
     try {
       const { to, amount, chainId } = txData;
       const pendingTxs = await TxQueue.getPendingTransactions();
@@ -275,7 +277,7 @@ export class QRTransport implements IPaymentTransport {
 
       // Ensure offline nonce is not ahead of current nonce
       if (offlineNonce >= currentNonce) {
-        throw new Error('Invalid nonce for offline transaction. Please sync with network first.');
+        throw new TransactionError('Invalid nonce for offline transaction. Please sync with network first.');
       }
 
       // Update offline nonce
@@ -390,7 +392,7 @@ export class QRTransport implements IPaymentTransport {
   /**
    * Update offline balance tracking
    */
-  private async updateOfflineBalanceTracking(txData: any): Promise<void> {
+  private async updateOfflineBalanceTracking(txData: PaymentRequest): Promise<void> {
     try {
       const { amount, chainId, token } = txData;
       const AsyncStorage = require('@react-native-async-storage/async-storage').default;

@@ -2,19 +2,25 @@ export interface Transaction {
   id: string;
   to: string;
   amount: string;
-  status: 'pending' | 'completed' | 'failed' | 'queued';
+  status: string;
+  chainId: string;
   timestamp: number;
-  chainId?: string;
-  hash?: string;
-  error?: string;
-  // Offline support properties
   signedTx?: string;
-  transport?: 'qr' | 'ble' | 'secure_ble' | 'onchain' | 'manual' | 'relay';
+  transport?: string;
+  token?: {
+    address: string;
+    symbol: string;
+    decimals: number;
+    isNative: boolean;
+  };
+  paymentReference?: string;
   metadata?: {
-    token?: any;
-    paymentReference?: string;
     merchant?: string;
     location?: string;
-    [key: string]: any;
+    maxAmount?: string;
+    minAmount?: string;
+    timestamp?: number;
+    expiry?: number;
   };
+  [key: string]: unknown;
 } 

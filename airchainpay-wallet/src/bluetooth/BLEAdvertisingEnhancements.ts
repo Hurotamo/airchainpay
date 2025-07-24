@@ -28,6 +28,13 @@ export interface AdvertisingMetrics {
   restartCount: number;
 }
 
+interface Advertiser {
+  start: () => void;
+  stop: () => void;
+  isAdvertising: boolean;
+  [key: string]: unknown;
+}
+
 export class BLEAdvertisingEnhancements {
   private static instance: BLEAdvertisingEnhancements | null = null;
   private metrics: Map<string, AdvertisingMetrics> = new Map();
@@ -101,7 +108,7 @@ export class BLEAdvertisingEnhancements {
    * Start advertising with enhanced error handling and metrics
    */
   async startAdvertisingWithEnhancements(
-    advertiser: any,
+    advertiser: Advertiser,
     config: AdvertisingConfig,
     sessionId: string
   ): Promise<{ success: boolean; error?: string }> {
@@ -124,16 +131,7 @@ export class BLEAdvertisingEnhancements {
       }
 
       // Start advertising using tp-rn-ble-advertiser
-      const advertisingMessage = JSON.stringify({
-        name: config.deviceName,
-        serviceUUID: config.serviceUUID,
-        type: 'AirChainPay',
-        version: '1.0.0',
-        capabilities: ['payment', 'secure_ble'],
-        timestamp: Date.now()
-      });
-      
-      await advertiser.startBroadcast(advertisingMessage);
+      await advertiser.start();
 
       this.recordMetrics(sessionId, startTime, true);
       logger.info('[BLE] Enhanced advertising started successfully', { sessionId, config });
@@ -153,11 +151,11 @@ export class BLEAdvertisingEnhancements {
    * Stop advertising with cleanup
    */
   async stopAdvertisingWithEnhancements(
-    advertiser: any,
+    advertiser: Advertiser,
     sessionId: string
   ): Promise<{ success: boolean; error?: string }> {
     try {
-      await advertiser.stopBroadcast();
+      await advertiser.stop();
       
       // Update metrics
       const metrics = this.metrics.get(sessionId);
@@ -183,7 +181,7 @@ export class BLEAdvertisingEnhancements {
    * Auto-restart advertising if it fails
    */
   async restartAdvertisingIfNeeded(
-    advertiser: any,
+    advertiser: Advertiser,
     config: AdvertisingConfig,
     sessionId: string
   ): Promise<boolean> {

@@ -7,7 +7,7 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
-  Modal,
+  
   TextInput,
   KeyboardAvoidingView,
   Platform,
@@ -17,7 +17,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, getBlueBlackGradient } from '../../constants/Colors';
 import { useThemeContext } from '../../hooks/useThemeContext';
 import { AnimatedCard, AnimatedButton } from '../../components/AnimatedComponents';
-import { MultiChainWalletManager } from '../wallet/MultiChainWalletManager';
 import { PasswordMigration } from '../utils/crypto/PasswordMigration';
 
 interface WalletBackupScreenProps {
@@ -87,28 +86,6 @@ export const WalletBackupScreen: React.FC<WalletBackupScreenProps> = ({
       } else {
         await onBackupConfirmed();
       }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      Alert.alert('Error', errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleConfirmBackup = async () => {
-    if (!backupConfirmed) {
-      Alert.alert(
-        'Backup Required',
-        'Please confirm that you have safely stored your seed phrase before continuing.'
-      );
-      return;
-    }
-
-    setLoading(true);
-    try {
-      // Set backup confirmation in wallet manager
-      await MultiChainWalletManager.getInstance().setBackupConfirmed();
-      await onBackupConfirmed();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       Alert.alert('Error', errorMessage);

@@ -363,11 +363,9 @@ export class BLESecurity {
    */
   private async generateSharedSecret(publicKey: string): Promise<string> {
     try {
-      const otherWallet = new ethers.Wallet(publicKey);
-      const sharedSecret = ethers.computeSharedSecret(
-        this.deviceKeyPair!.privateKey,
-        otherWallet.publicKey
-      );
+      // Use ethers.Wallet.signingKey.computeSharedSecret for ECDH
+      const myWallet = new ethers.Wallet(this.deviceKeyPair!.privateKey);
+      const sharedSecret = myWallet.signingKey.computeSharedSecret(publicKey);
       return sharedSecret;
     } catch (error) {
       logger.error('[BLESecurity] Failed to generate shared secret:', error);

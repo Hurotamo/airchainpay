@@ -8,18 +8,16 @@ import {
   Image,
   ActivityIndicator,
   Modal,
-  FlatList,
+  StyleProp,
+  ViewStyle,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, ChainColors, getChainColor, getChainGradient } from '../../constants/Colors';
 import { useThemeContext } from '../../hooks/useThemeContext';
 import { SUPPORTED_CHAINS } from '../constants/AppConfig';
-import { CONTRACT_ADDRESSES, DEPLOYMENT_INFO } from '../constants/contract';
-import { getTokenLogo, getNetworkLogo, getLogoUri } from '../constants/logos';
+import { getTokenLogo, getLogoUri } from '../constants/logos';
 import { TokenInfo } from '../types/token';
-import { ThemedText } from './ThemedText';
-import { ThemedView } from './ThemedView';
 import { useThemeColor } from '../hooks/useThemeContext';
 import { MultiChainWalletManager } from '../wallet/MultiChainWalletManager';
 import { TokenWalletManager } from '../wallet/TokenWalletManager';
@@ -42,7 +40,7 @@ interface TokenSelectorProps {
   onTokenSelect: (token: TokenInfo) => void;
   onChainChange?: (chainId: string) => void;
   showBalance?: boolean;
-  style?: any;
+  style?: StyleProp<ViewStyle>;
 }
 
 export const TokenSelector: React.FC<TokenSelectorProps> = ({

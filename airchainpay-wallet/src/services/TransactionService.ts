@@ -5,6 +5,7 @@ import { TxQueue } from './TxQueue';
 import { MultiChainWalletManager } from '../wallet/MultiChainWalletManager';
 import { Transaction } from '../types/transaction';
 import { GasPriceValidator } from '../utils/GasPriceValidator';
+import { WalletError, TransactionError } from '../utils/ErrorClasses';
 
 interface TransactionOptions {
   maxRetries?: number;
@@ -51,7 +52,7 @@ export class TransactionService {
     if (!this.providers[chainId]) {
       const chain = SUPPORTED_CHAINS[chainId as keyof typeof SUPPORTED_CHAINS];
       if (!chain) {
-        throw new Error(`Unsupported chain: ${chainId}`);
+        throw new WalletError(`Unsupported chain: ${chainId}`);
       }
       this.providers[chainId] = new ethers.JsonRpcProvider(chain.rpcUrl);
     }
@@ -95,7 +96,6 @@ export class TransactionService {
       maxRetries = TRANSACTION_CONFIG.maxRetries,
       retryDelay = TRANSACTION_CONFIG.retryDelay,
       timeout = TRANSACTION_CONFIG.timeout,
-      maxGasPrice = TRANSACTION_CONFIG.maxGasPrice[chainId as keyof typeof TRANSACTION_CONFIG.maxGasPrice]
     } = options;
 
     let lastError: Error | null = null;
@@ -132,13 +132,13 @@ export class TransactionService {
         // Comprehensive gas price validation
         const gasPriceValidation = GasPriceValidator.validateGasPrice(gasPrice, chainId);
         if (!gasPriceValidation.isValid) {
-          throw new Error(`Gas price validation failed: ${gasPriceValidation.error}`);
+          throw new TransactionError(`Gas price validation failed: ${gasPriceValidation.error}`);
         }
 
         // Check if gas price is reasonable for current network conditions
         const reasonablenessCheck = await GasPriceValidator.isGasPriceReasonable(gasPrice, chainId);
         if (!reasonablenessCheck.isReasonable && reasonablenessCheck.reasonableness === 'very_high') {
-          throw new Error(`Gas price is unreasonably high: ${reasonablenessCheck.proposedGwei.toFixed(2)} gwei (${reasonablenessCheck.ratio.toFixed(2)}x above current)`);
+          throw new TransactionError(`Gas price is unreasonably high: ${reasonablenessCheck.proposedGwei.toFixed(2)} gwei (${reasonablenessCheck.ratio.toFixed(2)}x above current)`);
         }
 
         // Log warning for high gas prices
@@ -162,7 +162,7 @@ export class TransactionService {
         // Validate gas limit
         const gasLimitValidation = GasPriceValidator.validateGasLimit(BigInt(gasLimit), transactionType);
         if (!gasLimitValidation.isValid) {
-          throw new Error(`Gas limit validation failed: ${gasLimitValidation.error}`);
+          throw new TransactionError(`Gas limit validation failed: ${gasLimitValidation.error}`);
         }
 
         // Log gas limit efficiency
@@ -190,7 +190,7 @@ export class TransactionService {
         const receipt = await Promise.race([
           tx.wait(),
           new Promise<never>((_, reject) => 
-            setTimeout(() => reject(new Error('Transaction confirmation timeout')), timeout)
+            setTimeout(() => reject(new TransactionError('Transaction confirmation timeout')), timeout)
           )
         ]);
 
@@ -199,19 +199,21 @@ export class TransactionService {
           status: 'confirmed',
           receipt
         };
-      } catch (error) {
-        lastError = error as Error;
-        logger.error(`Transaction attempt ${attempt} failed:`, error);
+      } catch (error: unknown) {
+        if (error instanceof Error) {
+          lastError = error;
+          logger.error(`Transaction attempt ${attempt} failed:`, error);
 
-        // Check if we should retry
-        if (this.shouldRetry(error as Error)) {
-          if (attempt < maxRetries) {
-            await new Promise(resolve => setTimeout(resolve, retryDelay * attempt));
-            continue;
+          // Check if we should retry
+          if (this.shouldRetry(error)) {
+            if (attempt < maxRetries) {
+              await new Promise(resolve => setTimeout(resolve, retryDelay * attempt));
+              continue;
+            }
+          } else {
+            // Don't retry if error is not retryable
+            break;
           }
-        } else {
-          // Don't retry if error is not retryable
-          break;
         }
       }
     }
@@ -266,8 +268,10 @@ export class TransactionService {
           error: result.error,
           hash: result.hash
         });
-      } catch (error) {
-        logger.error(`Failed to process queued transaction ${tx.id}:`, error);
+      } catch (error: unknown) {
+        if (error instanceof Error) {
+          logger.error(`Failed to process queued transaction ${tx.id}:`, error);
+        }
       }
     }
   }

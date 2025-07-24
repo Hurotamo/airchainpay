@@ -2,6 +2,8 @@
 import { TokenInfo } from '../wallet/TokenWalletManager';
 import { logger } from './Logger';
 import { PayloadCompressor } from './PayloadCompressor';
+import { Transaction } from '../types/transaction';
+import { PaymentRequest } from '../services/PaymentService';
 
 export interface TransactionPayload {
   to: string;
@@ -15,7 +17,7 @@ export interface TransactionPayload {
 export class TransactionBuilder {
   private static compressor = PayloadCompressor.getInstance();
 
-  static build({ to, amount, chainId, token, paymentReference, metadata }: TransactionPayload): any {
+  static build({ to, amount, chainId, token, paymentReference, metadata }: TransactionPayload): Transaction {
     // Standardize the transaction object
     return {
       to,
@@ -31,7 +33,7 @@ export class TransactionBuilder {
   /**
    * Serialize transaction with compression (protobuf + CBOR)
    */
-  static async serializeCompressed(tx: any): Promise<Buffer> {
+  static async serializeCompressed(tx: Transaction): Promise<Buffer> {
     try {
       const compressed = await this.compressor.compressTransactionPayload(tx);
       logger.info('[TransactionBuilder] Transaction serialized with compression', {
@@ -49,7 +51,7 @@ export class TransactionBuilder {
   /**
    * Deserialize compressed transaction
    */
-  static async deserializeCompressed(compressedData: Buffer): Promise<any> {
+  static async deserializeCompressed(compressedData: Buffer): Promise<Transaction> {
     try {
       const result = await this.compressor.decompressTransactionPayload(compressedData);
       if (result.success) {
@@ -68,7 +70,7 @@ export class TransactionBuilder {
   /**
    * Legacy JSON serialization (fallback)
    */
-  static serialize(tx: any): string {
+  static serialize(tx: Transaction): string {
     // Convert transaction object to string (for BLE/QR)
     return JSON.stringify(tx);
   }
@@ -76,7 +78,7 @@ export class TransactionBuilder {
   /**
    * Legacy JSON deserialization (fallback)
    */
-  static deserialize(txString: string): any {
+  static deserialize(txString: string): Transaction {
     // Parse transaction string back to object
     try {
       return JSON.parse(txString);
@@ -88,7 +90,7 @@ export class TransactionBuilder {
   /**
    * Serialize BLE payment data with compression
    */
-  static async serializeBLEPayment(paymentData: any): Promise<Buffer> {
+  static async serializeBLEPayment(paymentData: PaymentRequest): Promise<Buffer> {
     try {
       const compressed = await this.compressor.compressBLEPaymentData(paymentData);
       logger.info('[TransactionBuilder] BLE payment serialized with compression', {
@@ -106,7 +108,7 @@ export class TransactionBuilder {
   /**
    * Deserialize BLE payment data
    */
-  static async deserializeBLEPayment(compressedData: Buffer): Promise<any> {
+  static async deserializeBLEPayment(compressedData: Buffer): Promise<PaymentRequest> {
     try {
       const result = await this.compressor.decompressBLEPaymentData(compressedData);
       if (result.success) {
@@ -125,7 +127,7 @@ export class TransactionBuilder {
   /**
    * Serialize QR payment request with compression
    */
-  static async serializeQRPayment(qrData: any): Promise<Buffer> {
+  static async serializeQRPayment(qrData: PaymentRequest): Promise<Buffer> {
     try {
       const compressed = await this.compressor.compressQRPaymentRequest(qrData);
       logger.info('[TransactionBuilder] QR payment serialized with compression', {
@@ -143,7 +145,7 @@ export class TransactionBuilder {
   /**
    * Deserialize QR payment request
    */
-  static async deserializeQRPayment(compressedData: Buffer): Promise<any> {
+  static async deserializeQRPayment(compressedData: Buffer): Promise<PaymentRequest> {
     try {
       const result = await this.compressor.decompressQRPaymentRequest(compressedData);
       if (result.success) {

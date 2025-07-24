@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, TouchableOpacity, Modal, FlatList, StyleSheet, Animated, Easing, Image } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, FlatList, StyleSheet, Animated, Easing, Image, StyleProp, ViewStyle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { SUPPORTED_CHAINS, ChainConfig, STORAGE_KEYS, DEFAULT_CHAIN_ID } from '../constants/AppConfig';
+import { SUPPORTED_CHAINS, ChainConfig, STORAGE_KEYS } from '../constants/AppConfig';
 import { secureStorage } from '../utils/SecureStorageService';
 import { logger } from '../utils/Logger';
 import { Colors, getChainColor, getChainGradient } from '../../constants/Colors';
@@ -12,7 +12,7 @@ import { getNetworkLogo, getLogoUri } from '../constants/logos';
 interface ChainSelectorProps {
   selectedChain: string;
   onChainChange: (chainId: string) => void;
-  style?: any;
+  style?: StyleProp<ViewStyle>;
 }
 
 export const ChainSelector: React.FC<ChainSelectorProps> = ({
@@ -99,7 +99,6 @@ export const ChainSelector: React.FC<ChainSelectorProps> = ({
   const renderChainItem = ({ item, index }: { item: ChainConfig; index: number }) => {
     const isSelected = selectedChain === item.id;
     const chainColor = getChainColor(item.id);
-    const chainGradient = getChainGradient(item.id);
     const logoUri = getLogoUri(getNetworkLogo(item.id));
     
     return (

@@ -1,9 +1,8 @@
-import { Platform, PermissionsAndroid, Alert } from 'react-native';
-import { BleManager, Device, State, Characteristic, Service } from 'react-native-ble-plx';
+import { Platform, PermissionsAndroid, NativeModules } from 'react-native';
+import { BleManager, Device, State, Service } from 'react-native-ble-plx';
 import ReactNativeBleAdvertiser from 'tp-rn-ble-advertiser';
 import { logger } from '../utils/Logger';
-import { openAppSettings } from '../utils/PermissionsHelper';
-import { BLEAdvertisingEnhancements, AdvertisingConfig } from './BLEAdvertisingEnhancements';
+import { BLEAdvertisingEnhancements } from './BLEAdvertisingEnhancements';
 import { BLEAdvertisingSecurity, SecurityConfig } from './BLEAdvertisingSecurity';
 import { BLEAdvertisingMonitor } from './BLEAdvertisingMonitor';
 
@@ -55,7 +54,6 @@ export class BluetoothManager {
   private advertisingSubscription: any = null;
   private advertisingHealthCheckInterval: any = null;
   
-  // Enhanced BLE advertising components
   private advertisingEnhancements: BLEAdvertisingEnhancements;
   private advertisingSecurity: BLEAdvertisingSecurity;
   private advertisingMonitor: BLEAdvertisingMonitor;
@@ -209,7 +207,7 @@ export class BluetoothManager {
   private tryRequireImportEnhanced(): boolean {
     try {
       console.log('[BLE] 🔧 Strategy 2: Enhanced require import...');
-      const fallbackBleAdvertiser = require('tp-rn-ble-advertiser');
+      const fallbackBleAdvertiser = ReactNativeBleAdvertiser;
       console.log('[BLE] Debug: fallbackBleAdvertiser =', fallbackBleAdvertiser);
       
       if (fallbackBleAdvertiser && typeof fallbackBleAdvertiser === 'object') {
@@ -250,9 +248,6 @@ export class BluetoothManager {
       console.log('[BLE] 🔧 Strategy 3: NativeModules import...');
       
       // Try to access via NativeModules
-      const { NativeModules } = require('react-native');
-      console.log('[BLE] Debug: Available NativeModules =', Object.keys(NativeModules));
-      
       if (NativeModules.ReactNativeBleAdvertiser) {
         const nativeModule = NativeModules.ReactNativeBleAdvertiser;
         console.log('[BLE] Debug: NativeModules.ReactNativeBleAdvertiser =', nativeModule);

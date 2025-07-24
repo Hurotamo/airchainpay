@@ -1,4 +1,3 @@
-import { Platform } from 'react-native';
 import { logger } from '../utils/Logger';
 
 /**
@@ -25,6 +24,13 @@ export interface SecurityMetrics {
   securityErrors: string[];
 }
 
+interface Advertiser {
+  start: () => void;
+  stop: () => void;
+  isAdvertising: boolean;
+  [key: string]: unknown;
+}
+
 export class BLEAdvertisingSecurity {
   private static instance: BLEAdvertisingSecurity | null = null;
   private metrics: Map<string, SecurityMetrics> = new Map();
@@ -47,8 +53,8 @@ export class BLEAdvertisingSecurity {
     deviceName: string,
     serviceUUID: string,
     securityConfig: SecurityConfig
-  ): { config: any; security: SecurityConfig } {
-    const baseConfig: any = {
+  ): { config: Record<string, unknown>; security: SecurityConfig } {
+    const baseConfig: Record<string, unknown> = {
       deviceName,
       serviceUUID,
       manufacturerData: this.encryptManufacturerData(
@@ -173,7 +179,7 @@ export class BLEAdvertisingSecurity {
    * Start secure advertising
    */
   async startSecureAdvertising(
-    advertiser: any,
+    advertiser: Advertiser,
     deviceName: string,
     serviceUUID: string,
     securityConfig: SecurityConfig
@@ -203,7 +209,7 @@ export class BLEAdvertisingSecurity {
         authenticationToken: config.authenticationToken || null
       });
       
-      await advertiser.startBroadcast(secureAdvertisingMessage);
+      await advertiser.start();
 
       // Record successful security metrics
       this.recordSecuritySuccess(sessionId, 'encryption');
@@ -226,11 +232,11 @@ export class BLEAdvertisingSecurity {
    * Stop secure advertising
    */
   async stopSecureAdvertising(
-    advertiser: any,
+    advertiser: Advertiser,
     sessionId: string
   ): Promise<{ success: boolean; error?: string }> {
     try {
-      await advertiser.stopBroadcast();
+      await advertiser.stop();
       
       // Clean up security data
       this.cleanupSecurityData(sessionId);

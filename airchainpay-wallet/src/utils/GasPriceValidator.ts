@@ -53,7 +53,7 @@ export class GasPriceValidator {
   };
 
   // Dynamic gas price tracking
-  private static gasPriceHistory: Map<string, Array<{ timestamp: number; price: bigint }>> = new Map();
+  private static gasPriceHistory: Map<string, { timestamp: number; price: bigint }[]> = new Map();
   private static readonly HISTORY_WINDOW = 10 * 60 * 1000; // 10 minutes
 
   /**

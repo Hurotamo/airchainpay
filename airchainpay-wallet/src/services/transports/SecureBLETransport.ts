@@ -5,7 +5,9 @@ import { BluetoothManager, AIRCHAINPAY_SERVICE_UUID, AIRCHAINPAY_CHARACTERISTIC_
 import { BLESecurity } from '../../utils/crypto/BLESecurity';
 import { MultiChainWalletManager } from '../../wallet/MultiChainWalletManager';
 import { TransactionService } from '../TransactionService';
-import { IPaymentTransport } from './BLETransport';
+import { IPaymentTransport, BLEPaymentRequest } from './BLETransport';
+import { BLEError } from '../../utils/ErrorClasses';
+import { Device } from 'react-native-ble-plx';
 
 export interface SecurePaymentRequest {
   to: string;
@@ -18,7 +20,7 @@ export interface SecurePaymentRequest {
 }
 
 export interface SecurePaymentResult {
-  status: 'sent' | 'failed' | 'key_exchange_required' | 'pending' | 'confirmed' | 'advertising';
+  status: 'sent' | 'failed' | 'pending' | 'confirmed' | 'advertising';
   transport: 'secure_ble';
   sessionId?: string;
   deviceId?: string;
@@ -31,7 +33,7 @@ export interface SecurePaymentResult {
   metadata?: any;
 }
 
-export class SecureBLETransport implements IPaymentTransport {
+export class SecureBLETransport implements IPaymentTransport<BLEPaymentRequest, SecurePaymentResult> {
   private bluetoothManager: BluetoothManager;
   private bleSecurity: BLESecurity;
   private walletManager: MultiChainWalletManager;
@@ -45,7 +47,7 @@ export class SecureBLETransport implements IPaymentTransport {
     this.transactionService = TransactionService.getInstance();
   }
 
-  async send(txData: any): Promise<SecurePaymentResult> {
+  async send(txData: BLEPaymentRequest): Promise<SecurePaymentResult> {
     try {
       logger.info('[SecureBLETransport] Starting enhanced secure BLE payment flow', txData);
       
@@ -93,7 +95,7 @@ export class SecureBLETransport implements IPaymentTransport {
         status: 'confirmed',
         transport: 'secure_ble',
         deviceId: device.id,
-        deviceName: device.name || device.localName,
+        deviceName: device.name || device.localName || undefined,
         sessionId: existingSession,
         transactionHash: transactionResult.transactionHash,
         paymentConfirmed: transactionResult.paymentConfirmed,
@@ -114,7 +116,7 @@ export class SecureBLETransport implements IPaymentTransport {
         status: 'failed',
         transport: 'secure_ble',
         deviceId: txData.device?.id,
-        deviceName: txData.device?.name || txData.device?.localName,
+        deviceName: txData.device?.name || txData.device?.localName || undefined,
         message: error instanceof Error ? error.message : 'Unknown error',
         timestamp: Date.now(),
         metadata: txData
@@ -138,13 +140,13 @@ export class SecureBLETransport implements IPaymentTransport {
   /**
    * Perform key exchange with device
    */
-  private async performKeyExchange(device: any): Promise<SecurePaymentResult> {
+  private async performKeyExchange(device: Device): Promise<SecurePaymentResult> {
     try {
       const deviceId = device.id;
       
       if (this.keyExchangeInProgress.get(deviceId)) {
         return {
-          status: 'key_exchange_required',
+          status: 'pending',
           transport: 'secure_ble',
           message: 'Key exchange already in progress',
           timestamp: Date.now()
@@ -190,7 +192,7 @@ export class SecureBLETransport implements IPaymentTransport {
       }, 30000); // 30 second timeout
 
       return {
-        status: 'key_exchange_required',
+        status: 'pending',
         transport: 'secure_ble',
         sessionId,
         deviceId,
@@ -237,12 +239,12 @@ export class SecureBLETransport implements IPaymentTransport {
    */
   private async checkBLEAvailability(): Promise<void> {
     if (!this.bluetoothManager.isBleAvailable()) {
-      throw new Error('BLE not available on this device');
+      throw new BLEError('BLE not available on this device');
     }
     
     const isBluetoothEnabled = await this.bluetoothManager.isBluetoothEnabled();
     if (!isBluetoothEnabled) {
-      throw new Error('Bluetooth is not enabled');
+      throw new BLEError('Bluetooth is not enabled');
     }
     
     logger.info('[SecureBLETransport] BLE availability check passed');
@@ -251,7 +253,7 @@ export class SecureBLETransport implements IPaymentTransport {
   /**
    * Step 2: Connect to device
    */
-  private async connectToDevice(device: any): Promise<void> {
+  private async connectToDevice(device: Device): Promise<void> {
     const isConnected = this.bluetoothManager.isDeviceConnected(device.id);
     if (!isConnected) {
       logger.info('[SecureBLETransport] Connecting to device:', device.id);
@@ -265,10 +267,7 @@ export class SecureBLETransport implements IPaymentTransport {
   /**
    * Step 4: Wait for transaction hash and confirmation
    */
-  private async waitForTransactionConfirmation(device: any): Promise<{
-    transactionHash?: string;
-    paymentConfirmed: boolean;
-  }> {
+  private async waitForTransactionConfirmation(device: Device): Promise<{ transactionHash: string; paymentConfirmed: boolean }> {
     return new Promise((resolve, reject) => {
       let timeout: NodeJS.Timeout;
       let listener: { remove: () => void } | null = null;
@@ -315,9 +314,7 @@ export class SecureBLETransport implements IPaymentTransport {
   /**
    * Step 5: Wait for advertiser to start advertising (receipt confirmation)
    */
-  private async waitForAdvertiserConfirmation(device: any): Promise<{
-    advertiserAdvertising: boolean;
-  }> {
+  private async waitForAdvertiserConfirmation(device: Device): Promise<{ advertiserAdvertising: boolean }> {
     return new Promise((resolve, reject) => {
       let timeout: NodeJS.Timeout;
       let listener: { remove: () => void } | null = null;
@@ -364,7 +361,7 @@ export class SecureBLETransport implements IPaymentTransport {
   /**
    * Send encrypted payment data
    */
-  private async sendEncryptedPayment(sessionId: string, txData: any): Promise<SecurePaymentResult> {
+  private async sendEncryptedPayment(sessionId: string, txData: BLEPaymentRequest): Promise<SecurePaymentResult> {
     try {
       // Prepare payment data
       const paymentData = {
@@ -401,7 +398,7 @@ export class SecureBLETransport implements IPaymentTransport {
         transport: 'secure_ble',
         sessionId,
         deviceId: txData.device.id,
-        deviceName: txData.device.name || txData.device.localName,
+        deviceName: txData.device.name || txData.device.localName || undefined,
         timestamp: Date.now()
       };
 

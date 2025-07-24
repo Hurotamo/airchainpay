@@ -5,9 +5,16 @@ import { BluetoothManager, AIRCHAINPAY_SERVICE_UUID, AIRCHAINPAY_CHARACTERISTIC_
 import { TransactionBuilder } from '../../utils/TransactionBuilder';
 import { MultiChainWalletManager } from '../../wallet/MultiChainWalletManager';
 import { TransactionService } from '../TransactionService';
+import { BLEError } from '../../utils/ErrorClasses';
+import { PaymentRequest } from '../PaymentService';
+import { Device } from 'react-native-ble-plx';
 
-export interface IPaymentTransport {
-  send(txData: any): Promise<any>;
+export interface BLEPaymentRequest extends PaymentRequest {
+  device: Device;
+}
+
+export interface IPaymentTransport<RequestType, ResultType> {
+  send(txData: RequestType): Promise<ResultType>;
 }
 
 export interface EnhancedPaymentResult {
@@ -23,7 +30,7 @@ export interface EnhancedPaymentResult {
   metadata?: any;
 }
 
-export class BLETransport implements IPaymentTransport {
+export class BLETransport implements IPaymentTransport<BLEPaymentRequest, EnhancedPaymentResult> {
   private bluetoothManager: BluetoothManager;
   private walletManager: MultiChainWalletManager;
   private transactionService: TransactionService;
@@ -34,12 +41,12 @@ export class BLETransport implements IPaymentTransport {
     this.transactionService = TransactionService.getInstance();
   }
 
-  async send(txData: any): Promise<EnhancedPaymentResult> {
+  async send(txData: BLEPaymentRequest): Promise<EnhancedPaymentResult> {
     try {
       logger.info('[BLETransport] Starting enhanced BLE payment flow', txData);
       
       // Extract payment data
-      const { to, amount, chainId, paymentReference, device, token, metadata } = txData;
+      const { to, amount, chainId, device } = txData;
       
       if (!to || !amount || !chainId) {
         throw new Error('Missing required payment fields: to, amount, chainId');
@@ -75,7 +82,7 @@ export class BLETransport implements IPaymentTransport {
         status: 'confirmed',
         transport: 'ble',
         deviceId: device.id,
-        deviceName: device.name || device.localName,
+        deviceName: device.name || device.localName || undefined,
         transactionHash: transactionResult.transactionHash,
         paymentConfirmed: transactionResult.paymentConfirmed,
         advertiserAdvertising: advertisingResult.advertiserAdvertising,
@@ -95,7 +102,7 @@ export class BLETransport implements IPaymentTransport {
         status: 'failed',
         transport: 'ble',
         deviceId: txData.device?.id,
-        deviceName: txData.device?.name || txData.device?.localName,
+        deviceName: txData.device?.name || txData.device?.localName || undefined,
         message: error instanceof Error ? error.message : 'Unknown error',
         timestamp: Date.now(),
         metadata: txData
@@ -108,12 +115,12 @@ export class BLETransport implements IPaymentTransport {
    */
   private async checkBLEAvailability(): Promise<void> {
     if (!this.bluetoothManager.isBleAvailable()) {
-      throw new Error('BLE not available on this device');
+      throw new BLEError('BLE not available on this device');
     }
     
     const isBluetoothEnabled = await this.bluetoothManager.isBluetoothEnabled();
     if (!isBluetoothEnabled) {
-      throw new Error('Bluetooth is not enabled');
+      throw new BLEError('Bluetooth is not enabled');
     }
     
     logger.info('[BLETransport] BLE availability check passed');
@@ -122,7 +129,7 @@ export class BLETransport implements IPaymentTransport {
   /**
    * Step 2: Connect to device
    */
-  private async connectToDevice(device: any): Promise<void> {
+  private async connectToDevice(device: Device): Promise<void> {
     const isConnected = this.bluetoothManager.isDeviceConnected(device.id);
     if (!isConnected) {
       logger.info('[BLETransport] Connecting to device:', device.id);
@@ -136,19 +143,15 @@ export class BLETransport implements IPaymentTransport {
   /**
    * Step 3: Send payment data
    */
-  private async sendPaymentData(device: any, txData: any): Promise<any> {
-    const { to, amount, chainId, paymentReference, token, metadata } = txData;
+  private async sendPaymentData(device: Device, txData: BLEPaymentRequest): Promise<{ sent: boolean; compressedSize: number }> {
+    const { to, amount, chainId } = txData;
     
-    // Prepare payment data for BLE transmission
-    const paymentData = {
-      type: 'payment_request',
-      to: to,
-      amount: amount,
-      chainId: chainId,
-      paymentReference: paymentReference,
-      timestamp: Date.now(),
-      token: token,
-      metadata: metadata
+    // When constructing BLE payment data, do not include 'timestamp' property
+    const paymentData: PaymentRequest = {
+      to,
+      amount,
+      chainId,
+      transport: 'ble',
     };
     
     // Compress payment data using protobuf + CBOR
@@ -176,10 +179,7 @@ export class BLETransport implements IPaymentTransport {
   /**
    * Step 4: Wait for transaction hash and confirmation
    */
-  private async waitForTransactionConfirmation(device: any): Promise<{
-    transactionHash?: string;
-    paymentConfirmed: boolean;
-  }> {
+  private async waitForTransactionConfirmation(device: Device): Promise<{ transactionHash: string; paymentConfirmed: boolean }> {
     return new Promise((resolve, reject) => {
       let timeout: NodeJS.Timeout;
       let listener: { remove: () => void } | null = null;
@@ -226,9 +226,7 @@ export class BLETransport implements IPaymentTransport {
   /**
    * Step 5: Wait for advertiser to start advertising (receipt confirmation)
    */
-  private async waitForAdvertiserConfirmation(device: any): Promise<{
-    advertiserAdvertising: boolean;
-  }> {
+  private async waitForAdvertiserConfirmation(device: Device): Promise<{ advertiserAdvertising: boolean }> {
     return new Promise((resolve, reject) => {
       let timeout: NodeJS.Timeout;
       let listener: { remove: () => void } | null = null;

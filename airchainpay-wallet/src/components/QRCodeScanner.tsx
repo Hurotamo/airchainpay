@@ -4,13 +4,11 @@ import {
   StyleSheet,
   TouchableOpacity,
   Modal,
-  Platform,
-  Alert,
 } from 'react-native';
 import { ThemedView } from './ThemedView';
 import { ThemedText } from './ThemedText';
 import { logger } from '../utils/Logger';
-import { Camera, CameraView, CameraType } from 'expo-camera';
+import { Camera, CameraView } from 'expo-camera';
 
 interface QRCodeScannerProps {
   onScan: (data: string) => void;

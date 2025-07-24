@@ -31,11 +31,25 @@ export interface WalletInfo {
   chainId: string;
 }
 
-type AnyWallet = ethers.HDNodeWallet | ethers.Wallet;
+interface MinimalWallet {
+  address: string;
+  privateKey: string;
+  [key: string]: unknown;
+}
+
+type WalletType = MinimalWallet | ethers.Wallet | ethers.HDNodeWallet;
+
+// Add type guards for ethers.Wallet and ethers.HDNodeWallet
+function isEthersWallet(wallet: WalletType): wallet is ethers.Wallet {
+  return (wallet as ethers.Wallet).connect !== undefined && typeof (wallet as ethers.Wallet).connect === 'function';
+}
+function isHDNodeWallet(wallet: WalletType): wallet is ethers.HDNodeWallet {
+  return (wallet as ethers.HDNodeWallet).signMessage !== undefined && typeof (wallet as ethers.HDNodeWallet).signMessage === 'function';
+}
 
 export class MultiChainWalletManager {
   private static instance: MultiChainWalletManager;
-  private wallet: AnyWallet | null = null;
+  private wallet: WalletType | null = null;
   private providers: Record<string, ethers.Provider> = {};
 
   private constructor() {
@@ -67,15 +81,19 @@ export class MultiChainWalletManager {
       const hasWallet = !!privateKey;
       logger.info(`[MultiChain] hasWallet check: ${hasWallet}`);
       return hasWallet;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      const errorDetails = error instanceof Error ? {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      } : { message: String(error) };
-      
-      logger.error('[MultiChain] Failed to check wallet existence:', errorMessage, errorDetails);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        const errorMessage = error.message;
+        const errorDetails = {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        };
+        
+        logger.error('[MultiChain] Failed to check wallet existence:', errorMessage, errorDetails);
+      } else {
+        logger.error('[MultiChain] Failed to check wallet existence:', String(error));
+      }
       return false;
     }
   }
@@ -84,15 +102,19 @@ export class MultiChainWalletManager {
     try {
       const tempSeedPhrase = await secureStorage.getItem(STORAGE_KEYS.TEMP_SEED_PHRASE);
       return !!tempSeedPhrase;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      const errorDetails = error instanceof Error ? {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      } : { message: String(error) };
-      
-      logger.error('[MultiChain] Failed to check temporary seed phrase existence:', errorMessage, errorDetails);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        const errorMessage = error.message;
+        const errorDetails = {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        };
+        
+        logger.error('[MultiChain] Failed to check temporary seed phrase existence:', errorMessage, errorDetails);
+      } else {
+        logger.error('[MultiChain] Failed to check temporary seed phrase existence:', String(error));
+      }
       return false;
     }
   }
@@ -101,15 +123,19 @@ export class MultiChainWalletManager {
     try {
       await secureStorage.deleteItem(STORAGE_KEYS.TEMP_SEED_PHRASE);
       logger.info('[MultiChain] Temporary seed phrase cleared');
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      const errorDetails = error instanceof Error ? {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      } : { message: String(error) };
-      
-      logger.error('[MultiChain] Failed to clear temporary seed phrase:', errorMessage, errorDetails);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        const errorMessage = error.message;
+        const errorDetails = {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        };
+        
+        logger.error('[MultiChain] Failed to clear temporary seed phrase:', errorMessage, errorDetails);
+      } else {
+        logger.error('[MultiChain] Failed to clear temporary seed phrase:', String(error));
+      }
       throw error;
     }
   }
@@ -134,8 +160,12 @@ export class MultiChainWalletManager {
         securityLevel,
         keychainAvailable
       });
-    } catch (error) {
-      logger.error('[MultiChain] Failed to log storage state:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[MultiChain] Failed to log storage state:', error);
+      } else {
+        logger.error('[MultiChain] Failed to log storage state:', String(error));
+      }
     }
   }
 
@@ -163,17 +193,31 @@ export class MultiChainWalletManager {
           };
         }
         return { isValid: true };
-      } catch (error) {
+      } catch (error: unknown) {
+        if (error instanceof Error) {
+          return { 
+            isValid: false, 
+            error: 'Invalid seed phrase found. Please clear the wallet and re-import.' 
+          };
+        } else {
+          return { 
+            isValid: false, 
+            error: 'Failed to validate wallet consistency' 
+          };
+        }
+      }
+    } catch (error: unknown) {
+      if (error instanceof Error) {
         return { 
           isValid: false, 
-          error: 'Invalid seed phrase found. Please clear the wallet and re-import.' 
+          error: 'Failed to validate wallet consistency' 
+        };
+      } else {
+        return { 
+          isValid: false, 
+          error: 'Failed to validate wallet consistency' 
         };
       }
-    } catch (error) {
-      return { 
-        isValid: false, 
-        error: 'Failed to validate wallet consistency' 
-      };
     }
   }
 
@@ -198,15 +242,19 @@ export class MultiChainWalletManager {
       }
       
       return seedPhrase;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      const errorDetails = error instanceof Error ? {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      } : { message: String(error) };
-      
-      logger.error('[MultiChain] Failed to generate seed phrase:', errorMessage, errorDetails);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        const errorMessage = error.message;
+        const errorDetails = {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        };
+        
+        logger.error('[MultiChain] Failed to generate seed phrase:', errorMessage, errorDetails);
+      } else {
+        logger.error('[MultiChain] Failed to generate seed phrase:', String(error));
+      }
       throw error;
     }
   }
@@ -217,15 +265,19 @@ export class MultiChainWalletManager {
       const hashedPassword = PasswordHasher.hashPassword(password);
       await secureStorage.setItem(STORAGE_KEYS.WALLET_PASSWORD, hashedPassword);
       logger.info('[MultiChain] Wallet password hashed and stored successfully');
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      const errorDetails = error instanceof Error ? {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      } : { message: String(error) };
-      
-      logger.error('[MultiChain] Failed to set wallet password:', errorMessage, errorDetails);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        const errorMessage = error.message;
+        const errorDetails = {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        };
+        
+        logger.error('[MultiChain] Failed to set wallet password:', errorMessage, errorDetails);
+      } else {
+        logger.error('[MultiChain] Failed to set wallet password:', String(error));
+      }
       throw error;
     }
   }
@@ -269,15 +321,19 @@ export class MultiChainWalletManager {
 
       this.wallet = wallet;
       logger.info('[MultiChain] Wallet backup confirmed and stored');
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      const errorDetails = error instanceof Error ? {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      } : { message: String(error) };
-      
-      logger.error('[MultiChain] Failed to confirm backup:', errorMessage, errorDetails);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        const errorMessage = error.message;
+        const errorDetails = {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        };
+        
+        logger.error('[MultiChain] Failed to confirm backup:', errorMessage, errorDetails);
+      } else {
+        logger.error('[MultiChain] Failed to confirm backup:', String(error));
+      }
       throw error;
     }
   }
@@ -299,15 +355,19 @@ export class MultiChainWalletManager {
 
       this.wallet = wallet;
       logger.info('[MultiChain] Wallet imported from seed phrase');
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      const errorDetails = error instanceof Error ? {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      } : { message: String(error) };
-      
-      logger.error('[MultiChain] Failed to import from seed phrase:', errorMessage, errorDetails);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        const errorMessage = error.message;
+        const errorDetails = {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        };
+        
+        logger.error('[MultiChain] Failed to import from seed phrase:', errorMessage, errorDetails);
+      } else {
+        logger.error('[MultiChain] Failed to import from seed phrase:', String(error));
+      }
       throw error;
     }
   }
@@ -330,10 +390,14 @@ export class MultiChainWalletManager {
           if (seedWallet.privateKey !== wallet.privateKey) {
             throw new Error('Private key does not match the existing seed phrase. Please clear the wallet first.');
           }
-        } catch (seedError) {
-          // If the existing seed phrase is invalid, clear it
-          await secureStorage.deleteItem(STORAGE_KEYS.SEED_PHRASE);
-          logger.warn('[MultiChain] Cleared invalid existing seed phrase');
+        } catch (seedError: unknown) {
+          if (seedError instanceof Error) {
+            // If the existing seed phrase is invalid, clear it
+            await secureStorage.deleteItem(STORAGE_KEYS.SEED_PHRASE);
+            logger.warn('[MultiChain] Cleared invalid existing seed phrase');
+          } else {
+            logger.warn('[MultiChain] Cleared invalid existing seed phrase');
+          }
         }
       }
       
@@ -345,20 +409,24 @@ export class MultiChainWalletManager {
 
       this.wallet = wallet;
       logger.info('[MultiChain] Wallet imported from private key');
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      const errorDetails = error instanceof Error ? {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      } : { message: String(error) };
-      
-      logger.error('[MultiChain] Failed to import from private key:', errorMessage, errorDetails);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        const errorMessage = error.message;
+        const errorDetails = {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        };
+        
+        logger.error('[MultiChain] Failed to import from private key:', errorMessage, errorDetails);
+      } else {
+        logger.error('[MultiChain] Failed to import from private key:', String(error));
+      }
       throw error;
     }
   }
 
-  async createOrLoadWallet(): Promise<AnyWallet> {
+  async createOrLoadWallet(): Promise<WalletType> {
     if (this.wallet) {
       logger.info('[MultiChain] Returning existing wallet');
       return this.wallet;
@@ -378,8 +446,12 @@ export class MultiChainWalletManager {
       this.wallet = wallet;
       logger.info(`[MultiChain] Created new wallet: ${wallet.address}`);
       return wallet;
-    } catch (error) {
-      logger.error('[MultiChain] Failed to create/load wallet:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[MultiChain] Failed to create/load wallet:', error);
+      } else {
+        logger.error('[MultiChain] Failed to create/load wallet:', String(error));
+      }
       throw new Error('Failed to create/load wallet');
     }
   }
@@ -398,17 +470,25 @@ export class MultiChainWalletManager {
         throw new Error(`Provider not initialized for ${chain.name}`);
       }
 
-      const connectedWallet = wallet.connect(provider);
-      const balance = ethers.formatEther(await provider.getBalance(wallet.address));
+      if (isEthersWallet(wallet)) {
+        const connectedWallet = wallet.connect(provider);
+        const balance = ethers.formatEther(await provider.getBalance(wallet.address));
 
-      return {
-        address: wallet.address,
-        balance,
-        type: 'evm',
-        chainId: chain.id,
-      };
-    } catch (error) {
-      logger.error(`[MultiChain] Failed to get wallet info for chain ${chainId}:`, error);
+        return {
+          address: wallet.address,
+          balance,
+          type: 'evm',
+          chainId: chain.id,
+        };
+      } else {
+        throw new Error('Unsupported wallet type for getWalletInfo');
+      }
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error(`[MultiChain] Failed to get wallet info for chain ${chainId}:`, error);
+      } else {
+        logger.error(`[MultiChain] Failed to get wallet info for chain ${chainId}:`, String(error));
+      }
       throw error;
     }
   }
@@ -416,9 +496,20 @@ export class MultiChainWalletManager {
   async signMessage(message: string): Promise<string> {
     try {
       const wallet = await this.createOrLoadWallet();
-      return await wallet.signMessage(message);
-    } catch (error) {
-      logger.error('[MultiChain] Failed to sign message:', error);
+      if (isEthersWallet(wallet)) {
+        return await wallet.signMessage(message);
+      } else if (isHDNodeWallet(wallet)) {
+        return await wallet.signMessage(message);
+      } else {
+        // Fallback or throw error if not a recognized wallet type
+        throw new Error('Unsupported wallet type for signing message');
+      }
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[MultiChain] Failed to sign message:', error);
+      } else {
+        logger.error('[MultiChain] Failed to sign message:', String(error));
+      }
       throw error;
     }
   }
@@ -432,10 +523,18 @@ export class MultiChainWalletManager {
         throw new Error(`Provider not initialized for chain ${chainId}`);
       }
 
-      const connectedWallet = wallet.connect(provider);
-      return await connectedWallet.signTransaction(transaction);
-    } catch (error) {
-      logger.error('[MultiChain] Failed to sign transaction:', error);
+      if (isEthersWallet(wallet)) {
+        const connectedWallet = wallet.connect(provider);
+        return await connectedWallet.signTransaction(transaction);
+      } else {
+        throw new Error('Unsupported wallet type for signTransaction');
+      }
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[MultiChain] Failed to sign transaction:', error);
+      } else {
+        logger.error('[MultiChain] Failed to sign transaction:', String(error));
+      }
       throw error;
     }
   }
@@ -449,8 +548,12 @@ export class MultiChainWalletManager {
 
       const blockNumber = await provider.getBlockNumber();
       return blockNumber > 0;
-    } catch (error) {
-      logger.error(`[MultiChain] Failed to check network status for chain ${chainId}:`, error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error(`[MultiChain] Failed to check network status for chain ${chainId}:`, error);
+      } else {
+        logger.error(`[MultiChain] Failed to check network status for chain ${chainId}:`, String(error));
+      }
       return false;
     }
   }
@@ -468,15 +571,23 @@ export class MultiChainWalletManager {
         throw new Error(`Provider not initialized for chain ${chainId}`);
       }
 
-      const tokenContract = new ethers.Contract(
-        tokenAddress,
-        ['function allowance(address owner, address spender) view returns (uint256)'],
-        provider
-      );
+      if (isEthersWallet(wallet)) {
+        const tokenContract = new ethers.Contract(
+          tokenAddress,
+          ['function allowance(address owner, address spender) view returns (uint256)'],
+          provider
+        );
 
-      return await tokenContract.allowance(wallet.address, spender);
-    } catch (error) {
-      logger.error(`[MultiChain] Failed to check token allowance:`, error);
+        return await tokenContract.allowance(wallet.address, spender);
+      } else {
+        throw new Error('Unsupported wallet type for checkTokenAllowance');
+      }
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error(`[MultiChain] Failed to check token allowance:`, error);
+      } else {
+        logger.error(`[MultiChain] Failed to check token allowance:`, String(error));
+      }
       throw error;
     }
   }
@@ -495,17 +606,25 @@ export class MultiChainWalletManager {
         throw new Error(`Provider not initialized for chain ${chainId}`);
       }
 
-      const connectedWallet = wallet.connect(provider);
-      const tokenContract = new ethers.Contract(
-        tokenAddress,
-        ['function approve(address spender, uint256 amount) returns (bool)'],
-        connectedWallet
-      );
+      if (isEthersWallet(wallet)) {
+        const connectedWallet = wallet.connect(provider);
+        const tokenContract = new ethers.Contract(
+          tokenAddress,
+          ['function approve(address spender, uint256 amount) returns (bool)'],
+          connectedWallet
+        );
 
-      const tx = await tokenContract.approve(spender, amount);
-      return tx.hash;
-    } catch (error) {
-      logger.error(`[MultiChain] Failed to approve token:`, error);
+        const tx = await tokenContract.approve(spender, amount);
+        return tx.hash;
+      } else {
+        throw new Error('Unsupported wallet type for approveToken');
+      }
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error(`[MultiChain] Failed to approve token:`, error);
+      } else {
+        logger.error(`[MultiChain] Failed to approve token:`, String(error));
+      }
       throw error;
     }
   }
@@ -521,8 +640,12 @@ export class MultiChainWalletManager {
       }
 
       return await provider.estimateGas(transaction);
-    } catch (error) {
-      logger.error(`[MultiChain] Failed to estimate gas:`, error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error(`[MultiChain] Failed to estimate gas:`, error);
+      } else {
+        logger.error(`[MultiChain] Failed to estimate gas:`, String(error));
+      }
       throw error;
     }
   }
@@ -535,8 +658,12 @@ export class MultiChainWalletManager {
       }
 
       return await provider.getFeeData().then(data => data.gasPrice || ethers.parseUnits('1', 'gwei'));
-    } catch (error) {
-      logger.error(`[MultiChain] Failed to get gas price:`, error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error(`[MultiChain] Failed to get gas price:`, error);
+      } else {
+        logger.error(`[MultiChain] Failed to get gas price:`, String(error));
+      }
       throw error;
     }
   }
@@ -548,15 +675,19 @@ export class MultiChainWalletManager {
       const hasPassword = !!password;
       logger.info(`[MultiChain] hasPassword check: ${hasPassword}`);
       return hasPassword;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      const errorDetails = error instanceof Error ? {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      } : { message: String(error) };
-      
-      logger.error('[MultiChain] Failed to check wallet password existence:', errorMessage, errorDetails);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        const errorMessage = error.message;
+        const errorDetails = {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        };
+        
+        logger.error('[MultiChain] Failed to check wallet password existence:', errorMessage, errorDetails);
+      } else {
+        logger.error('[MultiChain] Failed to check wallet password existence:', String(error));
+      }
       return false;
     }
   }
@@ -568,15 +699,19 @@ export class MultiChainWalletManager {
       const isConfirmed = confirmed === 'true';
       logger.info(`[MultiChain] isBackupConfirmed check: ${isConfirmed}`);
       return isConfirmed;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      const errorDetails = error instanceof Error ? {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      } : { message: String(error) };
-      
-      logger.error('[MultiChain] Failed to check backup confirmation:', errorMessage, errorDetails);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        const errorMessage = error.message;
+        const errorDetails = {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        };
+        
+        logger.error('[MultiChain] Failed to check backup confirmation:', errorMessage, errorDetails);
+      } else {
+        logger.error('[MultiChain] Failed to check backup confirmation:', String(error));
+      }
       return false;
     }
   }
@@ -586,15 +721,19 @@ export class MultiChainWalletManager {
     try {
       await secureStorage.setItem(STORAGE_KEYS.BACKUP_CONFIRMED, 'true');
       logger.info('[MultiChain] Backup confirmation set successfully');
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      const errorDetails = error instanceof Error ? {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      } : { message: String(error) };
-      
-      logger.error('[MultiChain] Failed to set backup confirmation:', errorMessage, errorDetails);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        const errorMessage = error.message;
+        const errorDetails = {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        };
+        
+        logger.error('[MultiChain] Failed to set backup confirmation:', errorMessage, errorDetails);
+      } else {
+        logger.error('[MultiChain] Failed to set backup confirmation:', String(error));
+      }
       throw error;
     }
   }
@@ -627,22 +766,30 @@ export class MultiChainWalletManager {
           await secureStorage.deleteItem(key);
           logger.info(`[MultiChain] Deleted storage key: ${key}`);
           deletedCount++;
-        } catch (deleteError) {
-          logger.warn(`[MultiChain] Failed to delete ${key}:`, deleteError);
+        } catch (deleteError: unknown) {
+          if (deleteError instanceof Error) {
+            logger.warn(`[MultiChain] Failed to delete ${key}:`, deleteError);
+          } else {
+            logger.warn(`[MultiChain] Failed to delete ${key}:`, String(deleteError));
+          }
           // Continue with other keys even if one fails
         }
       }
       
       logger.info(`[MultiChain] Logout completed. Deleted ${deletedCount} storage keys.`);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      const errorDetails = error instanceof Error ? {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      } : { message: String(error) };
-      
-      logger.error('[MultiChain] Failed to logout:', errorMessage, errorDetails);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        const errorMessage = error.message;
+        const errorDetails = {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        };
+        
+        logger.error('[MultiChain] Failed to logout:', errorMessage, errorDetails);
+      } else {
+        logger.error('[MultiChain] Failed to logout:', String(error));
+      }
       throw error;
     }
   }
@@ -658,15 +805,19 @@ export class MultiChainWalletManager {
 
       await this.logout();
       logger.info('[MultiChain] Wallet cleared successfully');
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      const errorDetails = error instanceof Error ? {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      } : { message: String(error) };
-      
-      logger.error('[MultiChain] Failed to clear wallet:', errorMessage, errorDetails);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        const errorMessage = error.message;
+        const errorDetails = {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        };
+        
+        logger.error('[MultiChain] Failed to clear wallet:', errorMessage, errorDetails);
+      } else {
+        logger.error('[MultiChain] Failed to clear wallet:', String(error));
+      }
       throw error;
     }
   }
@@ -677,8 +828,12 @@ export class MultiChainWalletManager {
       // This would typically clear transaction history from local storage
       // For now, we'll just log the action
       logger.info('[MultiChain] Transaction history cleared');
-    } catch (error) {
-      logger.error('[MultiChain] Failed to clear transaction history:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[MultiChain] Failed to clear transaction history:', error);
+      } else {
+        logger.error('[MultiChain] Failed to clear transaction history:', String(error));
+      }
       throw error;
     }
   }
@@ -711,8 +866,12 @@ export class MultiChainWalletManager {
       }
       
       return isValid;
-    } catch (error) {
-      logger.error('[MultiChain] Failed to verify wallet password:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[MultiChain] Failed to verify wallet password:', error);
+      } else {
+        logger.error('[MultiChain] Failed to verify wallet password:', String(error));
+      }
       return false;
     }
   }
@@ -759,8 +918,12 @@ export class MultiChainWalletManager {
         needsMigration: true,
         migrationRequired: false
       };
-    } catch (error) {
-      logger.error('[MultiChain] Failed to check password migration:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[MultiChain] Failed to check password migration:', error);
+      } else {
+        logger.error('[MultiChain] Failed to check password migration:', String(error));
+      }
       return {
         needsMigration: false,
         migrationRequired: false,
@@ -789,12 +952,16 @@ export class MultiChainWalletManager {
         success: result.success,
         error: result.errors.length > 0 ? result.errors[0] : undefined
       };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      logger.error('[MultiChain] Failed to migrate user password:', errorMessage);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        const errorMessage = error.message;
+        logger.error('[MultiChain] Failed to migrate user password:', errorMessage);
+      } else {
+        logger.error('[MultiChain] Failed to migrate user password:', String(error));
+      }
       return {
         success: false,
-        error: errorMessage
+        error: error instanceof Error ? error.message : String(error)
       };
     }
   }
@@ -807,8 +974,12 @@ export class MultiChainWalletManager {
         throw new Error('No seed phrase found. This wallet may have been imported with a private key only.');
       }
       return seedPhrase;
-    } catch (error) {
-      logger.error('[MultiChain] Failed to get seed phrase:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[MultiChain] Failed to get seed phrase:', error);
+      } else {
+        logger.error('[MultiChain] Failed to get seed phrase:', String(error));
+      }
       throw error;
     }
   }
@@ -821,8 +992,12 @@ export class MultiChainWalletManager {
         throw new Error('No private key found');
       }
       return privateKey;
-    } catch (error) {
-      logger.error('[MultiChain] Failed to export private key:', error);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[MultiChain] Failed to export private key:', error);
+      } else {
+        logger.error('[MultiChain] Failed to export private key:', String(error));
+      }
       throw error;
     }
   }

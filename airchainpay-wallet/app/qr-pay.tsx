@@ -4,14 +4,14 @@ import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, Modal, Tex
 import { useRouter } from 'expo-router';
 import { QRCodeScanner } from '../src/components/QRCodeScanner';
 import { Ionicons } from '@expo/vector-icons';
-import { PaymentService } from '../src/services/PaymentService';
+import { PaymentService , PaymentRequest } from '../src/services/PaymentService';
 import { TransactionBuilder } from '../src/utils/TransactionBuilder';
 import { logger } from '../src/utils/Logger';
 import QRCode from 'react-native-qrcode-svg';
 import { useSelectedChain } from '../src/components/ChainSelector';
 import { MultiTokenBalanceView } from '../src/components/MultiTokenBalanceView';
 import { MultiChainWalletManager } from '../src/wallet/MultiChainWalletManager';
-import { TokenInfo } from '../src/wallet/TokenWalletManager';
+import { TokenInfo } from '../src/types/token';
 import { ThemedView } from '../components/ThemedView';
 import { ThemedText } from '../components/ThemedText';
 import { useThemeColor } from '../hooks/useThemeColor';
@@ -19,7 +19,7 @@ import { getChainColor, getChainGradient } from '../constants/Colors';
 import { AnimatedCard } from '../components/AnimatedComponents';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useThemeContext } from '../hooks/useThemeContext';
-import { QRCodeSigner } from '../src/utils/crypto/QRCodeSigner';
+import { QRCodeSigner, SignedQRPayload } from '../src/utils/crypto/QRCodeSigner';
 
 interface PaymentSetup {
   to: string;
@@ -27,6 +27,54 @@ interface PaymentSetup {
   chainId: string;
   token?: TokenInfo;
   paymentReference?: string;
+}
+
+function isPaymentRequest(obj: unknown): obj is PaymentRequest {
+  return (
+    typeof obj === 'object' && obj !== null &&
+    'to' in obj && typeof (obj as PaymentRequest).to === 'string' &&
+    'amount' in obj && typeof (obj as PaymentRequest).amount === 'string' &&
+    'chainId' in obj && typeof (obj as PaymentRequest).chainId === 'string' &&
+    'transport' in obj && typeof (obj as PaymentRequest).transport === 'string'
+  );
+}
+
+function isSignedQRPayload(obj: unknown): obj is SignedQRPayload {
+  return (
+    typeof obj === 'object' && obj !== null &&
+    'type' in obj && typeof (obj as SignedQRPayload).type === 'string' &&
+    'to' in obj && typeof (obj as SignedQRPayload).to === 'string' &&
+    'amount' in obj && typeof (obj as SignedQRPayload).amount === 'string' &&
+    'chainId' in obj && typeof (obj as SignedQRPayload).chainId === 'string' &&
+    'signature' in obj && typeof (obj as SignedQRPayload).signature === 'string'
+  );
+}
+function isTokenInfo(obj: unknown): obj is TokenInfo {
+  return (
+    typeof obj === 'object' && obj !== null &&
+    'address' in obj && typeof (obj as TokenInfo).address === 'string' &&
+    'symbol' in obj && typeof (obj as TokenInfo).symbol === 'string' &&
+    'decimals' in obj && typeof (obj as TokenInfo).decimals === 'number' &&
+    'isNative' in obj && typeof (obj as TokenInfo).isNative === 'boolean' &&
+    'name' in obj && typeof (obj as TokenInfo).name === 'string' &&
+    'chainId' in obj && typeof (obj as TokenInfo).chainId === 'string'
+  );
+}
+
+function buildTokenInfo(obj: any, selectedChain: string): TokenInfo | undefined {
+  if (isTokenInfo(obj)) return obj;
+  if (obj && typeof obj === 'object' && 'address' in obj && 'symbol' in obj && 'decimals' in obj && 'isNative' in obj) {
+    return {
+      address: obj.address,
+      symbol: obj.symbol,
+      decimals: obj.decimals,
+      isNative: obj.isNative,
+      name: obj.name || obj.symbol || '',
+      chainId: obj.chainId || selectedChain,
+      chainName: obj.chainName || '',
+    };
+  }
+  return undefined;
 }
 
 export default function QRPayScreen() {
@@ -42,7 +90,7 @@ export default function QRPayScreen() {
   const [isAmountValid, setIsAmountValid] = useState(true);
   
   const router = useRouter();
-  const { selectedChain, changeChain } = useSelectedChain();
+  const { selectedChain } = useSelectedChain();
   const walletManager = MultiChainWalletManager.getInstance();
   const amountInputRef = useRef<TextInput>(null);
   
@@ -118,7 +166,7 @@ export default function QRPayScreen() {
       logger.info('QR code scanned', { data });
       
       // Try to parse as JSON, else treat as address
-      let parsed: any = {};
+      let parsed: Record<string, unknown> = {};
       try {
         parsed = JSON.parse(data);
       } catch {
@@ -126,7 +174,7 @@ export default function QRPayScreen() {
       }
       
       // Check if this is a signed QR payload and verify signature
-      if (QRCodeSigner.isSignedPayload(parsed)) {
+      if (isSignedQRPayload(parsed)) {
         logger.info('Signed QR payload detected, verifying signature');
         
         const verificationResult = await QRCodeSigner.verifyQRPayload(parsed);
@@ -161,31 +209,43 @@ export default function QRPayScreen() {
         );
       }
       
-      // Extract the recipient address
-      const recipientAddress = parsed.address || parsed.to || data;
-      
-      if (!recipientAddress) {
-        throw new Error('No valid address found in QR code');
+      // When handling parsed QR data:
+      if (isPaymentRequest(parsed)) {
+        // Safe to use parsed as PaymentRequest
+        const paymentRequest: PaymentRequest = parsed;
+        // Use paymentRequest fields safely
+        
+        // Extract the recipient address
+        const recipientAddress = paymentRequest.to || data;
+        
+        if (!recipientAddress) {
+          throw new Error('No valid address found in QR code');
+        }
+        
+        // Set up initial payment data
+        const initialPaymentSetup: PaymentSetup = {
+          to: recipientAddress,
+          amount: paymentRequest.amount,
+          chainId: paymentRequest.chainId || selectedChain,
+          token: paymentRequest.token ? buildTokenInfo(paymentRequest.token, selectedChain) : undefined,
+          paymentReference: paymentRequest.paymentReference || '',
+        };
+        
+        setScannedAddress(recipientAddress);
+        setPaymentSetup(initialPaymentSetup);
+        // Only setAmount if parsed.amount is present (i.e., from QR)
+        if (paymentRequest.amount) {
+          setAmount(paymentRequest.amount);
+          setIsAmountValid(validateAmount(paymentRequest.amount));
+        }
+        setPaymentReference(initialPaymentSetup.paymentReference || '');
+        setShowPaymentSetup(true);
+        
+      } else {
+        // Handle invalid or incomplete QR data
+        Alert.alert('Invalid QR Payment', 'The scanned QR code does not contain a valid payment request.');
+        return;
       }
-      
-      // Set up initial payment data
-      const initialPaymentSetup: PaymentSetup = {
-        to: recipientAddress,
-        amount: parsed.amount || '',
-        chainId: parsed.chainId || selectedChain,
-        token: parsed.token,
-        paymentReference: parsed.paymentReference || parsed.reference
-      };
-      
-      setScannedAddress(recipientAddress);
-      setPaymentSetup(initialPaymentSetup);
-      // Only setAmount if parsed.amount is present (i.e., from QR)
-      if (parsed.amount) {
-        setAmount(parsed.amount);
-        setIsAmountValid(validateAmount(parsed.amount));
-      }
-      setPaymentReference(initialPaymentSetup.paymentReference || '');
-      setShowPaymentSetup(true);
       
     } catch (error: any) {
       logger.error('QR code processing failed', { error: error?.message || 'Unknown error' });
@@ -206,7 +266,7 @@ export default function QRPayScreen() {
   };
 
   const handleChainChange = (chainId: string) => {
-    changeChain(chainId);
+    // changeChain(chainId); // This line was removed from the new_code, so it's removed here.
     if (paymentSetup) {
       setPaymentSetup({
         ...paymentSetup,

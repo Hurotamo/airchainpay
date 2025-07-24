@@ -1,6 +1,8 @@
 import { IPaymentTransport } from './BLETransport';
 import { logger } from '../../utils/Logger';
 import { getRelayConfig } from '../../constants/config';
+import { WalletError, TransactionError } from '../../utils/ErrorClasses';
+import { PaymentRequest, PaymentResult } from '../PaymentService';
 
 export class RelayTransport implements IPaymentTransport {
   private getRelayUrl(): string {
@@ -53,11 +55,11 @@ export class RelayTransport implements IPaymentTransport {
     return false;
   }
 
-  async send(txData: any): Promise<any> {
+  async send(txData: PaymentRequest): Promise<PaymentResult> {
     // First check if relay is available
     const isRelayHealthy = await this.checkRelayHealth();
     if (!isRelayHealthy) {
-      throw new Error('Relay server is not available');
+      throw new WalletError('Relay server is not available');
     }
 
     const relayUrl = this.getRelayUrl();
@@ -105,7 +107,7 @@ export class RelayTransport implements IPaymentTransport {
           statusText: response.statusText,
           error: errorText
         });
-        throw new Error(`Relay responded with status ${response.status}: ${errorText}`);
+        throw new TransactionError(`Relay responded with status ${response.status}: ${errorText}`);
       }
 
       const result = await response.json();
@@ -120,7 +122,7 @@ export class RelayTransport implements IPaymentTransport {
         url: relayUrl,
         stack: errorStack
       });
-      throw new Error('Failed to send transaction to relay: ' + errorMessage);
+      throw new TransactionError('Failed to send transaction to relay: ' + errorMessage);
     }
   }
 

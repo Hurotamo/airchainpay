@@ -37,6 +37,7 @@ import { SUPPORTED_CHAINS } from '../constants/AppConfig';
 import { Device } from 'react-native-ble-plx';
 import { useThemeContext } from '../../hooks/useThemeContext';
 import { Colors } from '../../constants/Colors';
+import { WalletError, BLEError, TransactionError } from '../utils/ErrorClasses';
 
 const { width } = Dimensions.get('window');
 
@@ -655,13 +656,33 @@ export default function BLEPaymentScreen() {
       } else {
         throw new Error('Payment failed');
       }
-    } catch (error) {
+    } catch (error: any) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      handleError('Failed to send enhanced encrypted payment', error);
-      Alert.alert('Error', errMsg || 'Failed to send enhanced encrypted payment', [
-        { text: 'Retry', onPress: confirmSendSecureTx },
-        { text: 'Cancel', style: 'cancel' },
-      ]);
+      if (error instanceof WalletError) {
+        handleError('Wallet error', error);
+        Alert.alert('Wallet Error', error.message, [
+          { text: 'Retry', onPress: confirmSendSecureTx },
+          { text: 'Cancel', style: 'cancel' },
+        ]);
+      } else if (error instanceof BLEError) {
+        handleError('Bluetooth error', error);
+        Alert.alert('Bluetooth Error', error.message, [
+          { text: 'Retry', onPress: confirmSendSecureTx },
+          { text: 'Cancel', style: 'cancel' },
+        ]);
+      } else if (error instanceof TransactionError) {
+        handleError('Transaction error', error);
+        Alert.alert('Transaction Error', error.message, [
+          { text: 'Retry', onPress: confirmSendSecureTx },
+          { text: 'Cancel', style: 'cancel' },
+        ]);
+      } else {
+        handleError('Failed to send enhanced encrypted payment', error);
+        Alert.alert('Error', errMsg || 'Failed to send enhanced encrypted payment', [
+          { text: 'Retry', onPress: confirmSendSecureTx },
+          { text: 'Cancel', style: 'cancel' },
+        ]);
+      }
     }
   };
 

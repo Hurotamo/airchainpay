@@ -8,8 +8,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Modal,
-  ActivityIndicator,
+  // Modal, // Removed unused variable
+  // ActivityIndicator, // Removed unused variable
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { ThemedView } from '../../components/ThemedView';
@@ -20,6 +20,7 @@ import { logger } from '../utils/Logger';
 import { ethers } from 'ethers';
 import { wordlists } from 'ethers/wordlists';
 import { PasswordMigration } from '../utils/crypto/PasswordMigration';
+import { WalletError, BLEError, TransactionError } from '../utils/ErrorClasses';
 
 export default function WalletImportScreen() {
   const [step, setStep] = useState<'credentials' | 'password'>('credentials');
@@ -28,7 +29,7 @@ export default function WalletImportScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [importType, setImportType] = useState<'seedphrase' | 'privatekey'>('privatekey');
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
+  // const [loading, setLoading] = useState(false); // Removed unused variable
 
   const validatePassword = (pass: string): string | null => {
     const validation = PasswordMigration.validatePassword(pass);
@@ -181,26 +182,31 @@ export default function WalletImportScreen() {
         
         logger.info('Wallet initialization successful');
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+        let errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
         const errorDetails = error instanceof Error ? {
           name: error.name,
           message: error.message,
           stack: error.stack
         } : { message: errorMessage };
-
         logger.error(`Failed to initialize ${importType}:`, { error: errorDetails });
-        
         // Provide more user-friendly error messages
-        let userMessage = 'Failed to initialize wallet. ';
-        if (errorMessage.includes('Invalid private key')) {
-          userMessage += 'Please check that your private key is correct and try again.';
-        } else if (errorMessage.includes('network')) {
-          userMessage += 'There seems to be a network issue. Please check your connection and try again.';
+        if (error instanceof WalletError) {
+          Alert.alert('Wallet Error', error.message);
+        } else if (error instanceof BLEError) {
+          Alert.alert('Bluetooth Error', error.message);
+        } else if (error instanceof TransactionError) {
+          Alert.alert('Transaction Error', error.message);
         } else {
-          userMessage += errorMessage;
+          let userMessage = 'Failed to initialize wallet. ';
+          if (errorMessage.includes('Invalid private key')) {
+            userMessage += 'Please check that your private key is correct and try again.';
+          } else if (errorMessage.includes('network')) {
+            userMessage += 'There seems to be a network issue. Please check your connection and try again.';
+          } else {
+            userMessage += errorMessage;
+          }
+          Alert.alert('Error', userMessage);
         }
-        
-        Alert.alert('Error', userMessage);
         return;
       }
 

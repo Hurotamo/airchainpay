@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 import { SUPPORTED_CHAINS } from '../constants/AppConfig';
 import { logger } from '../utils/Logger';
+import { WalletError, TransactionError } from '../utils/ErrorClasses';
 
 export interface TokenInfo {
   symbol: string;
@@ -24,6 +25,13 @@ export interface TokenTransaction {
   status: 'pending' | 'confirmed' | 'failed';
   chainId: string;
   blockExplorer?: string;
+}
+
+interface TxOptions {
+  gasLimit?: string;
+  gasPrice?: string;
+  nonce?: number;
+  [key: string]: unknown;
 }
 
 export class TokenWalletManager {
@@ -87,7 +95,7 @@ export class TokenWalletManager {
     }
     
     if (!this.providers || Object.keys(this.providers).length === 0) {
-      throw new Error('No blockchain providers available');
+      throw new WalletError('No blockchain providers available');
     }
   }
 
@@ -147,13 +155,13 @@ export class TokenWalletManager {
     
     const chainConfig = SUPPORTED_CHAINS[token.chainId];
     if (!chainConfig) {
-      throw new Error(`Unsupported chain: ${token.chainId}`);
+      throw new WalletError(`Unsupported chain: ${token.chainId}`);
     }
 
     const provider = this.providers[token.chainId];
     if (!provider) {
       this.logger.error(`[TokenWallet] Provider not found for chainId: ${token.chainId}. Available provider keys:`, Object.keys(this.providers));
-      throw new Error(`Provider not initialized for chain ${token.chainId}`);
+      throw new WalletError(`Provider not initialized for chain ${token.chainId}`);
     }
 
     try {
@@ -207,40 +215,40 @@ export class TokenWalletManager {
     });
     
     if (!privateKey || typeof privateKey !== 'string' || !privateKey.startsWith('0x')) {
-      throw new Error('Invalid or missing private key');
+      throw new WalletError('Invalid or missing private key');
     }
     if (!toAddress || typeof toAddress !== 'string' || !toAddress.startsWith('0x')) {
-      throw new Error('Invalid or missing recipient address');
+      throw new WalletError('Invalid or missing recipient address');
     }
     if (!amount || isNaN(Number(amount))) {
-      throw new Error('Invalid or missing amount');
+      throw new WalletError('Invalid or missing amount');
     }
     if (!tokenInfo || typeof tokenInfo !== 'object') {
-      throw new Error('Invalid or missing token info');
+      throw new WalletError('Invalid or missing token info');
     }
     if (!tokenInfo.chainId || typeof tokenInfo.chainId !== 'string') {
-      throw new Error('Invalid or missing tokenInfo.chainId');
+      throw new WalletError('Invalid or missing tokenInfo.chainId');
     }
     if (tokenInfo.isNative === false && (!tokenInfo.address || !tokenInfo.address.startsWith('0x'))) {
-      throw new Error('Invalid or missing token contract address');
+      throw new WalletError('Invalid or missing token contract address');
     }
     
     const chainConfig = SUPPORTED_CHAINS[tokenInfo.chainId];
     if (!chainConfig) {
-      throw new Error(`Unsupported chain: ${tokenInfo.chainId}`);
+      throw new WalletError(`Unsupported chain: ${tokenInfo.chainId}`);
     }
     
     // Check if providers object exists and has the required chain
     if (!this.providers) {
       this.logger.error('[TokenWallet] Providers object is undefined');
-      throw new Error('Blockchain providers not initialized');
+      throw new WalletError('Blockchain providers not initialized');
     }
     
     const provider = this.providers[tokenInfo.chainId];
     if (!provider) {
       this.logger.error(`[TokenWallet] Provider not found for chainId: ${tokenInfo.chainId}. Available provider keys:`, Object.keys(this.providers));
       this.logger.error(`[TokenWallet] Provider status:`, this.getProviderStatus());
-      throw new Error(`Provider not initialized for chain ${tokenInfo.chainId}`);
+      throw new WalletError(`Provider not initialized for chain ${tokenInfo.chainId}`);
     }
     
     this.logger.info(`[TokenWallet] Found provider for chainId: ${tokenInfo.chainId}`, {
@@ -252,7 +260,7 @@ export class TokenWalletManager {
       const wallet = new ethers.Wallet(privateKey, provider);
       
       // Prepare transaction options with gas price if provided
-      const txOptions: any = {
+      const txOptions: TxOptions = {
         to: toAddress,
         data: paymentReference ? ethers.hexlify(new TextEncoder().encode(paymentReference)) : undefined
       };
@@ -307,7 +315,7 @@ export class TokenWalletManager {
         }
         
         // Prepare transaction options
-        const txOptions: any = {};
+        const txOptions: TxOptions = {};
         if (gasPrice) {
           txOptions.gasPrice = BigInt(gasPrice);
         }

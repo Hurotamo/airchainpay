@@ -11,6 +11,7 @@ import { ethers } from 'ethers';
 import { TokenInfo } from '../wallet/TokenWalletManager';
 import offlineSecurityService from './OfflineSecurityService';
 import { RelayTransport } from './transports/RelayTransport';
+import { WalletError, TransactionError } from '../utils/ErrorClasses';
 
 export interface PaymentRequest {
   to: string;
@@ -46,6 +47,17 @@ export interface PaymentResult {
   deviceName?: string;
   sessionId?: string;
   qrData?: string;
+}
+
+function buildTokenInfo(obj: any, selectedChain: string): TokenInfo {
+  return {
+    symbol: obj.symbol,
+    name: obj.name || obj.symbol,
+    decimals: obj.decimals,
+    address: obj.address,
+    chainId: obj.chainId || selectedChain,
+    isNative: obj.isNative
+  };
 }
 
 export class PaymentService {
@@ -115,9 +127,12 @@ export class PaymentService {
           transport: 'relay' as const,
           signedTx: signedTx,
           metadata: {
-            queuedForRelay: true,
-            offlineTimestamp: Date.now(),
-            originalTransport: request.transport
+            merchant: request.metadata?.merchant,
+            location: request.metadata?.location,
+            maxAmount: request.metadata?.maxAmount,
+            minAmount: request.metadata?.minAmount,
+            timestamp: request.metadata?.timestamp,
+            expiry: request.metadata?.expiry,
           }
         };
         
@@ -161,7 +176,7 @@ export class PaymentService {
           timestamp: Date.now(),
           metadata: relayResult,
         };
-      } catch (relayError) {
+      } catch (relayError: unknown) {
         logger.warn('[PaymentService] Relay transport failed, falling back to on-chain transport:', relayError);
         
         // Fallback to on-chain transport when relay is not available
@@ -177,7 +192,7 @@ export class PaymentService {
           metadata: onChainResult,
         };
       }
-    } catch (error) {
+    } catch (error: unknown) {
       logger.error('[PaymentService] Payment processing failed:', error);
       return {
         status: 'failed',
@@ -221,7 +236,7 @@ export class PaymentService {
       });
 
       return signedTx;
-    } catch (error) {
+    } catch (error: unknown) {
       logger.error('[PaymentService] Failed to sign transaction for relay:', error);
       throw new Error(`Failed to sign transaction: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -232,16 +247,16 @@ export class PaymentService {
    */
   private validatePaymentRequest(request: PaymentRequest): void {
     if (!request.to || !request.amount || !request.chainId) {
-      throw new Error('Missing required fields: to, amount, chainId');
+      throw new WalletError('Missing required fields: to, amount, chainId');
     }
 
     if (parseFloat(request.amount) <= 0) {
-      throw new Error('Amount must be greater than 0');
+      throw new WalletError('Amount must be greater than 0');
     }
 
     // Validate address format
     if (!ethers.isAddress(request.to)) {
-      throw new Error('Invalid recipient address');
+      throw new WalletError('Invalid recipient address');
     }
   }
 
@@ -251,7 +266,7 @@ export class PaymentService {
   private async checkNetworkStatus(chainId: string): Promise<boolean> {
     try {
       return await this.walletManager.checkNetworkStatus(chainId);
-    } catch (error) {
+    } catch (error: unknown) {
       logger.warn('[PaymentService] Failed to check network status:', error);
       return false;
     }
@@ -265,21 +280,16 @@ export class PaymentService {
       logger.info('[PaymentService] Performing security checks for offline transaction');
 
       // Step 1: Perform comprehensive security check
-      const tokenInfo: TokenInfo = request.token ? {
-        symbol: request.token.symbol,
-        name: request.token.symbol, // Use symbol as name if not provided
-        decimals: request.token.decimals,
-        address: request.token.address,
-        chainId: request.chainId,
-        isNative: request.token.isNative
-      } : {
-        symbol: 'ETH',
-        name: 'Ethereum',
-        decimals: 18,
-        address: '',
-        chainId: request.chainId,
-        isNative: true
-      };
+      const tokenInfo: TokenInfo = request.token
+        ? buildTokenInfo({ ...request.token, chainId: request.chainId }, request.chainId)
+        : {
+            symbol: 'ETH',
+            name: 'Ethereum',
+            decimals: 18,
+            address: '',
+            chainId: request.chainId,
+            isNative: true
+          };
 
       await offlineSecurityService.performOfflineSecurityCheck(
         request.to,
@@ -314,16 +324,8 @@ export class PaymentService {
         signedTx: signedTx,
         transport: request.transport,
         metadata: {
-          token: request.token,
-          paymentReference: request.paymentReference,
           merchant: request.metadata?.merchant,
-          location: request.metadata?.location,
-          security: {
-            balanceValidated: true,
-            duplicateChecked: true,
-            nonceValidated: true,
-            offlineTimestamp: Date.now()
-          }
+          location: request.metadata?.location
         }
       });
 
@@ -346,7 +348,7 @@ export class PaymentService {
         timestamp: Date.now()
       };
 
-    } catch (error) {
+    } catch (error: unknown) {
       logger.error('[PaymentService] Failed to queue offline transaction with security:', error);
       throw error;
     }
@@ -366,10 +368,10 @@ export class PaymentService {
        const TokenWalletManager = (await import('../wallet/TokenWalletManager')).default;
        const tokenInfo: TokenInfo = request.token ? {
          symbol: request.token.symbol,
-         name: request.token.symbol, // Use symbol as name if not provided
+         name: request.token.name || request.token.symbol,
          decimals: request.token.decimals,
          address: request.token.address,
-         chainId: request.chainId,
+         chainId: request.token.chainId || request.chainId,
          isNative: request.token.isNative
        } : {
          symbol: 'ETH',
@@ -400,11 +402,11 @@ export class PaymentService {
       });
 
       if (availableBalance < BigInt(requiredAmount)) {
-        throw new Error(`Insufficient available balance. Required: ${ethers.formatEther(requiredAmount)}, Available: ${ethers.formatEther(availableBalance)}`);
+        throw new TransactionError(`Insufficient available balance. Required: ${ethers.formatEther(requiredAmount)}, Available: ${ethers.formatEther(availableBalance)}`);
       }
 
       logger.info('[PaymentService] Balance validation passed');
-    } catch (error) {
+    } catch (error: unknown) {
       logger.error('[PaymentService] Balance validation failed:', error);
       throw error;
     }
@@ -447,7 +449,7 @@ export class PaymentService {
       }
 
       logger.info('[PaymentService] Duplicate check passed');
-    } catch (error) {
+    } catch (error: unknown) {
       logger.error('[PaymentService] Duplicate check failed:', error);
       throw error;
     }
@@ -470,14 +472,14 @@ export class PaymentService {
 
       // Ensure offline nonce is not ahead of current nonce
       if (offlineNonce >= currentNonce) {
-        throw new Error('Invalid nonce for offline transaction. Please sync with network first.');
+        throw new TransactionError('Invalid nonce for offline transaction. Please sync with network first.');
       }
 
       // Update offline nonce
       await this.updateOfflineNonce(chainId, offlineNonce + 1);
       
       logger.info('[PaymentService] Nonce validation passed');
-    } catch (error) {
+    } catch (error: unknown) {
       logger.error('[PaymentService] Nonce validation failed:', error);
       throw error;
     }
@@ -499,7 +501,7 @@ export class PaymentService {
         const storedNonce = await this.getStoredNonce(chainId);
         return storedNonce;
       }
-    } catch (error) {
+    } catch (error: unknown) {
       logger.error('[PaymentService] Failed to get current nonce:', error);
       // Fallback to stored nonce
       return await this.getStoredNonce(chainId);
@@ -515,7 +517,7 @@ export class PaymentService {
       const key = `offline_nonce_${chainId}`;
       const stored = await AsyncStorage.getItem(key);
       return stored ? parseInt(stored, 10) : 0;
-    } catch (error) {
+    } catch (error: unknown) {
       logger.error('[PaymentService] Failed to get offline nonce:', error);
       return 0;
     }
@@ -530,7 +532,7 @@ export class PaymentService {
       const key = `offline_nonce_${chainId}`;
       await AsyncStorage.setItem(key, nonce.toString());
       logger.info('[PaymentService] Updated offline nonce', { chainId, nonce });
-    } catch (error) {
+    } catch (error: unknown) {
       logger.error('[PaymentService] Failed to update offline nonce:', error);
       throw error;
     }
@@ -545,7 +547,7 @@ export class PaymentService {
       const key = `stored_nonce_${chainId}`;
       const stored = await AsyncStorage.getItem(key);
       return stored ? parseInt(stored, 10) : 0;
-    } catch (error) {
+    } catch (error: unknown) {
       logger.error('[PaymentService] Failed to get stored nonce:', error);
       return 0;
     }
@@ -575,7 +577,7 @@ export class PaymentService {
       });
 
       return total;
-    } catch (error) {
+    } catch (error: unknown) {
       logger.error('[PaymentService] Failed to get pending transactions total:', error);
       return BigInt(0);
     }
@@ -609,7 +611,7 @@ export class PaymentService {
         newPendingAmount: tracking.pendingAmount,
         transactionAmount: request.amount
       });
-    } catch (error) {
+    } catch (error: unknown) {
       logger.error('[PaymentService] Failed to update offline balance tracking:', error);
       // Don't throw error as this is not critical
     }
@@ -662,7 +664,7 @@ export class PaymentService {
           await TxQueue.removeTransaction(tx.id || '');
           logger.info('[PaymentService] Queued transaction sent successfully via relay', { id: tx.id });
           
-        } catch (relayError) {
+        } catch (relayError: unknown) {
           logger.warn('[PaymentService] Relay failed for queued transaction, trying on-chain fallback:', relayError);
           
           try {
@@ -676,7 +678,7 @@ export class PaymentService {
               hash: onChainResult?.hash 
             });
             
-          } catch (onChainError) {
+          } catch (onChainError: unknown) {
             logger.error('[PaymentService] Both relay and on-chain failed for queued transaction', {
               id: tx.id,
               relayError: relayError instanceof Error ? relayError.message : String(relayError),
@@ -687,7 +689,7 @@ export class PaymentService {
             // Could implement retry logic here with exponential backoff
           }
         }
-      } catch (err) {
+      } catch (err: unknown) {
         logger.error('[PaymentService] Failed to process queued transaction', {
           id: tx.id,
           error: err instanceof Error ? err.message : String(err)
