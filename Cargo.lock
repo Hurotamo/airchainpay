@@ -355,6 +355,7 @@ dependencies = [
  "ethers",
  "flate2",
  "futures",
+ "futures-lite 2.6.0",
  "hex",
  "hmac",
  "lazy_static",
@@ -921,7 +922,7 @@ dependencies = [
  "dispatch2",
  "futures-channel",
  "futures-core",
- "futures-lite",
+ "futures-lite 1.13.0",
  "java-spaghetti",
  "objc2",
  "objc2-core-bluetooth",
@@ -2469,6 +2470,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49a9d51ce47660b1e808d3c990b4709f2f415d928835a17dfd16991515c46bce"
 dependencies = [
  "futures-core",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "futures-lite"
+version = "2.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f5edaec856126859abb19ed65f39e90fea3a9574b9707f13539acf4abf7eb532"
+dependencies = [
+ "fastrand",
+ "futures-core",
+ "futures-io",
+ "parking",
  "pin-project-lite",
 ]
 

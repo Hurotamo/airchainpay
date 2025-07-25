@@ -159,15 +159,15 @@ export default function SendPaymentScreen() {
           [{ text: 'OK' }]
         );
       } else if (parsed && isPaymentRequest(parsed)) {
-        // Unsigned QR payload - show warning
+        // Block unsigned QR codes: show error and return
         Alert.alert(
           'Unverified QR Code',
-          'This QR code is not digitally signed. Proceed with caution.',
+          'This QR code is not digitally signed and cannot be processed for security reasons.',
           [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Continue', onPress: () => {} }
+            { text: 'OK', onPress: () => setShowQRScanner(true) }
           ]
         );
+        return;
       }
 
       if (isPaymentRequest(parsed)) {

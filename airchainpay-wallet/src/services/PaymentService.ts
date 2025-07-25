@@ -12,6 +12,7 @@ import { TokenInfo } from '../wallet/TokenWalletManager';
 import offlineSecurityService from './OfflineSecurityService';
 import { RelayTransport } from './transports/RelayTransport';
 import { WalletError, TransactionError } from '../utils/ErrorClasses';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface PaymentRequest {
   to: string;
@@ -186,7 +187,7 @@ export class PaymentService {
         return {
           status: 'sent',
           transport: 'onchain',
-          transactionId: onChainResult?.hash,
+          transactionId: onChainResult?.transactionId,
           message: 'Transaction sent on-chain (relay unavailable)',
           timestamp: Date.now(),
           metadata: onChainResult,
@@ -281,7 +282,14 @@ export class PaymentService {
 
       // Step 1: Perform comprehensive security check
       const tokenInfo: TokenInfo = request.token
-        ? buildTokenInfo({ ...request.token, chainId: request.chainId }, request.chainId)
+        ? {
+            symbol: request.token.symbol,
+            name: typeof (request.token as any).name === 'string' && (request.token as any).name ? (request.token as any).name : request.token.symbol,
+            decimals: request.token.decimals,
+            address: request.token.address,
+            chainId: typeof (request.token as any).chainId === 'string' && (request.token as any).chainId ? (request.token as any).chainId : request.chainId,
+            isNative: request.token.isNative
+          }
         : {
             symbol: 'ETH',
             name: 'Ethereum',
@@ -513,7 +521,6 @@ export class PaymentService {
    */
   private async getOfflineNonce(chainId: string): Promise<number> {
     try {
-      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
       const key = `offline_nonce_${chainId}`;
       const stored = await AsyncStorage.getItem(key);
       return stored ? parseInt(stored, 10) : 0;
@@ -528,7 +535,6 @@ export class PaymentService {
    */
   private async updateOfflineNonce(chainId: string, nonce: number): Promise<void> {
     try {
-      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
       const key = `offline_nonce_${chainId}`;
       await AsyncStorage.setItem(key, nonce.toString());
       logger.info('[PaymentService] Updated offline nonce', { chainId, nonce });
@@ -543,7 +549,6 @@ export class PaymentService {
    */
   private async getStoredNonce(chainId: string): Promise<number> {
     try {
-      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
       const key = `stored_nonce_${chainId}`;
       const stored = await AsyncStorage.getItem(key);
       return stored ? parseInt(stored, 10) : 0;
@@ -588,7 +593,6 @@ export class PaymentService {
    */
   private async updateOfflineBalanceTracking(request: PaymentRequest): Promise<void> {
     try {
-      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
       const key = `offline_balance_${request.chainId}`;
       
       // Get current offline balance tracking
@@ -658,7 +662,7 @@ export class PaymentService {
         try {
           // Try relay first (relay -> blockchain)
           logger.info('[PaymentService] Attempting to send queued transaction via relay');
-          await this.relayTransport.send(tx);
+          await this.relayTransport.send({ ...tx, transport: (tx.transport ?? 'relay') as PaymentRequest['transport'] });
           
           // Remove from queue on success
           await TxQueue.removeTransaction(tx.id || '');
@@ -669,13 +673,13 @@ export class PaymentService {
           
           try {
             // Fallback to on-chain transport (on-chain -> blockchain)
-            const onChainResult = await this.onChainTransport.send(tx);
+            const onChainResult = await this.onChainTransport.send({ ...tx, transport: (tx.transport ?? 'onchain') as PaymentRequest['transport'] });
             
             // Remove from queue on success
             await TxQueue.removeTransaction(tx.id || '');
             logger.info('[PaymentService] Queued transaction sent successfully on-chain', { 
               id: tx.id, 
-              hash: onChainResult?.hash 
+              transactionId: onChainResult?.transactionId 
             });
             
           } catch (onChainError: unknown) {

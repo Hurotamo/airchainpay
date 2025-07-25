@@ -2,42 +2,66 @@
 
 # AirChainPay
 
-AirChainPay is a next-generation multi-chain payment platform designed for seamless, secure, and instant transactions both online and offline. Leveraging blockchain technology and Bluetooth connectivity, AirChainPay empowers users to make payments across multiple networks—even in environments with limited or no internet access. The platform is built for interoperability, privacy, and ease of use for merchants and consumers alike.
+AirChainPay is a next-generation multi-chain payment platform for seamless, secure, and instant crypto transactions—online and offline. Leveraging blockchain and Bluetooth, it enables payments across multiple networks, even with limited or no internet. Built for interoperability, privacy, and ease of use for merchants and consumers.
+
+---
 
 ## Project Structure
 
-- **airchainpay-contracts/** — Smart contracts for Base Sepolia and Core Testnet
+- **airchainpay-contracts/** — Core smart contracts (Solidity) for Base Sepolia and Core Testnet
 - **airchainpay-relay-rust/** — High-performance Rust relay server for Bluetooth and blockchain transaction processing
-- **airchainpay-wallet/** — React Native mobile wallet app
+- **airchainpay-wallet-core/** — Secure Rust wallet core handling all cryptographic operations, sensitive data management, and hardware-backed secure storage
+- **airchainpay-wallet/** — React Native mobile wallet app (Expo)
 
-## Network Support
-
-- Base Sepolia
-- Core Testnet
+---
 
 ## Features
 
-### Mobile Wallet
-- **Multi-Chain Support**: Base Sepolia and Core Testnet
-- **Token Support**: USDC, USDT (native and mock)
-- **Bluetooth Payments**: Offline transaction support
-- **QR Code Scanning**: For payment addresses
-- **Secure key storage** with encrypted wallet data
-- **Transaction history** and status tracking
-
 ### Smart Contracts
-- **Multi-token support**: Native tokens and ERC-20
-- **Payment verification**
-- **Fee collection**
-- **Batch processing**
+- Minimal payment and transfer contracts (Solidity v0.8.x)
+- EVM-compatible, designed for offline-signed transactions
+- Multi-token support (native and ERC-20)
+- Payment verification, fee collection, batch processing
 
 ### Relay Server (Rust)
-- **High-Performance Rust Implementation**: Memory-safe, multi-threaded, and optimized for reliability
-- **Bluetooth (BLE) Connectivity**: Secure device discovery, authentication, and transaction relay
-- **Multi-Worker Transaction Processor**: Parallel transaction handling for high throughput
-- **Advanced Middleware**: Modular security, rate limiting, input validation, and centralized error handling
-- **Comprehensive Monitoring**: Built-in metrics, health checks, and logging
-- **Multi-device and multi-network support**
+- Multi-chain support (Core Testnet, Base Sepolia)
+- Secure transaction validation and blockchain broadcasting
+- Structured logging, metrics, health checks
+- Rate limiting, JWT authentication, CORS
+- Background task scheduler, data compression, efficient storage
+- API endpoints for health, transaction submission, device info, metrics
+
+### Wallet Core (Rust)
+- All wallet cryptographic operations (key management, signing, encryption) in Rust for maximum security
+- Hardware-backed storage: iOS Keychain, Android Keystore
+- Zero memory exposure for private keys and sensitive data
+- Multi-chain support: Core Testnet, Base Sepolia, and more
+- Secure BLE communication and pairing
+- FFI bridge: safe, high-performance APIs to the mobile wallet
+
+### Mobile Wallet (React Native)
+- Multi-chain support: Base Sepolia, Core Testnet
+- Token support: USDC, USDT (native and mock)
+- Bluetooth (BLE) peer-to-peer transfer (offline payments)
+- QR code scanning for payment addresses
+- Secure key storage with encrypted wallet data (powered by Wallet Core)
+- Transaction history and status tracking
+- Hybrid secure key storage (Keychain + SecureStore fallback)
+- Offline transaction queue
+- EVM wallet and signing
+
+---
+
+## Architecture Overview
+
+```
+contracts/         # Solidity smart contracts
+relay-rust/        # Rust relay server (API, blockchain, BLE)
+wallet-core/       # Rust wallet core (crypto, storage, FFI)
+wallet/            # React Native mobile wallet (Expo)
+```
+
+---
 
 ## Getting Started
 
@@ -51,48 +75,100 @@ AirChainPay is a next-generation multi-chain payment platform designed for seaml
 ### Installation
 
 1. Clone the repository:
-```bash
-git clone https://github.com/Hurotamo/airchainpay.git
-cd airchainpay
-```
+   ```bash
+   git clone https://github.com/Hurotamo/airchainpay.git
+   cd airchainpay
+   ```
 
 2. Install dependencies for each project:
-```bash
-# Contracts
-cd airchainpay-contracts
-npm install
+   ```bash
+   # Contracts
+   cd airchainpay-contracts
+   npm install
 
-# Relay Server (Rust)
-cd ../airchainpay-relay-rust/airchainpay-relay
-cargo build
+   # Relay Server (Rust)
+   cd ../airchainpay-relay-rust/airchainpay-relay
+   cargo build
 
-# Mobile Wallet
-cd ../../airchainpay-wallet
-npm install
-```
+   # Wallet Core (Rust)
+   cd ../../airchainpay-wallet-core
+   cargo build --release
 
-3. Follow the setup instructions in each project's README for detailed configuration.
+   # Mobile Wallet
+   cd ../airchainpay-wallet
+   npm install
+   ```
 
-## Development
+3. Follow the setup instructions in each subproject's README for detailed configuration.
+
+---
+
+## Usage
 
 ### Smart Contracts
 ```bash
 cd airchainpay-contracts
 npx hardhat compile
 npx hardhat test
+# Deployment example:
+npx hardhat run scripts/deploy.js --network base_sepolia
 ```
 
 ### Relay Server (Rust)
 ```bash
 cd airchainpay-relay-rust/airchainpay-relay
-cargo run
+cp env.example.sh .env  # Edit .env as needed
+cargo run                # Development
+RUST_ENV=production cargo run --release  # Production
+```
+
+### Wallet Core (Rust)
+```bash
+cd airchainpay-wallet-core
+cargo build --release
+cargo test
 ```
 
 ### Mobile Wallet
 ```bash
 cd airchainpay-wallet
 npm run start
+# For Android/iOS/web, use Expo CLI options
 ```
+
+---
+
+## Configuration & Environment
+
+- Each subproject may require its own `.env` file (see examples in each directory)
+- Set up blockchain RPC URLs, API keys, and relay server URLs as needed
+- Never commit secrets or API keys to git
+
+---
+
+## Security
+- All cryptographic operations and sensitive data management are handled in Rust (Wallet Core)
+- Hardware-backed secure storage (Keychain/Keystore)
+- Secure BLE communication and device pairing
+- Input validation, JWT authentication, rate limiting, CORS, and API key support in the relay server
+- Smart contracts designed for offline-signed transactions and multi-token support
+
+---
+
+## Monitoring & Performance
+- Structured logging and Prometheus metrics (Relay Server)
+- Health checks and system metrics
+- High throughput: ~1000 TPS, <50MB RAM, <2s startup (Relay Server)
+- Predictable, low-latency cryptographic operations (Wallet Core)
+
+---
+
+## Contributing
+1. Fork & branch
+2. Make changes & add tests
+3. Submit a pull request
+
+---
 
 ## License
 

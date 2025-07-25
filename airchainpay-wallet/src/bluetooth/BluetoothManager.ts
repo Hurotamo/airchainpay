@@ -130,164 +130,22 @@ export class BluetoothManager {
    * Initialize BLE advertiser - enhanced approach with better error handling
    */
   private initializeBleAdvertiser(): void {
-    console.log('[BLE] 🔧 Starting enhanced BLE advertiser initialization...');
-    
-    // Strategy 1: Try direct import with enhanced validation
-    if (this.tryDirectImportEnhanced()) {
-      return;
+    console.log('[BLE] Initializing BLE advertiser using tp-rn-ble-advertiser...');
+    // Directly use the imported module
+    if (
+      ReactNativeBleAdvertiser &&
+      typeof ReactNativeBleAdvertiser === 'object' &&
+      typeof ReactNativeBleAdvertiser.startBroadcast === 'function' &&
+      typeof ReactNativeBleAdvertiser.stopBroadcast === 'function'
+    ) {
+      this.advertiser = ReactNativeBleAdvertiser;
+      console.log('[BLE] ✅ tp-rn-ble-advertiser initialized successfully');
+      this.initializationError = null;
+    } else {
+      console.error('[BLE] ❌ tp-rn-ble-advertiser module not available or missing required methods');
+      this.initializationError = 'tp-rn-ble-advertiser module not available or missing required methods';
     }
-    
-    // Strategy 2: Try require with enhanced validation
-    if (this.tryRequireImportEnhanced()) {
-      return;
-    }
-    
-    // Strategy 3: Try NativeModules approach
-    if (this.tryNativeModulesImport()) {
-      return;
-    }
-    
-    console.log('[BLE] ❌ BLE advertiser not available after all strategies');
-    this.initializationError = 'BLE advertiser module not available - try rebuilding the app';
   }
-
-  /**
-   * Strategy 1: Enhanced direct import with better validation
-   */
-  private tryDirectImportEnhanced(): boolean {
-    try {
-      console.log('[BLE] 🔧 Strategy 1: Enhanced direct import...');
-      
-      // Check if the module exists
-      if (!ReactNativeBleAdvertiser) {
-        console.warn('[BLE] ❌ ReactNativeBleAdvertiser import is null/undefined');
-        return false;
-      }
-      
-      console.log('[BLE] Debug: ReactNativeBleAdvertiser =', ReactNativeBleAdvertiser);
-      console.log('[BLE] Debug: typeof ReactNativeBleAdvertiser =', typeof ReactNativeBleAdvertiser);
-      
-      // Check if it's an object with methods
-      if (typeof ReactNativeBleAdvertiser === 'object') {
-        const keys = Object.keys(ReactNativeBleAdvertiser);
-        console.log('[BLE] Debug: ReactNativeBleAdvertiser keys =', keys);
-        
-        // Check for required methods
-        const hasStartBroadcast = 'startBroadcast' in ReactNativeBleAdvertiser;
-        const hasStopBroadcast = 'stopBroadcast' in ReactNativeBleAdvertiser;
-        
-        console.log('[BLE] Debug: hasStartBroadcast =', hasStartBroadcast);
-        console.log('[BLE] Debug: hasStopBroadcast =', hasStopBroadcast);
-        
-        if (hasStartBroadcast && hasStopBroadcast) {
-          // Test if methods are actually callable
-          if (typeof ReactNativeBleAdvertiser.startBroadcast === 'function' && 
-              typeof ReactNativeBleAdvertiser.stopBroadcast === 'function') {
-            this.advertiser = ReactNativeBleAdvertiser;
-            console.log('[BLE] ✅ ReactNativeBleAdvertiser initialized successfully via enhanced direct import');
-            return true;
-          } else {
-            console.warn('[BLE] ❌ ReactNativeBleAdvertiser methods are not callable functions');
-          }
-        } else {
-          console.warn('[BLE] ❌ ReactNativeBleAdvertiser missing required methods');
-        }
-      } else {
-        console.warn('[BLE] ❌ ReactNativeBleAdvertiser is not an object');
-      }
-    } catch (error) {
-      console.warn('[BLE] ❌ Enhanced direct import failed:', error);
-    }
-    return false;
-  }
-
-  /**
-   * Strategy 2: Enhanced require import with better validation
-   */
-  private tryRequireImportEnhanced(): boolean {
-    try {
-      console.log('[BLE] 🔧 Strategy 2: Enhanced require import...');
-      const fallbackBleAdvertiser = ReactNativeBleAdvertiser;
-      console.log('[BLE] Debug: fallbackBleAdvertiser =', fallbackBleAdvertiser);
-      
-      if (fallbackBleAdvertiser && typeof fallbackBleAdvertiser === 'object') {
-        const keys = Object.keys(fallbackBleAdvertiser);
-        console.log('[BLE] Debug: fallbackBleAdvertiser keys =', keys);
-        
-        const hasStartBroadcast = 'startBroadcast' in fallbackBleAdvertiser;
-        const hasStopBroadcast = 'stopBroadcast' in fallbackBleAdvertiser;
-        
-        if (hasStartBroadcast && hasStopBroadcast) {
-          // Test if methods are actually callable
-          if (typeof fallbackBleAdvertiser.startBroadcast === 'function' && 
-              typeof fallbackBleAdvertiser.stopBroadcast === 'function') {
-            this.advertiser = fallbackBleAdvertiser;
-            console.log('[BLE] ✅ ReactNativeBleAdvertiser initialized via enhanced require');
-            return true;
-          } else {
-            console.warn('[BLE] ❌ Require import methods are not callable functions');
-          }
-        } else {
-          console.warn('[BLE] ❌ Require import missing required methods');
-        }
-      } else {
-        console.warn('[BLE] ❌ Require import not available or not an object');
-      }
-    } catch (fallbackError) {
-      const errorMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
-      console.warn('[BLE] ❌ Enhanced require import failed:', errorMessage);
-    }
-    return false;
-  }
-
-  /**
-   * Strategy 3: Try NativeModules approach
-   */
-  private tryNativeModulesImport(): boolean {
-    try {
-      console.log('[BLE] 🔧 Strategy 3: NativeModules import...');
-      
-      // Try to access via NativeModules
-      if (NativeModules.ReactNativeBleAdvertiser) {
-        const nativeModule = NativeModules.ReactNativeBleAdvertiser;
-        console.log('[BLE] Debug: NativeModules.ReactNativeBleAdvertiser =', nativeModule);
-        
-        if (nativeModule && typeof nativeModule === 'object') {
-          const hasStartBroadcast = 'startBroadcast' in nativeModule;
-          const hasStopBroadcast = 'stopBroadcast' in nativeModule;
-          
-          if (hasStartBroadcast && hasStopBroadcast) {
-            this.advertiser = nativeModule;
-            console.log('[BLE] ✅ ReactNativeBleAdvertiser initialized via NativeModules');
-            return true;
-          }
-        }
-      }
-      
-      // Try alternative module name
-      if (NativeModules.TpRnBleAdvertiser) {
-        const nativeModule = NativeModules.TpRnBleAdvertiser;
-        console.log('[BLE] Debug: NativeModules.TpRnBleAdvertiser =', nativeModule);
-        
-        if (nativeModule && typeof nativeModule === 'object') {
-          const hasStartBroadcast = 'startBroadcast' in nativeModule;
-          const hasStopBroadcast = 'stopBroadcast' in nativeModule;
-          
-          if (hasStartBroadcast && hasStopBroadcast) {
-            this.advertiser = nativeModule;
-            console.log('[BLE] ✅ ReactNativeBleAdvertiser initialized via NativeModules (alternative name)');
-            return true;
-          }
-        }
-      }
-      
-    } catch (error) {
-      console.warn('[BLE] ❌ NativeModules import failed:', error);
-    }
-    return false;
-  }
-
-
 
   public static getInstance(): BluetoothManager {
     if (!BluetoothManager.instance) {
@@ -681,8 +539,7 @@ export class BluetoothManager {
    */
   async isAdvertisingTrulySupported(): Promise<boolean> {
     console.log('[BLE] === Checking Advertising Support ===');
-    
-    // First check platform support
+    // Only Android is supported
     if (Platform.OS !== 'android') {
       console.log('[BLE] ❌ Advertising not supported on iOS');
       return false;
@@ -696,80 +553,48 @@ export class BluetoothManager {
     }
     console.log('[BLE] ✅ BLE is available');
 
-    // Check if advertiser module is available
-    if (!this.advertiser) {
-      console.log('[BLE] ❌ BLE advertiser module not available');
-      console.log('[BLE] Debug: this.advertiser =', this.advertiser);
-      console.log('[BLE] Debug: initializationError =', this.initializationError);
+    // Check if tp-rn-ble-advertiser is available and valid
+    if (
+      !this.advertiser ||
+      typeof this.advertiser.startBroadcast !== 'function' ||
+      typeof this.advertiser.stopBroadcast !== 'function'
+    ) {
+      console.log('[BLE] ❌ tp-rn-ble-advertiser module not available or missing required methods');
       return false;
     }
-    console.log('[BLE] ✅ Advertiser module is available');
+    console.log('[BLE] ✅ tp-rn-ble-advertiser module is available and valid');
 
-    // Test if the native module is actually working by trying to access its methods
-    try {
-      // Check if the advertiser has the required methods
-      if (!this.advertiser || typeof this.advertiser !== 'object') {
-        console.log('[BLE] ❌ Advertiser module not properly available');
-        return false;
-      }
-
-      // Check if it has the required methods
-      // Note: tp-rn-ble-advertiser uses 'startBroadcast' and 'stopBroadcast'
-      const hasStartBroadcast = 'startBroadcast' in this.advertiser;
-      const hasStopBroadcast = 'stopBroadcast' in this.advertiser;
-      
-      console.log('[BLE] Debug: hasStartBroadcast =', hasStartBroadcast);
-      console.log('[BLE] Debug: hasStopBroadcast =', hasStopBroadcast);
-      
-      if (!hasStartBroadcast || !hasStopBroadcast) {
-        console.log('[BLE] ❌ Advertiser module does not have required methods');
-        console.log('[BLE] Debug: advertiser keys =', Object.keys(this.advertiser));
-        return false;
-      }
-      console.log('[BLE] ✅ Advertiser has required methods');
-
-      // Check if Bluetooth is enabled
-      const state = await this.manager!.state();
-      console.log('[BLE] Debug: Bluetooth state =', state);
-      if (state !== State.PoweredOn) {
-        console.log('[BLE] ❌ Bluetooth not powered on:', state);
-        return false;
-      }
-      console.log('[BLE] ✅ Bluetooth is powered on');
-
-      // Check permissions with detailed logging
-      const permissionStatus = await this.checkPermissions();
-      console.log('[BLE] Debug: permissionStatus =', permissionStatus);
-      
-      // Be more lenient with BLUETOOTH_ADVERTISE permission
-      const criticalPermissions = [
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT
-      ];
-      
-      const criticalMissing = permissionStatus.missing.filter(perm => 
-        criticalPermissions.includes(perm as any)
-      );
-      
-      if (criticalMissing.length > 0) {
-        console.log('[BLE] ❌ Critical permissions missing:', criticalMissing);
-        return false;
-      }
-      
-      // Check if BLUETOOTH_ADVERTISE is missing (non-critical)
-      const advertiseMissing = permissionStatus.missing.includes(PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE);
-      if (advertiseMissing) {
-        console.log('[BLE] ⚠️ BLUETOOTH_ADVERTISE permission missing, but continuing - some devices work without it');
-      } else {
-        console.log('[BLE] ✅ All permissions granted');
-      }
-
-      console.log('[BLE] ✅ Advertising truly supported');
-      return true;
-    } catch (error) {
-      console.log('[BLE] ❌ Error checking advertising support:', error);
+    // Check if Bluetooth is enabled
+    const state = await this.manager!.state();
+    console.log('[BLE] Debug: Bluetooth state =', state);
+    if (state !== State.PoweredOn) {
+      console.log('[BLE] ❌ Bluetooth not powered on:', state);
       return false;
     }
+    console.log('[BLE] ✅ Bluetooth is powered on');
+
+    // Check permissions
+    const permissionStatus = await this.checkPermissions();
+    console.log('[BLE] Debug: permissionStatus =', permissionStatus);
+    const criticalPermissions = [
+      PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+      PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT
+    ];
+    const criticalMissing = permissionStatus.missing.filter(perm =>
+      criticalPermissions.includes(perm as any)
+    );
+    if (criticalMissing.length > 0) {
+      console.log('[BLE] ❌ Critical permissions missing:', criticalMissing);
+      return false;
+    }
+    const advertiseMissing = permissionStatus.missing.includes(PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE);
+    if (advertiseMissing) {
+      console.log('[BLE] ⚠️ BLUETOOTH_ADVERTISE permission missing, but continuing - some devices work without it');
+    } else {
+      console.log('[BLE] ✅ All permissions granted');
+    }
+    console.log('[BLE] ✅ Advertising truly supported');
+    return true;
   }
 
   /**
@@ -1017,8 +842,8 @@ export class BluetoothManager {
    */
   private startAdvertisingHealthCheck(): void {
     // Check advertising status every 30 seconds
-    // Note: tp-rn-ble-advertiser doesn't provide isAdvertising() method
-    // We'll use a simpler approach - just log that advertising is active
+    // Note: tp-rn-ble-advertiser doesn't provide status checking,
+    // we'll just log that advertising is active
     const healthCheckInterval = setInterval(() => {
       if (this.isAdvertising && this.advertiser) {
         // Since tp-rn-ble-advertiser doesn't provide status checking,

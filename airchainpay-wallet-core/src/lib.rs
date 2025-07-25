@@ -31,11 +31,14 @@
 //! let storage = SecureStorage::new();
 //! 
 //! // Create a new wallet
-//! let wallet = wallet_manager.create_wallet("My Wallet".to_string(), Network::CoreTestnet).await?;
+//! let wallet = wallet_manager.create_wallet("Wallet Successfully Created".to_string(), Network::CoreTestnet).await?;
 //! 
 //! // Sign a transaction
-//! let signature = wallet_manager.sign_message(&wallet, "Hello World").await?;
+//! let signature = wallet_manager.sign_message(&wallet, "Transaction Signed Succesfully").await?;
 //! ```
+
+use dotenv::dotenv;
+use std::env;
 
 // Re-export main modules for easy access
 pub mod core;
@@ -104,17 +107,72 @@ pub use wasm::*;
 #[cfg(feature = "no_std")]
 pub use no_std::*;
 
-/// Initialize the wallet core with default configuration
+/// Initialize the wallet core with configuration from .env or safe defaults
 pub async fn init_wallet_core() -> Result<WalletCore, WalletError> {
+    dotenv().ok(); // Load .env if present
+
     let wallet_manager = WalletManager::new();
     let storage = StorageManager::new();
-    let transaction_manager = TransactionManager::new("http://localhost:8545".to_string());
-    
+
+    // Read default network selection
+    let default_network = env::var("WALLET_CORE_DEFAULT_NETWORK")
+        .unwrap_or_else(|_| "core_testnet".to_string());
+
+    // Read RPC URLs for supported networks
+    let core_testnet_url = env::var("https://rpc.test2.btcs.network
+")
+        .unwrap_or_else(|_| "https://rpc.test2.btcs.network".to_string());
+    let base_sepolia_url = env::var("ttps://sepolia.base.org")
+        .unwrap_or_else(|_| "https://sepolia.base.org".to_string());
+
+    // Select the correct RPC URL based on the default network
+    let rpc_url = match default_network.as_str() {
+        "base_sepolia" => base_sepolia_url,
+        _ => core_testnet_url,
+    };
+
+    let transaction_manager = TransactionManager::new(rpc_url);
+
     Ok(WalletCore {
         wallet_manager,
         storage,
         transaction_manager,
     })
+}
+
+pub async fn demo_wallet_creation_and_signing() -> Result<(), WalletError> {
+    use crate::core::wallet::WalletManager;
+    use crate::shared::types::Network;
+
+    let wallet_manager = WalletManager::new();
+    // For demonstration, use a fixed wallet ID and name
+    let wallet_id = "demo_wallet_id";
+    let wallet_name = "Professional Wallet";
+    let network = Network::CoreTestnet;
+
+    // Attempt to create a wallet
+    match wallet_manager.create_wallet(wallet_id, wallet_name, network).await {
+        Ok(wallet) => {
+            println!("✅ Wallet was created successfully! Wallet ID: {}", wallet.id);
+            // Attempt to sign a message
+            let message = "Requesting transaction signature for AirChainPay platform integration.";
+            match wallet_manager.sign_message(&wallet.id, message).await {
+                Ok(signature) => {
+                    println!(
+                        "📝 Transaction signed successfully.\nMessage: \"{}\"\nSignature: {}",
+                        message, signature
+                    );
+                }
+                Err(e) => {
+                    println!("❌ Failed to sign transaction: {}", e);
+                }
+            }
+        }
+        Err(e) => {
+            println!("❌ Failed to create wallet: {}", e);
+        }
+    }
+    Ok(())
 }
 
 /// Main wallet core struct that provides access to all functionality
@@ -138,7 +196,7 @@ impl WalletCore {
         let mnemonic = Mnemonic::parse(seed_phrase)
             .map_err(|e| WalletError::validation(format!("Invalid seed phrase: {}", e)))?;
         let seed_bytes = mnemonic.to_seed("");
-        let seed = Seed::new(seed_bytes); // Pass the array directly, not as a slice or reference
+        let seed = Seed::new(seed_bytes); 
         let xprv = XPrv::new(seed.as_bytes())
             .map_err(|e| WalletError::crypto(format!("Failed to create XPrv: {}", e)))?;
         let derivation_path = DerivationPath::from_str("m/44'/60'/0'/0/0")
@@ -151,7 +209,6 @@ impl WalletCore {
         let _private_key_bytes = child_xprv.private_key().to_bytes();
         let wallet_id = format!("wallet_{}", uuid::Uuid::new_v4());
         let network = Network::CoreTestnet;
-        // CryptoManager is removed; refactor or remove this code as needed.
         let wallet = self.wallet_manager.create_wallet(&wallet_id, "Imported Wallet", network).await?;
         Ok(Wallet::from(wallet))
     }

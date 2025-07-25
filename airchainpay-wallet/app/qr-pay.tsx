@@ -197,16 +197,16 @@ export default function QRPayScreen() {
         );
       } else {
         logger.info('Unsigned QR payload detected');
-        
-        // Show warning for unsigned QR codes
+        // Block unsigned QR codes: show error and return
         Alert.alert(
           'Unverified QR Code',
-          'This QR code is not digitally signed. Proceed with caution.',
+          'This QR code is not digitally signed and cannot be processed for security reasons.',
           [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Continue', onPress: () => {} }
+            { text: 'OK', onPress: () => setShowScanner(true) }
           ]
         );
+        setIsProcessing(false);
+        return;
       }
       
       // When handling parsed QR data:

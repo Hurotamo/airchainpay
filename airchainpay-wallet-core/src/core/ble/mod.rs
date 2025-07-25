@@ -10,6 +10,7 @@ use aes_gcm::KeyInit;
 use aes_gcm::aead::generic_array::GenericArray;
 use rand_core::OsRng;
 use rand_core::RngCore;
+use futures_lite::stream::StreamExt;
 
 /// BLE security manager
 pub struct BLESecurityManager {
@@ -71,7 +72,7 @@ impl BLESecurityManager {
         }
         #[cfg(not(target_os = "android"))]
         {
-            let adapter = bluest::Adapter::open().await.ok_or_else(|| WalletError::ble("No Bluetooth adapter found".to_string()))?;
+            let adapter = bluest::Adapter::default().await.ok_or_else(|| WalletError::ble("No Bluetooth adapter found".to_string()))?;
             adapter.wait_available().await.map_err(|_| WalletError::ble("Bluetooth adapter not available"))?;
             let mut scan = adapter.scan(&[]).await.map_err(|_| WalletError::ble("Failed to start BLE scan"))?;
             while let Some(_) = scan.next().await {
@@ -90,7 +91,7 @@ impl BLESecurityManager {
         }
         #[cfg(not(target_os = "android"))]
         {
-            let adapter = bluest::Adapter::open().await.ok_or_else(|| WalletError::ble("No Bluetooth adapter found".to_string()))?;
+            let adapter = bluest::Adapter::default().await.ok_or_else(|| WalletError::ble("No Bluetooth adapter found".to_string()))?;
             adapter.wait_available().await.map_err(|_| WalletError::ble("Bluetooth adapter not available"))?;
             let mut scan = adapter.scan(&[]).await.map_err(|_| WalletError::ble("Failed to start BLE scan"))?;
             while let Some(_discovered) = scan.next().await {

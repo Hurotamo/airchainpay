@@ -17,7 +17,7 @@ impl SecureSeedPhrase {
         &self.phrase
     }
 
-    /// Get the seed phrase as Vec<String>
+    /// Get the seed phrase as `Vec<String>`
     pub fn as_words(&self) -> Vec<String> {
         self.phrase.split_whitespace().map(|s| s.to_string()).collect()
     }
