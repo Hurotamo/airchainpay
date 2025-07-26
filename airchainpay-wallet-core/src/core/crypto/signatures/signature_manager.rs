@@ -20,19 +20,33 @@ impl SignatureManager {
         }
     }
 
-    /// Sign a message with a private key
-    pub fn sign_message(&self, message: &[u8], private_key: &SecurePrivateKey) -> WalletResult<Signature> {
-        let secret_key = SecretKey::from_byte_array(private_key.as_bytes().try_into().map_err(|_| WalletError::crypto("Invalid private key length".to_string()))?)
-            .map_err(|e| WalletError::crypto(format!("Invalid private key: {}", e)))?;
-        // Hash the message
-        let mut hasher = Keccak256::new();
-        hasher.update(message);
-        let message_hash = hasher.finalize();
-        // Create secp256k1 message
-        let secp_message = Message::from_digest(message_hash.as_slice().try_into().map_err(|_| WalletError::crypto("Invalid message hash length".to_string()))?);
-        // Sign the message
-        let signature = self.secp.sign_ecdsa(secp_message.clone(), &secret_key);
-        Ok(signature)
+    /// Sign a message with a private key using the with_key pattern
+    pub fn sign_message_with_key<F>(&self, message: &[u8], private_key: &SecurePrivateKey, storage: &dyn crate::infrastructure::platform::PlatformStorage, _f: F) -> WalletResult<Signature>
+    where
+        F: FnOnce(&[u8]) -> WalletResult<Signature>,
+    {
+        private_key.with_key(storage, |key_bytes| {
+            let secret_key = SecretKey::from_byte_array(key_bytes.try_into().map_err(|_| WalletError::crypto("Invalid private key length".to_string()))?)
+                .map_err(|e| WalletError::crypto(format!("Invalid private key: {}", e)))?;
+            
+            // Hash the message
+            let mut hasher = Keccak256::new();
+            hasher.update(message);
+            let message_hash = hasher.finalize();
+            
+            // Create secp256k1 message
+            let secp_message = Message::from_digest(message_hash.as_slice().try_into().map_err(|_| WalletError::crypto("Invalid message hash length".to_string()))?);
+            
+            // Sign the message
+            let signature = self.secp.sign_ecdsa(secp_message.clone(), &secret_key);
+            Ok(signature)
+        })
+    }
+
+    /// Sign a message with a private key (legacy method)
+    pub fn sign_message(&self, _message: &[u8], _private_key: &SecurePrivateKey) -> WalletResult<Signature> {
+        // This method is deprecated - use sign_message_with_key instead
+        Err(WalletError::crypto("Use sign_message_with_key instead".to_string()))
     }
 
     /// Verify a signature
@@ -42,9 +56,9 @@ impl SignatureManager {
         Ok(self.secp.verify_ecdsa(Message::from_digest(hasher.finalize().as_slice().try_into().map_err(|_| WalletError::crypto("Invalid message hash length".to_string()))?), signature, public_key).is_ok())
     }
 
-    /// Sign Ethereum transaction (EVM compatible)
-    pub fn sign_ethereum_transaction(&self, tx: &Transaction, private_key: &SecurePrivateKey) -> WalletResult<TransactionSignature> {
-        let secret_key = SecretKey::from_byte_array(private_key.as_bytes().try_into().map_err(|_| WalletError::crypto("Invalid private key length".to_string()))?)
+    /// Sign Ethereum transaction (EVM compatible) with key bytes
+    pub fn sign_ethereum_transaction_with_bytes(&self, tx: &Transaction, key_bytes: &[u8]) -> WalletResult<TransactionSignature> {
+        let secret_key = SecretKey::from_byte_array(key_bytes.try_into().map_err(|_| WalletError::crypto("Invalid private key length".to_string()))?)
             .map_err(|e| WalletError::crypto(format!("Invalid private key: {}", e)))?;
 
         // RLP encode the transaction
@@ -70,6 +84,12 @@ impl SignatureManager {
         })
     }
 
+    /// Sign Ethereum transaction (EVM compatible) - legacy method
+    pub fn sign_ethereum_transaction(&self, _tx: &Transaction, _private_key: &SecurePrivateKey) -> WalletResult<TransactionSignature> {
+        // This method is deprecated - use sign_ethereum_transaction_with_bytes instead
+        Err(WalletError::crypto("Use sign_ethereum_transaction_with_bytes instead".to_string()))
+    }
+
     /// Calculate the v value for Ethereum signatures
     fn calculate_v(&self, _message: &Message, _signature: &Signature, _public_key: &PublicKey, _chain_id: u64) -> u8 {
         // Placeholder: Ethereum v value is usually 27 or 28
@@ -86,10 +106,28 @@ impl SignatureManager {
         Err(WalletError::crypto("Public key recovery not supported in this build".to_string()))
     }
 
-    /// Sign BLE payment data
-    pub fn sign_ble_payment(&self, payment_data: &[u8], private_key: &SecurePrivateKey) -> WalletResult<String> {
-        let signature = self.sign_message(payment_data, private_key)?;
+    /// Sign BLE payment data with key bytes
+    pub fn sign_ble_payment_with_bytes(&self, payment_data: &[u8], key_bytes: &[u8]) -> WalletResult<String> {
+        let secret_key = SecretKey::from_byte_array(key_bytes.try_into().map_err(|_| WalletError::crypto("Invalid private key length".to_string()))?)
+            .map_err(|e| WalletError::crypto(format!("Invalid private key: {}", e)))?;
+        
+        // Hash the message
+        let mut hasher = Keccak256::new();
+        hasher.update(payment_data);
+        let message_hash = hasher.finalize();
+        
+        // Create secp256k1 message
+        let secp_message = Message::from_digest(message_hash.as_slice().try_into().map_err(|_| WalletError::crypto("Invalid message hash length".to_string()))?);
+        
+        // Sign the message
+        let signature = self.secp.sign_ecdsa(secp_message.clone(), &secret_key);
         Ok(signature.to_string())
+    }
+
+    /// Sign BLE payment data - legacy method
+    pub fn sign_ble_payment(&self, _payment_data: &[u8], _private_key: &SecurePrivateKey) -> WalletResult<String> {
+        // This method is deprecated - use sign_ble_payment_with_bytes instead
+        Err(WalletError::crypto("Use sign_ble_payment_with_bytes instead".to_string()))
     }
 
     /// Verify BLE payment signature
@@ -100,18 +138,20 @@ impl SignatureManager {
         self.verify_signature(payment_data, &signature_obj, public_key)
     }
 
-    /// Sign QR payment data
-    pub fn sign_qr_payment(&self, payment_data: &[u8], private_key: &SecurePrivateKey) -> WalletResult<String> {
-        let signature = self.sign_message(payment_data, private_key)?;
-        Ok(signature.to_string())
+    /// Sign QR payment data with key bytes
+    pub fn sign_qr_payment_with_bytes(&self, payment_data: &[u8], key_bytes: &[u8]) -> WalletResult<String> {
+        self.sign_ble_payment_with_bytes(payment_data, key_bytes)
+    }
+
+    /// Sign QR payment data - legacy method
+    pub fn sign_qr_payment(&self, _payment_data: &[u8], _private_key: &SecurePrivateKey) -> WalletResult<String> {
+        // This method is deprecated - use sign_qr_payment_with_bytes instead
+        Err(WalletError::crypto("Use sign_qr_payment_with_bytes instead".to_string()))
     }
 
     /// Verify QR payment signature
     pub fn verify_qr_payment(&self, payment_data: &[u8], signature: &str, public_key: &PublicKey) -> WalletResult<bool> {
-        let signature_obj = Signature::from_str(signature)
-            .map_err(|e| WalletError::crypto(format!("Invalid signature format: {}", e)))?;
-        
-        self.verify_signature(payment_data, &signature_obj, public_key)
+        self.verify_ble_payment(payment_data, signature, public_key)
     }
 }
 

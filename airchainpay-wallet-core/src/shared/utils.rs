@@ -264,8 +264,8 @@ mod tests {
     fn test_validate_password() {
         // Valid passwords
         assert!(validate_password("password123").is_ok());
-        assert!(validate_password("a".repeat(8)).is_ok());
-        assert!(validate_password("a".repeat(128)).is_ok());
+        assert!(validate_password(&"a".repeat(8)).is_ok());
+        assert!(validate_password(&"a".repeat(128)).is_ok());
         
         // Invalid passwords
         assert!(validate_password("short").is_err()); // Too short

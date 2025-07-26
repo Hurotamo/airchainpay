@@ -9,7 +9,7 @@ use crate::shared::error::WalletError;
 use zeroize::Zeroize;
 
 /// Core wallet entity - simplified to match TypeScript implementation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Does not implement Debug, Clone, Serialize, or Deserialize to prevent sensitive data exposure
 pub struct Wallet {
     pub id: String,
     pub name: String,
@@ -45,6 +45,35 @@ impl Wallet {
 
         Ok(())
     }
+
+    /// Convert to WalletInfo for safe serialization (no sensitive data)
+    pub fn to_wallet_info(&self) -> WalletInfo {
+        WalletInfo {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            network: self.network.clone(),
+            address: self.address.clone(),
+            balance: self.balance.clone(),
+            created_at: self.created_at.timestamp(),
+        }
+    }
+}
+
+/// Safe wallet information for serialization (no sensitive data)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalletInfo {
+    pub id: String,
+    pub name: String,
+    pub network: Network,
+    pub address: String,
+    pub balance: String,
+    pub created_at: i64,
+}
+
+impl From<Wallet> for WalletInfo {
+    fn from(wallet: Wallet) -> Self {
+        wallet.to_wallet_info()
+    }
 }
 
 impl From<SecureWallet> for Wallet {
@@ -62,7 +91,7 @@ impl From<SecureWallet> for Wallet {
 }
 
 /// Secure wallet entity with automatic zeroization
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Does not implement Debug, Clone, Serialize, or Deserialize to prevent sensitive data exposure
 pub struct SecureWallet {
     pub id: String,
     pub name: String,
@@ -98,12 +127,24 @@ impl SecureWallet {
             .as_secs();
     }
 
-    /// Get wallet info
+    /// Get wallet info for safe serialization
     pub fn to_wallet_info(&self, balance: BalanceType) -> crate::shared::types::WalletInfo {
         crate::shared::types::WalletInfo {
             address: self.address.clone(),
             balance,
             network: self.network.clone(),
+        }
+    }
+
+    /// Convert to WalletInfo for safe serialization (no sensitive data)
+    pub fn to_safe_wallet_info(&self) -> WalletInfo {
+        WalletInfo {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            network: self.network.clone(),
+            address: self.address.clone(),
+            balance: "0".to_string(), // Default balance
+            created_at: self.created_at as i64,
         }
     }
 }
@@ -117,7 +158,7 @@ impl Zeroize for SecureWallet {
 }
 
 /// Secure seed phrase wrapper with automatic zeroization
-#[derive(Debug)]
+/// Does not implement Debug to prevent exposure in logs
 pub struct SecureSeedPhrase {
     phrase: String,
 }
@@ -152,19 +193,13 @@ impl SecureSeedPhrase {
     }
 }
 
-impl Clone for SecureSeedPhrase {
-    fn clone(&self) -> Self {
-        Self {
-            phrase: self.phrase.clone(),
-        }
-    }
-}
+// No Clone implementation to prevent accidental duplication of sensitive data
 
 impl Zeroize for SecureSeedPhrase {
     fn zeroize(&mut self) {
         self.phrase.zeroize();
     }
-    }
+}
 
 /// Wallet balance information
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -231,7 +266,7 @@ impl WalletBackupInfo {
 mod tests {
     use super::*;
     use crate::shared::types::Network;
-    use hex;
+
 
     #[test]
     fn test_wallet_creation() {
@@ -247,6 +282,20 @@ mod tests {
     }
 
     #[test]
+    fn test_wallet_to_wallet_info() {
+        let wallet = Wallet::new(
+            "Test Wallet".to_string(),
+            "0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6".to_string(),
+            "04...".to_string(),
+            Network::CoreTestnet,
+        ).unwrap();
+
+        let wallet_info = wallet.to_wallet_info();
+        assert_eq!(wallet_info.name, "Test Wallet");
+        assert_eq!(wallet_info.network, Network::CoreTestnet);
+    }
+
+    #[test]
     fn test_secure_wallet_creation() {
         let wallet = SecureWallet::new(
             "test_wallet".to_string(),
@@ -259,22 +308,6 @@ mod tests {
         assert_eq!(wallet.name, "Test Wallet");
         assert_eq!(wallet.address, "0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6");
         assert_eq!(wallet.network, Network::CoreTestnet);
-    }
-
-    #[test]
-    fn test_secure_private_key_creation() {
-        let key_bytes = [1u8; 32];
-        let private_key = SecurePrivateKey::new(key_bytes);
-        assert_eq!(private_key.as_bytes(), &key_bytes);
-        assert!(private_key.to_hex().len() == 64);
-    }
-
-    #[test]
-    fn test_secure_private_key_from_hex() {
-        let hex_key = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
-        let key_bytes = hex::decode(hex_key.trim_start_matches("0x")).unwrap();
-        let private_key = SecurePrivateKey::from_bytes(&key_bytes).unwrap();
-        assert_eq!(private_key.to_hex(), hex_key.trim_start_matches("0x"));
     }
 
     #[test]

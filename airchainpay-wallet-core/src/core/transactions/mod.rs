@@ -7,7 +7,6 @@ use crate::shared::types::{Transaction, SignedTransaction, TransactionHash, Tran
 use crate::core::crypto::signatures::SignatureManager;
 use reqwest::Client;
 use serde_json::json;
-use crate::core::crypto::keys::SecurePrivateKey;
 
 /// Transaction manager for handling blockchain transactions
 pub struct TransactionManager {
@@ -54,22 +53,32 @@ impl TransactionManager {
     pub async fn sign_transaction(
         &self,
         transaction: &Transaction,
-        private_key: &[u8],
+        private_key_id: &str,
+        storage: &dyn crate::infrastructure::platform::PlatformStorage,
     ) -> Result<SignedTransaction, WalletError> {
-        if private_key.is_empty() {
-            return Err(WalletError::crypto("Private key cannot be empty"));
+        if private_key_id.is_empty() {
+            return Err(WalletError::crypto("Private key ID cannot be empty"));
         }
-        let private_key_obj = SecurePrivateKey::from_bytes(private_key)?;
-        let tx_signature = self.signature_manager.sign_ethereum_transaction(transaction, &private_key_obj)?;
+        
+        // Create a SecurePrivateKey reference (does not load key into memory)
+        let private_key = crate::core::crypto::keys::SecurePrivateKey::new(private_key_id.to_string());
+        
+        // Use the with_key method to perform signing without exposing the key
+        let tx_signature = private_key.with_key(storage, |key_bytes| {
+            self.signature_manager.sign_ethereum_transaction_with_bytes(transaction, key_bytes)
+        })?;
+        
         // Compose the signature as r || s || v (Ethereum style)
         let mut signature_bytes = Vec::new();
         signature_bytes.extend_from_slice(&hex::decode(&tx_signature.r).unwrap_or_default());
         signature_bytes.extend_from_slice(&hex::decode(&tx_signature.s).unwrap_or_default());
         signature_bytes.push(tx_signature.v);
+        
         use sha3::{Keccak256, Digest};
         let hasher = Keccak256::new();
         // NOTE: For production, use RLP encoding for Ethereum transaction hash as in the wallet implementation.
         let hash = format!("0x{}", hex::encode(hasher.finalize()));
+        
         Ok(SignedTransaction {
             transaction: transaction.clone(),
             signature: signature_bytes,

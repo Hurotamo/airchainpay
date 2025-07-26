@@ -246,14 +246,14 @@ mod tests {
     
     #[tokio::test]
     async fn test_wallet_core_initialization() {
-        let core = init_wallet_core().await.unwrap();
+        let _core = init_wallet_core().await.unwrap();
         assert!(true); // Basic initialization test
     }
     
     #[tokio::test]
     async fn test_wallet_creation() {
-        let core = init_wallet_core().await.unwrap();
-        let wallet = core.create_wallet("test_wallet_id", "Test Wallet", Network::CoreTestnet).await.unwrap();
+        let _core = init_wallet_core().await.unwrap();
+        let wallet = _core.create_wallet("test_wallet_id", "Test Wallet", Network::CoreTestnet).await.unwrap();
         assert_eq!(wallet.name, "Test Wallet");
     }
 } 

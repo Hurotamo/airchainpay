@@ -33,7 +33,7 @@ impl Drop for SecureSeedPhrase {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zeroize::Zeroize;
+
 
     #[test]
     fn test_secure_seed_phrase_creation() {

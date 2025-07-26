@@ -668,6 +668,115 @@ export class MultiChainWalletManager {
     }
   }
 
+  /**
+   * Send a token transaction (native or ERC-20)
+   */
+  async sendTokenTransaction(
+    to: string,
+    amount: string,
+    chainId: string,
+    tokenInfo?: {
+      address: string;
+      symbol: string;
+      decimals: number;
+      isNative: boolean;
+    }
+  ): Promise<{ hash: string; transactionId: string }> {
+    try {
+      const wallet = await this.createOrLoadWallet();
+      const provider = this.providers[chainId];
+      
+      if (!provider) {
+        throw new Error(`Provider not initialized for chain ${chainId}`);
+      }
+
+      if (!isEthersWallet(wallet)) {
+        throw new Error('Unsupported wallet type for sendTokenTransaction');
+      }
+
+      const connectedWallet = wallet.connect(provider);
+      const amountBigInt = ethers.parseUnits(amount, tokenInfo?.decimals || 18);
+
+      let transaction: ethers.TransactionResponse;
+
+      if (!tokenInfo || tokenInfo.isNative) {
+        // Native token transaction (ETH, MATIC, etc.)
+        logger.info('[MultiChain] Sending native token transaction', {
+          to,
+          amount: amountBigInt.toString(),
+          chainId
+        });
+
+        // Get current gas price
+        const gasPrice = await this.getGasPrice(chainId);
+        
+        // Estimate gas for the transaction
+        const gasEstimate = await this.estimateGas({
+          to,
+          value: amountBigInt
+        }, chainId);
+
+        transaction = await connectedWallet.sendTransaction({
+          to,
+          value: amountBigInt,
+          gasPrice
+        });
+
+      } else {
+        // ERC-20 token transaction
+        logger.info('[MultiChain] Sending ERC-20 token transaction', {
+          to,
+          amount: amountBigInt.toString(),
+          tokenAddress: tokenInfo.address,
+          chainId
+        });
+
+        const tokenContract = new ethers.Contract(
+          tokenInfo.address,
+          [
+            'function transfer(address to, uint256 amount) returns (bool)',
+            'function balanceOf(address owner) view returns (uint256)',
+            'function decimals() view returns (uint8)'
+          ],
+          connectedWallet
+        );
+
+        // Verify token balance
+        const balance = await tokenContract.balanceOf(wallet.address);
+        if (balance < amountBigInt) {
+          throw new Error(`Insufficient token balance. Required: ${amountBigInt}, Available: ${balance}`);
+        }
+
+        // Get current gas price
+        const gasPrice = await this.getGasPrice(chainId);
+
+        transaction = await tokenContract.transfer(to, amountBigInt, {
+          gasPrice
+        });
+      }
+
+      logger.info('[MultiChain] Transaction sent successfully', {
+        hash: transaction.hash,
+        chainId,
+        to,
+        amount: amountBigInt.toString()
+      });
+
+      return {
+        hash: transaction.hash,
+        transactionId: transaction.hash // Using hash as transactionId for consistency
+      };
+
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[MultiChain] Failed to send token transaction:', error);
+      } else {
+        logger.error('[MultiChain] Failed to send token transaction:', String(error));
+      }
+      throw error;
+    }
+  }
+
   // Add method to check if wallet password exists
   async hasPassword(): Promise<boolean> {
     try {

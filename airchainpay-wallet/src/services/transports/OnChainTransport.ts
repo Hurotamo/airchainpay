@@ -11,7 +11,7 @@ export class OnChainTransport implements IPaymentTransport<PaymentRequest, Payme
       logger.info('[OnChainTransport] Sending payment on-chain', txData);
       
       // Extract payment data
-      const { to, amount, chainId, token, paymentReference } = txData;
+      const { to, amount, chainId, token } = txData;
       
       if (!to || !amount || !chainId) {
         throw new WalletError('Missing required payment fields: to, amount, chainId');
@@ -85,23 +85,29 @@ export class OnChainTransport implements IPaymentTransport<PaymentRequest, Payme
         chainId: 'chainId' in token ? (token as any).chainId : chainId,
       } : undefined;
       
-      // Remove or replace the call to MultiChainWalletManager.sendTokenTransaction
-      // TODO: Implement correct transaction sending logic here using the appropriate wallet manager instance
-      // For now, we'll just return a placeholder result
-      const result = {
-        status: 'sent',
-        transport: 'onchain',
-        message: 'Transaction sent (placeholder)',
-        timestamp: Date.now(),
-      };
+      // Send the transaction using the wallet manager
+      const transactionResult = await walletManager.sendTokenTransaction(
+        to,
+        amount,
+        chainId,
+        tokenInfo
+      );
       
-      logger.info('[OnChainTransport] Payment sent successfully', result);
-      // Remove duplicate or unknown properties in returned objects
+      logger.info('[OnChainTransport] Payment sent successfully', transactionResult);
+      
       return {
         status: 'sent',
         transport: 'onchain',
-        message: 'Transaction sent',
+        message: 'Transaction sent successfully',
         timestamp: Date.now(),
+        transactionId: transactionResult.transactionId,
+        metadata: {
+          hash: transactionResult.hash,
+          chainId,
+          to,
+          amount,
+          token: tokenInfo?.symbol || 'native'
+        }
       };
       
     } catch (error) {
