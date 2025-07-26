@@ -38,6 +38,7 @@ import { Device } from 'react-native-ble-plx';
 import { useThemeContext } from '../../hooks/useThemeContext';
 import { Colors } from '../../constants/Colors';
 import { WalletError, BLEError, TransactionError } from '../utils/ErrorClasses';
+import { PermissionUtils } from '../utils/PermissionUtils';
 
 const { width } = Dimensions.get('window');
 
@@ -320,6 +321,16 @@ export default function BLEPaymentScreen() {
     // Request BLE permissions for Android 12+ (minimal, direct)
     await bleManager.requestPermissionsEnhanced?.();
 
+    // Specifically request BLUETOOTH_ADVERTISE permission
+    const advertisePermission = await bleManager.requestBluetoothAdvertisePermission?.();
+    if (advertisePermission && !advertisePermission.granted) {
+      if (advertisePermission.needsSettingsRedirect) {
+        PermissionUtils.showBluetoothAdvertiseSettingsDialog();
+      } else if (advertisePermission.message) {
+        setAdvertisingError(advertisePermission.message);
+      }
+    }
+
     // Check if advertising is truly supported
     const trulySupported = await bleManager.isAdvertisingTrulySupported();
     if (!trulySupported) {
@@ -354,12 +365,30 @@ export default function BLEPaymentScreen() {
     try {
       setAdvertisingStatus('Starting advertising...');
       setAdvertisingError(null);
-      await bleManager.startAdvertising();
-      setIsAdvertising(true);
-      setAdvertisingStatus('Advertising as AirChainPay device');
-      const timestamp = new Date().toISOString();
-      const deviceName = bleManager.deviceName || 'unknown';
-      logger.info(`User started BLE advertising at ${timestamp} (device: ${deviceName})`);
+      
+      const result = await bleManager.startAdvertising();
+      
+      if (result.success) {
+        setIsAdvertising(true);
+        setAdvertisingStatus('Advertising as AirChainPay device');
+        const timestamp = new Date().toISOString();
+        const deviceName = bleManager.deviceName || 'unknown';
+        logger.info(`User started BLE advertising at ${timestamp} (device: ${deviceName})`);
+        
+        // Show warning if BLUETOOTH_ADVERTISE permission is missing
+        if (result.message && result.message.includes('BLUETOOTH_ADVERTISE')) {
+          setAdvertisingError(result.message);
+        }
+        
+        // Handle settings redirect if needed
+        if (result.needsSettingsRedirect) {
+          PermissionUtils.showBluetoothAdvertiseSettingsDialog();
+        }
+      } else {
+        setAdvertisingError(result.message || 'Failed to start advertising');
+        setAdvertisingStatus('Advertising failed');
+        logger.error('[BLE] Advertising failed:', result.message);
+      }
     } catch (error: any) {
       const errorMsg = error?.message || 'Failed to start advertising';
       setAdvertisingError(errorMsg);

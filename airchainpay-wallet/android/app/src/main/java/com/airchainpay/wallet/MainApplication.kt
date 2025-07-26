@@ -15,7 +15,6 @@ import com.facebook.soloader.SoLoader
 
 import expo.modules.ApplicationLifecycleDispatcher
 import expo.modules.ReactNativeHostWrapper
-import com.teslamotors.tpnativeadvertiser.TpRnBleAdvertiserPackage
 
 class MainApplication : Application(), ReactApplication {
 
@@ -25,11 +24,7 @@ class MainApplication : Application(), ReactApplication {
           override fun getPackages(): List<ReactPackage> {
             val packages = PackageList(this).packages
             // Packages that cannot be autolinked yet can be added manually here, for example:
-            packages.add(WalletCorePackage())
-            // Remove old BLE advertiser package add
-            // packages.add(BluetoothAdvertiserPackage())
-            // Add correct BLE advertiser package
-            packages.add(TpRnBleAdvertiserPackage())
+            // packages.add(MyReactNativePackage())
             return packages
           }
 
