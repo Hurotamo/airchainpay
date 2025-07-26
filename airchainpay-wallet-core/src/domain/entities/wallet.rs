@@ -106,7 +106,7 @@ impl SecureWallet {
     pub fn new(id: String, name: String, address: Address, network: Network) -> Self {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_else(|_| std::time::Duration::from_secs(0))
             .as_secs();
         
         Self {
@@ -123,7 +123,7 @@ impl SecureWallet {
     pub fn update(&mut self) {
         self.updated_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+                .unwrap_or_else(|_| std::time::Duration::from_secs(0))
             .as_secs();
     }
 
@@ -256,7 +256,7 @@ impl WalletBackupInfo {
             checksum,
             created_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                    .unwrap_or_else(|_| std::time::Duration::from_secs(0))
                 .as_secs(),
         }
     }
@@ -275,7 +275,7 @@ mod tests {
             "0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6".to_string(),
             "04...".to_string(),
             Network::CoreTestnet,
-        ).unwrap();
+        ).expect("Failed to create test wallet");
 
         assert_eq!(wallet.name, "Test Wallet");
         assert_eq!(wallet.network, Network::CoreTestnet);
@@ -288,7 +288,7 @@ mod tests {
             "0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6".to_string(),
             "04...".to_string(),
             Network::CoreTestnet,
-        ).unwrap();
+        ).expect("Failed to create test wallet");
 
         let wallet_info = wallet.to_wallet_info();
         assert_eq!(wallet_info.name, "Test Wallet");
@@ -319,7 +319,8 @@ mod tests {
             "abuse".to_string(), "access".to_string(), "accident".to_string(),
         ];
         
-        let seed_phrase = SecureSeedPhrase::from_words(words).unwrap();
+        let seed_phrase = SecureSeedPhrase::from_words(words)
+            .expect("Failed to create seed phrase from words");
         assert_eq!(seed_phrase.words().len(), 12);
     }
 

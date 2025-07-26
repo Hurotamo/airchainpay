@@ -164,12 +164,14 @@ mod tests {
     fn test_encrypt_decrypt_data() {
         let manager = EncryptionManager::new(EncryptionAlgorithm::AES256GCM);
         let data = b"Hello, World!";
-        let key = b"my-secret-key-32-bytes-long!!";
+        let key = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20];
         
-        let encrypted = manager.encrypt(data, key).unwrap();
+        let encrypted = manager.encrypt(data, &key)
+            .expect("Failed to encrypt data");
         assert_ne!(data, encrypted.ciphertext.as_slice());
         
-        let decrypted = manager.decrypt(&encrypted, key).unwrap();
+        let decrypted = manager.decrypt(&encrypted, &key)
+            .expect("Failed to decrypt data");
         assert_eq!(data, decrypted.as_slice());
     }
 
@@ -177,11 +179,12 @@ mod tests {
     fn test_encrypt_decrypt_with_wrong_key() {
         let manager = EncryptionManager::new(EncryptionAlgorithm::AES256GCM);
         let data = b"Hello, World!";
-        let key = b"my-secret-key-32-bytes-long!!";
-        let wrong_key = b"wrong-secret-key-32-bytes!!";
+        let key = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20];
+        let wrong_key = [0xff, 0xfe, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 0xf6, 0xf5, 0xf4, 0xf3, 0xf2, 0xf1, 0xf0, 0xef, 0xee, 0xed, 0xec, 0xeb, 0xea, 0xe9, 0xe8, 0xe7, 0xe6, 0xe5, 0xe4, 0xe3, 0xe2, 0xe1, 0xe0];
         
-        let encrypted = manager.encrypt(data, key).unwrap();
-        let result = manager.decrypt(&encrypted, wrong_key);
+        let encrypted = manager.encrypt(data, &key)
+            .expect("Failed to encrypt data");
+        let result = manager.decrypt(&encrypted, &wrong_key);
         assert!(result.is_err());
     }
 
@@ -189,10 +192,12 @@ mod tests {
     fn test_encrypt_empty_data() {
         let manager = EncryptionManager::new(EncryptionAlgorithm::AES256GCM);
         let data = b"";
-        let key = b"my-secret-key-32-bytes-long!!";
+        let key = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20];
         
-        let encrypted = manager.encrypt(data, key).unwrap();
-        let decrypted = manager.decrypt(&encrypted, key).unwrap();
+        let encrypted = manager.encrypt(data, &key)
+            .expect("Failed to encrypt empty data");
+        let decrypted = manager.decrypt(&encrypted, &key)
+            .expect("Failed to decrypt empty data");
         assert_eq!(data, decrypted.as_slice());
     }
 
@@ -200,10 +205,12 @@ mod tests {
     fn test_encrypt_large_data() {
         let manager = EncryptionManager::new(EncryptionAlgorithm::AES256GCM);
         let data = b"x".repeat(1000);
-        let key = b"my-secret-key-32-bytes-long!!";
+        let key = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20];
         
-        let encrypted = manager.encrypt(&data, key).unwrap();
-        let decrypted = manager.decrypt(&encrypted, key).unwrap();
+        let encrypted = manager.encrypt(&data, &key)
+            .expect("Failed to encrypt large data");
+        let decrypted = manager.decrypt(&encrypted, &key)
+            .expect("Failed to decrypt large data");
         assert_eq!(data, decrypted.as_slice());
     }
 } 

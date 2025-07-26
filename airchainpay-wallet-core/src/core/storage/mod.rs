@@ -64,8 +64,11 @@ impl<'a> SecureStorage<'a> {
         let argon2 = Argon2::default();
         let password_hash = argon2.hash_password(password.as_bytes(), &salt_str)
             .map_err(|e| WalletError::crypto(format!("Password hashing failed: {}", e)))?;
-        let binding = password_hash.hash.unwrap();
-        let hash_bytes = binding.as_bytes();
+        
+        // Handle the case where hash might be None
+        let hash = password_hash.hash
+            .ok_or_else(|| WalletError::crypto("Password hash is empty".to_string()))?;
+        let hash_bytes = hash.as_bytes();
         let key = GenericArray::from_slice(&hash_bytes[..32]);
         
         // Encrypt
@@ -105,8 +108,11 @@ impl<'a> SecureStorage<'a> {
         let argon2 = Argon2::default();
         let password_hash = argon2.hash_password(password.as_bytes(), &salt_str)
             .map_err(|e| WalletError::crypto(format!("Password hashing failed: {}", e)))?;
-        let binding = password_hash.hash.unwrap();
-        let hash_bytes = binding.as_bytes();
+        
+        // Handle the case where hash might be None
+        let hash = password_hash.hash
+            .ok_or_else(|| WalletError::crypto("Password hash is empty".to_string()))?;
+        let hash_bytes = hash.as_bytes();
         let key = GenericArray::from_slice(&hash_bytes[..32]);
         let cipher = Aes256Gcm::new(key);
         let wallet_bytes = cipher.decrypt(GenericArray::from_slice(nonce), ciphertext)
@@ -139,8 +145,11 @@ impl<'a> SecureStorage<'a> {
         let argon2 = Argon2::default();
         let password_hash = argon2.hash_password(password.as_bytes(), &salt_str)
             .map_err(|e| WalletError::crypto(format!("Password hashing failed: {}", e)))?;
-        let binding = password_hash.hash.unwrap();
-        let hash_bytes = binding.as_bytes();
+        
+        // Handle the case where hash might be None
+        let hash = password_hash.hash
+            .ok_or_else(|| WalletError::crypto("Password hash is empty".to_string()))?;
+        let hash_bytes = hash.as_bytes();
         let key = GenericArray::from_slice(&hash_bytes[..32]);
         let cipher = Aes256Gcm::new(key);
         let mut nonce = [0u8; 12];
@@ -159,18 +168,21 @@ impl<'a> SecureStorage<'a> {
         use aes_gcm::{Aes256Gcm, aead::{Aead, generic_array::GenericArray}};
         use argon2::{Argon2, PasswordHasher};
         
-        if encrypted_data.len() < 32 + 12 {
+        if encrypted_data.len() < 44 {
             return Err(WalletError::crypto("Encrypted data too short".to_string()));
         }
-        let salt = &encrypted_data[..32];
-        let nonce = &encrypted_data[32..44];
-        let ciphertext = &encrypted_data[44..];
+        
+        let (salt, rest) = encrypted_data.split_at(32);
+        let (nonce, ciphertext) = rest.split_at(12);
         let salt_str = argon2::password_hash::SaltString::encode_b64(salt)?;
         let argon2 = Argon2::default();
         let password_hash = argon2.hash_password(password.as_bytes(), &salt_str)
             .map_err(|e| WalletError::crypto(format!("Password hashing failed: {}", e)))?;
-        let binding = password_hash.hash.unwrap();
-        let hash_bytes = binding.as_bytes();
+        
+        // Handle the case where hash might be None
+        let hash = password_hash.hash
+            .ok_or_else(|| WalletError::crypto("Password hash is empty".to_string()))?;
+        let hash_bytes = hash.as_bytes();
         let key = GenericArray::from_slice(&hash_bytes[..32]);
         let cipher = Aes256Gcm::new(key);
         let plaintext = cipher.decrypt(GenericArray::from_slice(nonce), ciphertext)
@@ -268,31 +280,36 @@ mod tests {
 
     impl PlatformStorage for MockStorage {
         fn store(&self, key: &str, data: &[u8]) -> Result<(), WalletError> {
-            let mut storage = self.data.lock().unwrap();
+            let mut storage = self.data.lock()
+                .expect("Failed to acquire lock for storage write");
             storage.insert(key.to_string(), data.to_vec());
             Ok(())
         }
 
         fn retrieve(&self, key: &str) -> Result<Vec<u8>, WalletError> {
-            let storage = self.data.lock().unwrap();
+            let storage = self.data.lock()
+                .expect("Failed to acquire lock for storage read");
             storage.get(key)
                 .cloned()
                 .ok_or_else(|| WalletError::crypto("Key not found".to_string()))
         }
 
         fn delete(&self, key: &str) -> Result<(), WalletError> {
-            let mut storage = self.data.lock().unwrap();
+            let mut storage = self.data.lock()
+                .expect("Failed to acquire lock for storage delete");
             storage.remove(key);
             Ok(())
         }
 
         fn exists(&self, key: &str) -> Result<bool, WalletError> {
-            let storage = self.data.lock().unwrap();
+            let storage = self.data.lock()
+                .expect("Failed to acquire lock for storage exists check");
             Ok(storage.contains_key(key))
         }
 
         fn list_keys(&self) -> Result<Vec<String>, WalletError> {
-            let storage = self.data.lock().unwrap();
+            let storage = self.data.lock()
+                .expect("Failed to acquire lock for storage list");
             Ok(storage.keys().cloned().collect())
         }
     }
@@ -303,12 +320,17 @@ mod tests {
         let secure_storage = SecureStorage::new(&storage);
         let test_data = b"test data";
         let password = "test_password";
+        
         // Test store and retrieve
-        secure_storage.store_data("test_key", test_data, password).await.unwrap();
-        let retrieved = secure_storage.retrieve_data("test_key", password).await.unwrap();
+        secure_storage.store_data("test_key", test_data, password).await
+            .expect("Failed to store data");
+        let retrieved = secure_storage.retrieve_data("test_key", password).await
+            .expect("Failed to retrieve data");
         assert_eq!(retrieved, test_data);
+        
         // Test delete
-        secure_storage.delete_data("test_key").await.unwrap();
+        secure_storage.delete_data("test_key").await
+            .expect("Failed to delete data");
         assert!(secure_storage.retrieve_data("test_key", password).await.is_err());
     }
 
@@ -321,13 +343,17 @@ mod tests {
             "0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6".to_string(),
             "04...".to_string(),
             Network::CoreTestnet,
-        ).unwrap();
+        ).expect("Failed to create test wallet");
         let password = "test_password";
+        
         // Test backup
-        let backup = secure_storage.backup_wallet(&wallet, password).await.unwrap();
+        let backup = secure_storage.backup_wallet(&wallet, password).await
+            .expect("Failed to backup wallet");
         assert_eq!(backup.wallet_id, wallet.id);
+        
         // Test restore
-        let restored = secure_storage.restore_wallet(&backup, password).await.unwrap();
+        let restored = secure_storage.restore_wallet(&backup, password).await
+            .expect("Failed to restore wallet");
         assert_eq!(restored.name, wallet.name);
         assert_eq!(restored.address, wallet.address);
         assert_eq!(restored.network, wallet.network);

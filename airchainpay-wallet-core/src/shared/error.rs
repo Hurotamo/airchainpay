@@ -153,6 +153,12 @@ impl From<argon2::password_hash::Error> for WalletError {
     }
 }
 
+impl From<argon2::Error> for WalletError {
+    fn from(err: argon2::Error) -> Self {
+        Self::crypto(format!("Argon2 error: {}", err))
+    }
+}
+
 // Encryption error conversions
 impl From<aes_gcm::Error> for WalletError {
     fn from(err: aes_gcm::Error) -> Self {

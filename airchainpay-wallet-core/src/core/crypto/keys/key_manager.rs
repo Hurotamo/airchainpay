@@ -213,31 +213,36 @@ mod tests {
 
     impl PlatformStorage for MockStorage {
         fn store(&self, key: &str, data: &[u8]) -> Result<(), WalletError> {
-            let mut storage = self.data.lock().unwrap();
+            let mut storage = self.data.lock()
+                .expect("Failed to acquire lock for storage write");
             storage.insert(key.to_string(), data.to_vec());
             Ok(())
         }
 
         fn retrieve(&self, key: &str) -> Result<Vec<u8>, WalletError> {
-            let storage = self.data.lock().unwrap();
+            let storage = self.data.lock()
+                .expect("Failed to acquire lock for storage read");
             storage.get(key)
                 .cloned()
                 .ok_or_else(|| WalletError::crypto("Key not found".to_string()))
         }
 
         fn delete(&self, key: &str) -> Result<(), WalletError> {
-            let mut storage = self.data.lock().unwrap();
+            let mut storage = self.data.lock()
+                .expect("Failed to acquire lock for storage delete");
             storage.remove(key);
             Ok(())
         }
 
         fn exists(&self, key: &str) -> Result<bool, WalletError> {
-            let storage = self.data.lock().unwrap();
+            let storage = self.data.lock()
+                .expect("Failed to acquire lock for storage exists check");
             Ok(storage.contains_key(key))
         }
 
         fn list_keys(&self) -> Result<Vec<String>, WalletError> {
-            let storage = self.data.lock().unwrap();
+            let storage = self.data.lock()
+                .expect("Failed to acquire lock for storage list");
             Ok(storage.keys().cloned().collect())
         }
     }
@@ -253,7 +258,8 @@ mod tests {
     fn test_private_key_generation() {
         let storage = MockStorage::new();
         let manager = KeyManager::new(&storage);
-        let private_key = manager.generate_private_key("test_key").unwrap();
+        let private_key = manager.generate_private_key("test_key")
+            .expect("Failed to generate private key");
         assert_eq!(private_key.key_id(), "test_key");
     }
 
@@ -261,8 +267,10 @@ mod tests {
     fn test_public_key_generation() {
         let storage = MockStorage::new();
         let manager = KeyManager::new(&storage);
-        let private_key = manager.generate_private_key("test_public_key").unwrap();
-        let public_key = manager.get_public_key(&private_key).unwrap();
+        let private_key = manager.generate_private_key("test_public_key")
+            .expect("Failed to generate private key");
+        let public_key = manager.get_public_key(&private_key)
+            .expect("Failed to get public key");
         assert!(!public_key.is_empty());
         assert_eq!(public_key.len(), 130); // 65 bytes * 2 for hex
     }
@@ -271,9 +279,12 @@ mod tests {
     fn test_address_generation() {
         let storage = MockStorage::new();
         let manager = KeyManager::new(&storage);
-        let private_key = manager.generate_private_key("test_address").unwrap();
-        let public_key = manager.get_public_key(&private_key).unwrap();
-        let address = manager.get_address(&public_key).unwrap();
+        let private_key = manager.generate_private_key("test_address")
+            .expect("Failed to generate private key");
+        let public_key = manager.get_public_key(&private_key)
+            .expect("Failed to get public key");
+        let address = manager.get_address(&public_key)
+            .expect("Failed to get address");
         assert!(address.starts_with("0x"));
         assert_eq!(address.len(), 42); // 0x + 40 hex chars
     }
@@ -282,9 +293,11 @@ mod tests {
     fn test_message_signing() {
         let storage = MockStorage::new();
         let manager = KeyManager::new(&storage);
-        let private_key = manager.generate_private_key("test_signing").unwrap();
+        let private_key = manager.generate_private_key("test_signing")
+            .expect("Failed to generate private key");
         let message = "Hello, World!";
-        let signature = manager.sign_message(&private_key, message).unwrap();
+        let signature = manager.sign_message(&private_key, message)
+            .expect("Failed to sign message");
         assert!(!signature.is_empty());
     }
 
@@ -292,8 +305,10 @@ mod tests {
     fn test_seed_phrase_derivation() {
         let storage = MockStorage::new();
         let manager = KeyManager::new(&storage);
-        let seed_phrase = "test seed phrase";
-        let private_key = manager.derive_private_key_from_seed(seed_phrase, "test_id").unwrap();
+        // Use a valid BIP39 seed phrase (12 words)
+        let seed_phrase = "abandon ability able about above absent absorb abstract absurd abuse access accident";
+        let private_key = manager.derive_private_key_from_seed(seed_phrase, "test_id")
+            .expect("Failed to derive private key from seed");
         assert_eq!(private_key.key_id(), "test_id");
     }
 } 

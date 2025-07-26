@@ -214,7 +214,8 @@ mod tests {
     #[tokio::test]
     async fn test_transaction_manager() {
         let manager = TransactionManager::new("http://localhost:8545".to_string()); // Mock RPC URL
-        manager.init().await.unwrap();
+        manager.init().await
+            .expect("Failed to initialize transaction manager");
 
         let transaction = manager
             .create_transaction(
@@ -223,7 +224,7 @@ mod tests {
                 Network::CoreTestnet,
             )
             .await
-            .unwrap();
+            .expect("Failed to create transaction");
 
         assert_eq!(transaction.to, "0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6");
         assert_eq!(transaction.value, "1000000000000000000");

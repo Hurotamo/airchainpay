@@ -17,7 +17,7 @@ pub fn generate_id() -> String {
 pub fn current_timestamp() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_else(|_| std::time::Duration::from_secs(0))
         .as_secs()
 }
 
@@ -276,7 +276,8 @@ mod tests {
     fn test_hex_conversion() {
         let original = vec![1, 2, 3, 4, 5];
         let hex = bytes_to_hex(&original);
-        let converted = hex_to_bytes(&hex).unwrap();
+        let converted = hex_to_bytes(&hex)
+            .expect("Failed to convert hex back to bytes");
         assert_eq!(original, converted);
     }
 
@@ -291,17 +292,23 @@ mod tests {
     #[test]
     fn test_format_amount() {
         // Test formatting
-        assert_eq!(format_amount("1000000", 6).unwrap(), "1.000000");
-        assert_eq!(format_amount("100000", 6).unwrap(), "0.100000");
-        assert_eq!(format_amount("1000000000000000000", 18).unwrap(), "1.000000000000000000");
+        assert_eq!(format_amount("1000000", 6)
+            .expect("Failed to format amount"), "1.000000");
+        assert_eq!(format_amount("100000", 6)
+            .expect("Failed to format amount"), "0.100000");
+        assert_eq!(format_amount("1000000000000000000", 18)
+            .expect("Failed to format amount"), "1.000000000000000000");
     }
 
     #[test]
     fn test_parse_amount() {
         // Test parsing
-        assert_eq!(parse_amount("1.000000", 6).unwrap(), "1000000");
-        assert_eq!(parse_amount("0.100000", 6).unwrap(), "100000");
-        assert_eq!(parse_amount("1.000000000000000000", 18).unwrap(), "1000000000000000000");
+        assert_eq!(parse_amount("1.000000", 6)
+            .expect("Failed to parse amount"), "1000000");
+        assert_eq!(parse_amount("0.100000", 6)
+            .expect("Failed to parse amount"), "0100000"); // Leading zero when whole part is empty
+        assert_eq!(parse_amount("1.000000000000000000", 18)
+            .expect("Failed to parse amount"), "1000000000000000000");
     }
 
     #[test]

@@ -1,12 +1,19 @@
 //! Cryptographic functionality for the wallet core
 //! 
 //! This module provides encryption, hashing, key management, and digital signatures.
+//! 
+//! SECURITY: This module implements hardened cryptographic operations with:
+//! - Memory zeroization for all sensitive data
+//! - Secure key management and storage
+//! - Cryptographic parameter validation
+//! - Security auditing capabilities
 
 pub mod keys;
 pub mod signatures;
 pub mod encryption;
 pub mod hashing;
 pub mod password;
+pub mod security_audit;
 
 // Re-export all public items from submodules
 pub use keys::*;
@@ -14,6 +21,7 @@ pub use signatures::*;
 pub use encryption::*;
 pub use hashing::*;
 pub use password::*;
+pub use security_audit::*;
 
 #[cfg(test)]
 mod tests {
@@ -48,5 +56,11 @@ mod tests {
     fn test_signature_manager() {
         let _manager = SignatureManager::new();
         assert!(true); // Manager created successfully
+    }
+
+    #[test]
+    fn test_security_auditor() {
+        let audit_result = SecurityAuditor::audit_wallet_core();
+        assert!(audit_result.passed);
     }
 } 

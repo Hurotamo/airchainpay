@@ -121,14 +121,17 @@ mod tests {
     #[tokio::test]
     async fn test_wallet_manager_creation() {
         let manager = WalletManager::new();
-        assert!(manager.get_balance("test_wallet").await.unwrap() == "0");
+        assert!(manager.get_balance("test_wallet").await
+            .expect("Failed to get wallet balance") == "0");
     }
 
     #[tokio::test]
     async fn test_wallet_balance_update() {
         let manager = WalletManager::new();
-        manager.update_balance("test_wallet", "1000000".to_string()).await.unwrap();
-        let balance = manager.get_balance("test_wallet").await.unwrap();
+        manager.update_balance("test_wallet", "1000000".to_string()).await
+            .expect("Failed to update wallet balance");
+        let balance = manager.get_balance("test_wallet").await
+            .expect("Failed to get wallet balance");
         assert_eq!(balance, "1000000");
     }
 
