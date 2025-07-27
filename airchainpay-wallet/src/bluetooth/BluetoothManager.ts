@@ -7,11 +7,6 @@ import { BLEAdvertisingMonitor } from './BLEAdvertisingMonitor';
 
 // Safely import ReactNativeBleAdvertiser with fallback
 let ReactNativeBleAdvertiser: any = null;
-try {
-  ReactNativeBleAdvertiser = require('tp-rn-ble-advertiser');
-} catch (error) {
-  console.log('[BLE] tp-rn-ble-advertiser module not available in current environment');
-}
 
 // Define UUIDs for AirChainPay
 export const AIRCHAINPAY_SERVICE_UUID = '0000abcd-0000-1000-8000-00805f9b34fb';
@@ -73,6 +68,11 @@ export class BluetoothManager {
     this.advertisingEnhancements = BLEAdvertisingEnhancements.getInstance();
     this.advertisingSecurity = BLEAdvertisingSecurity.getInstance();
     this.advertisingMonitor = BLEAdvertisingMonitor.getInstance();
+    
+    // Safely import ReactNativeBleAdvertiser with fallback
+    this.initializeBleAdvertiser().catch(error => {
+      console.log('[BLE] Error initializing BLE advertiser:', error);
+    });
     
     // Generate a unique device name with the AirChainPay prefix
     this.deviceName = `${AIRCHAINPAY_DEVICE_PREFIX}-${Math.floor(Math.random() * 10000)}`;
@@ -136,10 +136,19 @@ export class BluetoothManager {
   /**
    * Initialize BLE advertiser - enhanced approach with better error handling and module detection
    */
-  private initializeBleAdvertiser(): void {
+  private async initializeBleAdvertiser(): Promise<void> {
     console.log('[BLE] Initializing BLE advertiser using tp-rn-ble-advertiser...');
     
     try {
+      // Try to dynamically import the module
+      try {
+        ReactNativeBleAdvertiser = await import('tp-rn-ble-advertiser').then(module => module.default || module);
+        console.log('[BLE] ReactNativeBleAdvertiser module imported successfully');
+      } catch {
+        console.log('[BLE] tp-rn-ble-advertiser module not available in current environment');
+        ReactNativeBleAdvertiser = null;
+      }
+      
       // Enhanced module detection
       let moduleAvailable = false;
       let moduleMethods = [];
