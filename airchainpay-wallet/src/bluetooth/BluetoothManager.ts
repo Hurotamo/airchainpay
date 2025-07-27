@@ -1,10 +1,17 @@
 import { Platform, PermissionsAndroid,  } from 'react-native';
 import { BleManager, Device, State, Service } from 'react-native-ble-plx';
-import ReactNativeBleAdvertiser from 'tp-rn-ble-advertiser';
 import { logger } from '../utils/Logger';
 import { BLEAdvertisingEnhancements } from './BLEAdvertisingEnhancements';
 import { BLEAdvertisingSecurity, SecurityConfig } from './BLEAdvertisingSecurity';
 import { BLEAdvertisingMonitor } from './BLEAdvertisingMonitor';
+
+// Safely import ReactNativeBleAdvertiser with fallback
+let ReactNativeBleAdvertiser: any = null;
+try {
+  ReactNativeBleAdvertiser = require('tp-rn-ble-advertiser');
+} catch (error) {
+  console.log('[BLE] tp-rn-ble-advertiser module not available in current environment');
+}
 
 // Define UUIDs for AirChainPay
 export const AIRCHAINPAY_SERVICE_UUID = '0000abcd-0000-1000-8000-00805f9b34fb';
@@ -155,17 +162,17 @@ export class BluetoothManager {
             console.log('[BLE] ✅ tp-rn-ble-advertiser initialized successfully');
             this.initializationError = null;
           } else {
-            console.error('[BLE] ❌ tp-rn-ble-advertiser module missing required methods');
+            console.log('[BLE] ⚠️ tp-rn-ble-advertiser module missing required methods, using fallback');
             console.log('[BLE] Required: startBroadcast, stopBroadcast');
             console.log('[BLE] Found:', { hasStartBroadcast, hasStopBroadcast });
             this.initializationError = 'tp-rn-ble-advertiser module missing required methods';
           }
         } else {
-          console.error('[BLE] ❌ ReactNativeBleAdvertiser is not an object:', typeof ReactNativeBleAdvertiser);
+          console.log('[BLE] ⚠️ ReactNativeBleAdvertiser is not an object:', typeof ReactNativeBleAdvertiser);
           this.initializationError = 'ReactNativeBleAdvertiser is not properly initialized';
         }
       } else {
-        console.error('[BLE] ❌ ReactNativeBleAdvertiser module not found');
+        console.log('[BLE] ⚠️ ReactNativeBleAdvertiser module not found, using fallback');
         this.initializationError = 'ReactNativeBleAdvertiser module not available';
       }
       
@@ -176,7 +183,7 @@ export class BluetoothManager {
       }
       
     } catch (error) {
-      console.error('[BLE] ❌ Error initializing tp-rn-ble-advertiser:', error);
+      console.log('[BLE] ⚠️ Error initializing tp-rn-ble-advertiser, using fallback:', error);
       this.initializationError = `tp-rn-ble-advertiser initialization error: ${error}`;
       this.createRobustFallbackAdvertiser();
     }
@@ -217,6 +224,8 @@ export class BluetoothManager {
     };
     
     console.log('[BLE] ✅ Robust fallback advertiser created');
+    console.log('[BLE] ℹ️ Note: This is a fallback implementation. Real BLE advertising requires the tp-rn-ble-advertiser module to be properly linked.');
+    this.initializationError = null;
   }
 
   public static getInstance(): BluetoothManager {
