@@ -321,16 +321,6 @@ export default function BLEPaymentScreen() {
     // Request BLE permissions for Android 12+ (minimal, direct)
     await bleManager.requestPermissionsEnhanced?.();
 
-    // Specifically request BLUETOOTH_ADVERTISE permission
-    const advertisePermission = await bleManager.requestBluetoothAdvertisePermission?.();
-    if (advertisePermission && !advertisePermission.granted) {
-      if (advertisePermission.needsSettingsRedirect) {
-        PermissionUtils.showBluetoothAdvertiseSettingsDialog();
-      } else if (advertisePermission.message) {
-        setAdvertisingError(advertisePermission.message);
-      }
-    }
-
     // Check if advertising is truly supported
     const trulySupported = await bleManager.isAdvertisingTrulySupported();
     if (!trulySupported) {
@@ -375,7 +365,22 @@ export default function BLEPaymentScreen() {
         const deviceName = bleManager.deviceName || 'unknown';
         logger.info(`User started BLE advertising at ${timestamp} (device: ${deviceName})`);
         
-        // Show warning if BLUETOOTH_ADVERTISE permission is missing
+        // Only show permission dialog if advertising failed due to permission issues
+        // If advertising succeeded, don't show the dialog even if BLUETOOTH_ADVERTISE is missing
+        if (!result.success && result.message && result.message.includes('BLUETOOTH_ADVERTISE')) {
+          setAdvertisingError(result.message);
+        }
+        
+        // Only handle settings redirect if advertising actually failed
+        if (!result.success && result.needsSettingsRedirect) {
+          PermissionUtils.showBluetoothAdvertiseSettingsDialog();
+        }
+      } else {
+        setAdvertisingError(result.message || 'Failed to start advertising');
+        setAdvertisingStatus('Advertising failed');
+        logger.error('[BLE] Advertising failed:', result.message);
+        
+        // Only show permission dialog if advertising failed due to permission issues
         if (result.message && result.message.includes('BLUETOOTH_ADVERTISE')) {
           setAdvertisingError(result.message);
         }
@@ -384,10 +389,6 @@ export default function BLEPaymentScreen() {
         if (result.needsSettingsRedirect) {
           PermissionUtils.showBluetoothAdvertiseSettingsDialog();
         }
-      } else {
-        setAdvertisingError(result.message || 'Failed to start advertising');
-        setAdvertisingStatus('Advertising failed');
-        logger.error('[BLE] Advertising failed:', result.message);
       }
     } catch (error: any) {
       const errorMsg = error?.message || 'Failed to start advertising';
@@ -995,14 +996,14 @@ export default function BLEPaymentScreen() {
                 <TouchableOpacity
                   style={[
                     styles.actionButton,
-                    isAdvertising && styles.buttonDisabled
+                    isAdvertising ? styles.buttonStop : styles.buttonStart
                   ]}
                   onPress={isAdvertising ? handleStopAdvertising : handleStartAdvertising}
-                  disabled={isAdvertising}
+                  disabled={false}
                 >
                   {isAdvertising ? (
                     <>
-                      <ActivityIndicator color="#fff" size="small" />
+                      <Ionicons name="stop-circle" size={20} color="#FFFFFF" />
                       <Text style={styles.actionButtonText}>Stop Advertising</Text>
                     </>
                   ) : (
@@ -1676,5 +1677,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#e67e22',
     flex: 1,
+  },
+  buttonStart: {
+    backgroundColor: '#2196F3',
+  },
+  buttonStop: {
+    backgroundColor: '#ff6b6b',
   },
 }); 

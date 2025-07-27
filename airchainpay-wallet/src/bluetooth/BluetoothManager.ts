@@ -876,7 +876,6 @@ export class BluetoothManager {
         
         return {
           success: true,
-          needsSettingsRedirect: permissionStatus.needsSettingsRedirect,
           message: permissionStatus.message
         };
       } catch (advertisingError) {
@@ -956,7 +955,7 @@ export class BluetoothManager {
         logger.warn('[BLE] BLUETOOTH_ADVERTISE permission missing, but continuing - some devices work without it');
         return {
           canAdvertise: true, // We can still try to advertise
-          needsSettingsRedirect: permissionResult.needsSettingsRedirect || false,
+          needsSettingsRedirect: false, // Don't show settings dialog if we can advertise
           message: 'BLUETOOTH_ADVERTISE permission is missing, but advertising will be attempted. Some devices may not work properly.'
         };
       }
