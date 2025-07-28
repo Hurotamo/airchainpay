@@ -254,3 +254,13 @@ try {
 - ⚠️ Fallback advertiser is simulation-only
 
 These TODOs will make the BLE module more robust and provide better error reporting when issues occur.
+ Checking native module setup...
+✅ Android directory found
+⚠️  BLE module not found in Android settings.gradle
+💡 Attempting to link BLE module...
+error: unknown command 'link'
+⚠️  Failed to link BLE module automatically: Command failed: npx react-native link react-native-ble-plx
+💡 Manual linking may be required
+⚠️  BLE module not found in Android build.gradle
+
+
