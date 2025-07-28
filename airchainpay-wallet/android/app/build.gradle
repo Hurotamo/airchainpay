@@ -174,4 +174,8 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+
+    // BLE Module dependencies
+    implementation project(':react-native-ble-plx')
+    implementation project(':tp-rn-ble-advertiser')
 }

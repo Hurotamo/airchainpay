@@ -37,3 +37,10 @@ expoAutolinking.useExpoVersionCatalog()
 
 include ':app'
 includeBuild(expoAutolinking.reactNativeGradlePlugin)
+
+// BLE Module includes
+include ':react-native-ble-plx'
+project(':react-native-ble-plx').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-ble-plx/android')
+
+include ':tp-rn-ble-advertiser'
+project(':tp-rn-ble-advertiser').projectDir = new File(rootProject.projectDir, '../node_modules/tp-rn-ble-advertiser/android')

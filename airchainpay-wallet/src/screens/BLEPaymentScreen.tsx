@@ -17,14 +17,11 @@ import {
   FlatList,
   Linking,
   Share,
-  TextInput,
-  KeyboardAvoidingView
+  TextInput
 } from 'react-native';
 import { logger } from '../utils/Logger';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
-import { getChainGradient } from '../../constants/Colors';
 
 
 import { useBLEManager } from '../hooks/wallet/useBLEManager';
@@ -1217,96 +1214,48 @@ export default function BLEPaymentScreen() {
         visible={showWhitelistModal}
         transparent={true}
         animationType="slide"
-        onRequestClose={() => setShowWhitelistModal(false)}
       >
-        <KeyboardAvoidingView 
-          style={styles.modalOverlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          <View style={styles.modalContainer}>
-            <LinearGradient
-              colors={getChainGradient(selectedChain) as any}
-              style={styles.modalGradient}
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Manage Whitelist</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter device ID to add"
+              value={whitelistInput}
+              onChangeText={setWhitelistInput}
+            />
+            <TouchableOpacity
+              style={styles.modalButton}
+              onPress={() => {
+                if (whitelistInput.trim()) {
+                  addDeviceToWhitelist(whitelistInput.trim());
+                  setWhitelistInput('');
+                }
+              }}
             >
-              <View style={styles.modalContent}>
-                <View style={styles.modalHeader}>
-                  <Ionicons name="shield-checkmark" size={48} color="#4CAF50" />
-                  <Text style={styles.modalTitle}>Manage Whitelist</Text>
-                  <Text style={styles.modalSubtitle}>
-                    Add or remove trusted devices from your whitelist
-                  </Text>
-                </View>
-                
-                <View style={styles.whitelistInputContainer}>
-                  <TextInput
-                    style={styles.whitelistInput}
-                    placeholder="Enter device ID to add"
-                    placeholderTextColor="rgba(255,255,255,0.5)"
-                    value={whitelistInput}
-                    onChangeText={setWhitelistInput}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-                  <TouchableOpacity
-                    style={styles.addDeviceButton}
-                    onPress={() => {
-                      if (whitelistInput.trim()) {
-                        addDeviceToWhitelist(whitelistInput.trim());
-                        setWhitelistInput('');
-                      }
-                    }}
-                    disabled={!whitelistInput.trim()}
-                  >
-                    <Ionicons name="add-circle" size={20} color="#FFFFFF" />
-                    <Text style={styles.addDeviceButtonText}>Add Device</Text>
+              <Text style={styles.confirmButtonText}>Add Device</Text>
+            </TouchableOpacity>
+            <Text style={{ marginTop: 16, fontWeight: 'bold' }}>Whitelisted Devices:</Text>
+            <FlatList
+              data={deviceWhitelist}
+              keyExtractor={id => id}
+              renderItem={({ item }) => (
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 4 }}>
+                  <Text style={{ flex: 1 }}>{item}</Text>
+                  <TouchableOpacity onPress={() => removeDeviceFromWhitelist(item)}>
+                    <Ionicons name="remove-circle" size={20} color="#b00020" />
                   </TouchableOpacity>
                 </View>
-                
-                <View style={styles.whitelistSection}>
-                  <Text style={styles.whitelistSectionTitle}>Whitelisted Devices</Text>
-                  {deviceWhitelist.length > 0 ? (
-                    <FlatList
-                      data={deviceWhitelist}
-                      keyExtractor={id => id}
-                      style={styles.whitelistList}
-                      renderItem={({ item }) => (
-                                                 <View style={styles.whitelistItem}>
-                           <View style={styles.whitelistDeviceInfo}>
-                             <Ionicons name="bluetooth" size={16} color="#4CAF50" />
-                             <Text style={styles.whitelistDeviceId}>{item}</Text>
-                           </View>
-                          <TouchableOpacity 
-                            style={styles.removeButton}
-                            onPress={() => removeDeviceFromWhitelist(item)}
-                          >
-                            <Ionicons name="remove-circle" size={20} color="#FF4757" />
-                          </TouchableOpacity>
-                        </View>
-                      )}
-                    />
-                  ) : (
-                    <View style={styles.emptyWhitelist}>
-                      <Ionicons name="list-outline" size={48} color="rgba(255,255,255,0.5)" />
-                      <Text style={styles.emptyWhitelistText}>No devices whitelisted</Text>
-                      <Text style={styles.emptyWhitelistSubtext}>
-                        Add trusted devices to enable secure connections
-                      </Text>
-                    </View>
-                  )}
-                </View>
-                
-                <View style={styles.modalButtons}>
-                  <TouchableOpacity
-                    style={[styles.modalButton, styles.modalButtonSecondary]}
-                    onPress={() => setShowWhitelistModal(false)}
-                  >
-                    <Text style={styles.modalButtonTextSecondary}>Close</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </LinearGradient>
+              )}
+            />
+            <TouchableOpacity
+              style={[styles.modalButton, styles.closeButton]}
+              onPress={() => setShowWhitelistModal(false)}
+            >
+              <Text style={styles.cancelButtonText}>Close</Text>
+            </TouchableOpacity>
           </View>
-        </KeyboardAvoidingView>
+        </View>
       </Modal>
     </ScrollView>
   );
@@ -1464,17 +1413,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#888',
   },
-  whitelistDeviceInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  whitelistDeviceId: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    marginLeft: 8,
-    flex: 1,
-  },
   deviceActions: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1565,120 +1503,16 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  modalContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    margin: 20,
-  },
-  modalGradient: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    width: '100%',
-    maxWidth: 400,
   },
   modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
     padding: 24,
+    margin: 20,
     alignItems: 'center',
-  },
-  modalHeader: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  modalSubtitle: {
-    fontSize: 16,
-    color: 'rgba(255,255,255,0.8)',
-    textAlign: 'center',
-    marginTop: 8,
-  },
-  whitelistInputContainer: {
-    width: '100%',
-    marginBottom: 24,
-  },
-  whitelistInput: {
-    height: 50,
-    borderColor: 'rgba(255,255,255,0.3)',
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    marginBottom: 12,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    color: '#FFFFFF',
-    fontSize: 16,
-  },
-  addDeviceButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
-  },
-  addDeviceButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-    marginLeft: 8,
-    fontSize: 16,
-  },
-  whitelistSection: {
-    width: '100%',
-    marginBottom: 24,
-  },
-  whitelistSectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 16,
-  },
-  whitelistList: {
-    maxHeight: 200,
-  },
-  whitelistItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-
-  removeButton: {
-    padding: 4,
-  },
-  emptyWhitelist: {
-    alignItems: 'center',
-    paddingVertical: 32,
-  },
-  emptyWhitelistText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.8)',
-    marginTop: 16,
-  },
-  emptyWhitelistSubtext: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.6)',
-    textAlign: 'center',
-    marginTop: 8,
-  },
-
-  modalButtonSecondary: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
-  },
-  modalButtonTextSecondary: {
-    color: '#FFFFFF',
-    fontWeight: '600',
   },
   modalTitle: {
     fontSize: 20,
