@@ -1,4 +1,5 @@
 import { logger } from '../utils/Logger';
+import { BLEPaymentPayload } from './BluetoothManager';
 
 /**
  * BLE Advertising Security
@@ -25,8 +26,8 @@ export interface SecurityMetrics {
 }
 
 interface Advertiser {
-  start: () => void;
-  stop: () => void;
+  startBroadcast: (data: string) => Promise<boolean>;
+  stopBroadcast: () => Promise<boolean>;
   isAdvertising: boolean;
   [key: string]: unknown;
 }
@@ -44,6 +45,55 @@ export class BLEAdvertisingSecurity {
       BLEAdvertisingSecurity.instance = new BLEAdvertisingSecurity();
     }
     return BLEAdvertisingSecurity.instance;
+  }
+
+  /**
+   * Create secure payment payload with encryption
+   */
+  createSecurePaymentPayload(
+    payload: BLEPaymentPayload,
+    securityConfig: SecurityConfig
+  ): { payload: BLEPaymentPayload; encrypted: boolean } {
+    if (!securityConfig.enableEncryption) {
+      return { payload, encrypted: false };
+    }
+
+    try {
+      // Create encrypted version of the payload
+      const encryptedPayload: BLEPaymentPayload = {
+        ...payload,
+        walletAddress: this.encryptString(payload.walletAddress, securityConfig.encryptionKey),
+        amount: payload.amount ? this.encryptString(payload.amount, securityConfig.encryptionKey) : undefined,
+        deviceName: this.encryptString(payload.deviceName, securityConfig.encryptionKey)
+      };
+
+      return { payload: encryptedPayload, encrypted: true };
+    } catch (error) {
+      logger.error('[BLE] Failed to encrypt payload:', error);
+      return { payload, encrypted: false };
+    }
+  }
+
+  /**
+   * Decrypt secure payment payload
+   */
+  decryptPaymentPayload(
+    payload: BLEPaymentPayload,
+    encryptionKey?: string
+  ): BLEPaymentPayload | null {
+    try {
+      const decryptedPayload: BLEPaymentPayload = {
+        ...payload,
+        walletAddress: this.decryptString(payload.walletAddress, encryptionKey),
+        amount: payload.amount ? this.decryptString(payload.amount, encryptionKey) : undefined,
+        deviceName: this.decryptString(payload.deviceName, encryptionKey)
+      };
+
+      return decryptedPayload;
+    } catch (error) {
+      logger.error('[BLE] Failed to decrypt payload:', error);
+      return null;
+    }
   }
 
   /**
@@ -125,6 +175,52 @@ export class BLEAdvertisingSecurity {
   }
 
   /**
+   * Encrypt string data
+   */
+  private encryptString(data: string, key?: string): string {
+    if (!key) {
+      return data;
+    }
+
+    try {
+      // Simple XOR encryption for demonstration
+      const keyBytes = Buffer.from(key, 'utf8');
+      const dataBytes = Buffer.from(data, 'utf8');
+      const encrypted = dataBytes.map((byte, index) => 
+        byte ^ keyBytes[index % keyBytes.length]
+      );
+      
+      return Buffer.from(encrypted).toString('base64');
+    } catch (error) {
+      logger.error('[BLE] String encryption failed', { error });
+      return data;
+    }
+  }
+
+  /**
+   * Decrypt string data
+   */
+  private decryptString(data: string, key?: string): string {
+    if (!key) {
+      return data;
+    }
+
+    try {
+      // XOR decryption (same as encryption)
+      const keyBytes = Buffer.from(key, 'utf8');
+      const dataBytes = Buffer.from(data, 'base64');
+      const decrypted = dataBytes.map((byte, index) => 
+        byte ^ keyBytes[index % keyBytes.length]
+      );
+      
+      return Buffer.from(decrypted).toString('utf8');
+    } catch (error) {
+      logger.error('[BLE] String decryption failed', { error });
+      return data;
+    }
+  }
+
+  /**
    * Generate authentication token
    */
   private generateAuthenticationToken(deviceName: string): string {
@@ -176,6 +272,62 @@ export class BLEAdvertisingSecurity {
   }
 
   /**
+   * Start secure advertising with payment payload
+   */
+  async startSecurePaymentAdvertising(
+    advertiser: Advertiser,
+    payload: BLEPaymentPayload,
+    securityConfig: SecurityConfig
+  ): Promise<{ success: boolean; error?: string; sessionId?: string }> {
+    const sessionId = `${payload.deviceName}-${Date.now()}`;
+    
+    try {
+      // Initialize security metrics
+      this.initializeSecurityMetrics(sessionId);
+
+      // Create secure payload
+      const { payload: securePayload, encrypted } = this.createSecurePaymentPayload(payload, securityConfig);
+
+      // Create secure advertising message
+      const secureAdvertisingMessage = JSON.stringify({
+        ...securePayload,
+        encrypted,
+        authenticationToken: securityConfig.enableAuthentication ? 
+          this.generateAuthenticationToken(payload.deviceName) : null,
+        securityVersion: '1.0'
+      });
+      
+      // Start advertising
+      const result = await advertiser.startBroadcast(secureAdvertisingMessage);
+
+      if (result) {
+        // Record successful security metrics
+        if (encrypted) {
+          this.recordSecuritySuccess(sessionId, 'encryption');
+        }
+        if (securityConfig.enableAuthentication) {
+          this.recordSecuritySuccess(sessionId, 'authentication');
+        }
+
+        logger.info('[BLE] Secure payment advertising started', { sessionId, deviceName: payload.deviceName });
+        
+        return { success: true, sessionId };
+      } else {
+        const error = 'Failed to start secure advertising';
+        this.recordSecurityError(sessionId, error);
+        return { success: false, error, sessionId };
+      }
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.recordSecurityError(sessionId, errorMessage);
+      logger.error('[BLE] Secure payment advertising failed', { sessionId, error: errorMessage });
+      
+      return { success: false, error: errorMessage, sessionId };
+    }
+  }
+
+  /**
    * Start secure advertising
    */
   async startSecureAdvertising(
@@ -209,15 +361,21 @@ export class BLEAdvertisingSecurity {
         authenticationToken: config.authenticationToken || null
       });
       
-      await advertiser.start();
+      const result = await advertiser.startBroadcast(secureAdvertisingMessage);
 
-      // Record successful security metrics
-      this.recordSecuritySuccess(sessionId, 'encryption');
-      this.recordSecuritySuccess(sessionId, 'authentication');
+      if (result) {
+        // Record successful security metrics
+        this.recordSecuritySuccess(sessionId, 'encryption');
+        this.recordSecuritySuccess(sessionId, 'authentication');
 
-      logger.info('[BLE] Secure advertising started', { sessionId, deviceName });
-      
-      return { success: true, sessionId };
+        logger.info('[BLE] Secure advertising started', { sessionId, deviceName });
+        
+        return { success: true, sessionId };
+      } else {
+        const error = 'Failed to start secure advertising';
+        this.recordSecurityError(sessionId, error);
+        return { success: false, error, sessionId };
+      }
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -236,7 +394,7 @@ export class BLEAdvertisingSecurity {
     sessionId: string
   ): Promise<{ success: boolean; error?: string }> {
     try {
-      await advertiser.stop();
+      const result = await advertiser.stopBroadcast();
       
       // Clean up security data
       this.cleanupSecurityData(sessionId);

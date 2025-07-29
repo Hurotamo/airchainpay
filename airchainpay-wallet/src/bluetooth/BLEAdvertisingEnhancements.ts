@@ -1,9 +1,10 @@
 import { Platform } from 'react-native';
 import { logger } from '../utils/Logger';
+import { BLEPaymentPayload } from './BluetoothManager';
 
 /**
- * BLE Advertising 
- * 
+ * BLE Advertising Enhancements
+ * Handles enhanced advertising features for offline BLE communication
  */
 
 export interface AdvertisingConfig {
@@ -17,6 +18,7 @@ export interface AdvertisingConfig {
   connectable: boolean;
   timeout?: number;
   interval?: number;
+  payload?: BLEPaymentPayload;
 }
 
 export interface AdvertisingMetrics {
@@ -26,11 +28,12 @@ export interface AdvertisingMetrics {
   success: boolean;
   errorCount: number;
   restartCount: number;
+  payloadTransmitted?: boolean;
 }
 
 interface Advertiser {
-  start: () => void;
-  stop: () => void;
+  startBroadcast: (data: string) => Promise<boolean>;
+  stopBroadcast: () => Promise<boolean>;
   isAdvertising: boolean;
   [key: string]: unknown;
 }
@@ -52,6 +55,30 @@ export class BLEAdvertisingEnhancements {
   }
 
   /**
+   * Create advertising configuration optimized for payment payload
+   */
+  createPaymentAdvertisingConfig(
+    deviceName: string, 
+    serviceUUID: string,
+    payload: BLEPaymentPayload
+  ): AdvertisingConfig {
+    return {
+      deviceName,
+      serviceUUID,
+      manufacturerData: Buffer.from(JSON.stringify(payload), 'utf8').toJSON().data,
+      txPowerLevel: -12, // Typical BLE power level
+      advertiseMode: 0, // ADVERTISE_MODE_BALANCED
+      includeDeviceName: true,
+      includeTxPowerLevel: true,
+      connectable: true,
+      timeout: 60000, // 60 seconds auto-stop
+      interval: 100, // 100ms advertising interval for faster discovery
+      payload
+    };
+  }
+
+  /**
+   * Create basic advertising configuration
    */
   createAdvertisingConfig(deviceName: string, serviceUUID: string): AdvertisingConfig {
     return {
@@ -98,10 +125,63 @@ export class BLEAdvertisingEnhancements {
       errors.push('Advertising interval must be between 20ms and 10240ms');
     }
 
+    // Validate payload if present
+    if (config.payload) {
+      if (!config.payload.walletAddress) {
+        errors.push('Payload wallet address is required');
+      }
+      if (!config.payload.timestamp) {
+        errors.push('Payload timestamp is required');
+      }
+    }
+
     return {
       valid: errors.length === 0,
       errors
     };
+  }
+
+  /**
+   * Start advertising with payment payload using tp-rn-ble-advertiser
+   */
+  async startPaymentAdvertising(
+    advertiser: Advertiser,
+    payload: BLEPaymentPayload,
+    sessionId: string
+  ): Promise<{ success: boolean; error?: string }> {
+    const startTime = Date.now();
+    
+    try {
+      // Check platform support
+      if (Platform.OS !== 'android') {
+        const error = 'BLE advertising is only supported on Android';
+        this.recordMetrics(sessionId, startTime, false, error);
+        return { success: false, error };
+      }
+
+      // Create advertising message
+      const advertisingMessage = JSON.stringify(payload);
+      
+      // Start advertising using tp-rn-ble-advertiser
+      const result = await advertiser.startBroadcast(advertisingMessage);
+      
+      if (result) {
+        this.recordMetrics(sessionId, startTime, true, undefined, true);
+        logger.info('[BLE] Payment advertising started successfully', { sessionId, payload });
+        return { success: true };
+      } else {
+        const error = 'Failed to start advertising - no result from startBroadcast';
+        this.recordMetrics(sessionId, startTime, false, error);
+        return { success: false, error };
+      }
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.recordMetrics(sessionId, startTime, false, errorMessage);
+      logger.error('[BLE] Payment advertising failed', { sessionId, error: errorMessage });
+      
+      return { success: false, error: errorMessage };
+    }
   }
 
   /**
@@ -130,13 +210,32 @@ export class BLEAdvertisingEnhancements {
         return { success: false, error };
       }
 
-      // Start advertising using tp-rn-ble-advertiser
-      await advertiser.start();
+      // Create advertising message
+      let advertisingMessage: string;
+      if (config.payload) {
+        advertisingMessage = JSON.stringify(config.payload);
+      } else {
+        advertisingMessage = JSON.stringify({
+          name: config.deviceName,
+          serviceUUID: config.serviceUUID,
+          type: 'AirChainPay',
+          version: '1.0.0',
+          timestamp: Date.now()
+        });
+      }
 
-      this.recordMetrics(sessionId, startTime, true);
-      logger.info('[BLE] Enhanced advertising started successfully', { sessionId, config });
+      // Start advertising using tp-rn-ble-advertiser
+      const result = await advertiser.startBroadcast(advertisingMessage);
       
-      return { success: true };
+      if (result) {
+        this.recordMetrics(sessionId, startTime, true, undefined, !!config.payload);
+        logger.info('[BLE] Enhanced advertising started successfully', { sessionId, config });
+        return { success: true };
+      } else {
+        const error = 'Failed to start advertising - no result from startBroadcast';
+        this.recordMetrics(sessionId, startTime, false, error);
+        return { success: false, error };
+      }
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -155,7 +254,7 @@ export class BLEAdvertisingEnhancements {
     sessionId: string
   ): Promise<{ success: boolean; error?: string }> {
     try {
-      await advertiser.stop();
+      const result = await advertiser.stopBroadcast();
       
       // Update metrics
       const metrics = this.metrics.get(sessionId);
@@ -250,11 +349,13 @@ export class BLEAdvertisingEnhancements {
     failedSessions: number;
     averageDuration: number;
     totalRestarts: number;
+    payloadTransmissions: number;
   } {
     const sessions = Array.from(this.metrics.values());
     const successfulSessions = sessions.filter(s => s.success);
     const failedSessions = sessions.filter(s => !s.success);
     const totalRestarts = sessions.reduce((sum, s) => sum + s.restartCount, 0);
+    const payloadTransmissions = sessions.filter(s => s.payloadTransmitted).length;
     const averageDuration = sessions.length > 0 
       ? sessions.reduce((sum, s) => sum + s.duration, 0) / sessions.length 
       : 0;
@@ -264,7 +365,8 @@ export class BLEAdvertisingEnhancements {
       successfulSessions: successfulSessions.length,
       failedSessions: failedSessions.length,
       averageDuration,
-      totalRestarts
+      totalRestarts,
+      payloadTransmissions
     };
   }
 
@@ -283,14 +385,16 @@ export class BLEAdvertisingEnhancements {
     sessionId: string, 
     startTime: number, 
     success: boolean, 
-    error?: string
+    error?: string,
+    payloadTransmitted?: boolean
   ): void {
     const metrics: AdvertisingMetrics = {
       startTime,
       success,
       errorCount: error ? 1 : 0,
       restartCount: 0,
-      duration: 0
+      duration: 0,
+      payloadTransmitted
     };
 
     this.metrics.set(sessionId, metrics);
