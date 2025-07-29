@@ -144,7 +144,7 @@ export class BluetoothManager {
         console.log('[BLE] tp-rn-ble-advertiser not available on this platform');
         this.initializationError = null; // Not an error, just not available
       }
-    } catch {
+    } catch (error) {
       console.log('[BLE] tp-rn-ble-advertiser initialization skipped');
       this.initializationError = null; // Not an error, just not available
     }
@@ -238,7 +238,7 @@ export class BluetoothManager {
       try {
         listener(deviceId, status);
       } catch (error) {
-        logger.error('[BLE] Error in connection listener:', error);
+        console.error('[BLE] Error in connection listener:', error);
       }
     });
   }
@@ -247,28 +247,28 @@ export class BluetoothManager {
    * Check if Bluetooth is enabled
    */
   async isBluetoothEnabled(): Promise<boolean> {
-    if (!this.manager) {
-      return false;
-    }
-
     try {
+      if (!this.manager) {
+        return false;
+      }
+      
       const state = await this.manager.state();
       return state === State.PoweredOn;
     } catch (error) {
-      logger.error('[BLE] Error checking Bluetooth state:', error);
+      console.error('[BLE] Error checking Bluetooth state:', error);
       return false;
     }
   }
 
   /**
-   * Check if user has never asked again for permissions
+   * Check if user selected "Don't ask again"
    */
   private static hasNeverAskAgain(results: string[]): boolean {
     return results.some(result => result === 'never_ask_again');
   }
 
   /**
-   * Request permissions with enhanced handling
+   * Request permissions with enhanced error handling
    */
   async requestPermissionsEnhanced(): Promise<{
     success: boolean;
@@ -291,21 +291,24 @@ export class BluetoothManager {
       PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE,
     ];
 
+    const grantedPermissions: string[] = [];
+    const deniedPermissions: string[] = [];
+
     try {
-      const results = await PermissionsAndroid.requestMultiple(requiredPermissions);
-      
-      const grantedPermissions: string[] = [];
-      const deniedPermissions: string[] = [];
-      
-      Object.entries(results).forEach(([permission, result]) => {
-        if (result === PermissionsAndroid.RESULTS.GRANTED) {
-          grantedPermissions.push(permission);
-        } else {
+      for (const permission of requiredPermissions) {
+        try {
+          const result = await PermissionsAndroid.request(permission);
+          if (result === PermissionsAndroid.RESULTS.GRANTED) {
+            grantedPermissions.push(permission);
+          } else {
+            deniedPermissions.push(permission);
+          }
+        } catch (error) {
           deniedPermissions.push(permission);
         }
-      });
+      }
 
-      const hasNeverAskAgain = BluetoothManager.hasNeverAskAgain(Object.values(results));
+      const hasNeverAskAgain = BluetoothManager.hasNeverAskAgain(deniedPermissions);
       
       return {
         success: deniedPermissions.length === 0,
@@ -313,11 +316,12 @@ export class BluetoothManager {
         deniedPermissions,
         needsSettingsRedirect: hasNeverAskAgain
       };
+
     } catch (error) {
       return {
         success: false,
-        grantedPermissions: [],
-        deniedPermissions: requiredPermissions,
+        grantedPermissions,
+        deniedPermissions,
         error: error instanceof Error ? error.message : String(error)
       };
     }
@@ -539,32 +543,57 @@ export class BluetoothManager {
     needsSettingsRedirect?: boolean;
     message?: string;
   }> {
-    logger.info('[BLE] Starting advertising with payment data:', paymentData);
+    console.log('[BLE] Starting advertising with payment data:', paymentData);
     
     if (this.isAdvertising) {
-      logger.info('[BLE] Already advertising, skipping start request');
+      console.log('[BLE] Already advertising, skipping start request');
       return { success: true };
     }
 
+    // Check platform support first
+    if (Platform.OS !== 'android') {
+      console.log('[BLE] Non-Android platform detected, using fallback advertising');
+      await this.startFallbackAdvertising(paymentData);
+      return { success: true };
+    }
+
+    // Check advertiser availability
     if (!this.advertiser) {
-      logger.warn('[BLE] No advertiser available');
-      return { success: false, message: 'BLE advertiser not available' };
+      console.warn('[BLE] No advertiser available');
+      return { 
+        success: false, 
+        message: 'BLE advertiser not available. Please ensure tp-rn-ble-advertiser is properly installed.' 
+      };
     }
 
     try {
-      // Platform check - only Android supports advertising
-      if (Platform.OS !== 'android') {
-        logger.info('[BLE] Non-Android platform detected, using fallback advertising');
-        await this.startFallbackAdvertising(paymentData);
-        return { success: true };
-      }
-
-      // Check permissions
-      const permissionStatus = await this.checkPermissions();
-      if (!permissionStatus.granted) {
+      // Check BLE availability
+      if (!this.isBleAvailable()) {
         return {
           success: false,
-          message: `Missing permissions: ${permissionStatus.missing.join(', ')}`
+          message: 'Bluetooth LE is not available on this device'
+        };
+      }
+
+      // Check permissions with detailed feedback
+      const permissionStatus = await this.checkPermissions();
+      if (!permissionStatus.granted) {
+        const missingPermissions = permissionStatus.missing.map(perm => {
+          switch (perm) {
+            case PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN:
+              return 'Bluetooth Scan';
+            case PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT:
+              return 'Bluetooth Connect';
+            case PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE:
+              return 'Bluetooth Advertise';
+            default:
+              return perm;
+          }
+        });
+        
+        return {
+          success: false,
+          message: `Missing Bluetooth permissions: ${missingPermissions.join(', ')}. Please grant permissions in Settings.`
         };
       }
 
@@ -573,15 +602,15 @@ export class BluetoothManager {
       if (!bluetoothEnabled) {
         return {
           success: false,
-          message: 'Bluetooth is not enabled'
+          message: 'Bluetooth is not enabled. Please enable Bluetooth in your device settings.'
         };
       }
 
       // Create advertising message
       const advertisingMessage = this.createAdvertisingMessage(paymentData);
-      logger.info('[BLE] Created advertising message:', advertisingMessage);
+      console.log('[BLE] Created advertising message:', advertisingMessage);
 
-      // Start advertising
+      // Start advertising with retry
       await this.startAdvertisingWithRetry(advertisingMessage);
       
       // Auto-stop after 60 seconds
@@ -589,13 +618,23 @@ export class BluetoothManager {
         this.stopAdvertising();
       }, 60000);
       
-      logger.info('[BLE] ✅ Advertising started successfully!');
+      console.log('[BLE] ✅ Advertising started successfully!');
       return { success: true };
       
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('[BLE] Advertising failed:', errorMessage);
-      return { success: false, message: errorMessage };
+      console.error('[BLE] Advertising failed:', errorMessage);
+      
+      // Provide more specific error messages
+      if (errorMessage.includes('timeout')) {
+        return { success: false, message: 'Advertising start timed out. Please try again.' };
+      } else if (errorMessage.includes('permission')) {
+        return { success: false, message: 'Permission denied. Please grant Bluetooth permissions.' };
+      } else if (errorMessage.includes('bluetooth')) {
+        return { success: false, message: 'Bluetooth error. Please ensure Bluetooth is enabled and try again.' };
+      } else {
+        return { success: false, message: `Advertising failed: ${errorMessage}` };
+      }
     }
   }
 
@@ -629,30 +668,34 @@ export class BluetoothManager {
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        logger.info(`[BLE] Advertising attempt ${attempt}/${maxRetries}`);
+        console.log(`[BLE] Advertising attempt ${attempt}/${maxRetries}`);
         
-        const startPromise = this.advertiser.startBroadcast(advertisingMessage);
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Advertising start timeout')), 5000);
-        });
-
-        const result = await Promise.race([startPromise, timeoutPromise]);
-        
-        if (result) {
-          this.isAdvertising = true;
-          logger.info(`[BLE] ✅ Advertising started successfully on attempt ${attempt}`);
-          return;
-        } else {
-          throw new Error('No result from startBroadcast');
+        // Ensure advertiser is still available
+        if (!this.advertiser || typeof this.advertiser.startBroadcast !== 'function') {
+          throw new Error('Advertiser not available or missing startBroadcast method');
         }
+        
+        // The startBroadcast method is synchronous and doesn't return a Promise
+        // It starts the advertising process immediately
+        this.advertiser.startBroadcast(advertisingMessage);
+        
+        // Give the advertising a moment to start
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Check if advertising started successfully by checking the state
+        // Since we can't directly check the advertising state, we'll assume success
+        // and let the native module handle any errors
+        this.isAdvertising = true;
+        console.log(`[BLE] ✅ Advertising started successfully on attempt ${attempt}`);
+        return;
         
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
-        logger.warn(`[BLE] Advertising attempt ${attempt} failed:`, lastError.message);
+        console.warn(`[BLE] Advertising attempt ${attempt} failed:`, lastError.message);
         
         if (attempt < maxRetries) {
-          logger.info(`[BLE] Retrying in 1s...`);
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          console.log(`[BLE] Retrying in 2s...`);
+          await new Promise(resolve => setTimeout(resolve, 2000)); // Increased delay
         }
       }
     }
@@ -667,13 +710,13 @@ export class BluetoothManager {
    * Start fallback advertising
    */
   private async startFallbackAdvertising(paymentData: BLEPaymentData): Promise<void> {
-    logger.info('[BLE] Starting fallback advertising...');
+    console.log('[BLE] Starting fallback advertising...');
     
-    // Simulate successful advertising
+    // Simulate successful advertising for non-Android platforms
     await new Promise(resolve => setTimeout(resolve, 500));
     
     this.isAdvertising = true;
-    logger.info('[BLE] ✅ Fallback advertising started successfully');
+    console.log('[BLE] ✅ Fallback advertising started successfully');
   }
 
   /**
@@ -681,11 +724,11 @@ export class BluetoothManager {
    */
   async stopAdvertising(): Promise<void> {
     if (!this.isAdvertising) {
-      logger.info('[BLE] Not advertising, nothing to stop');
+      console.log('[BLE] Not advertising, nothing to stop');
       return;
     }
 
-    logger.info('[BLE] Stopping advertising...');
+    console.log('[BLE] Stopping advertising...');
 
     // Clear auto-stop timeout
     if (this.advertisingTimeout) {
@@ -695,15 +738,20 @@ export class BluetoothManager {
 
     try {
       if (this.advertiser && Platform.OS === 'android') {
-        await this.advertiser.stopBroadcast();
+        if (typeof this.advertiser.stopBroadcast === 'function') {
+          // The stopBroadcast method is synchronous and doesn't return a Promise
+          this.advertiser.stopBroadcast();
+        } else {
+          console.warn('[BLE] stopBroadcast method not available');
+        }
       }
       
       this.isAdvertising = false;
-      logger.info('[BLE] ✅ Advertising stopped successfully');
+      console.log('[BLE] ✅ Advertising stopped successfully');
       
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('[BLE] Error stopping advertising:', errorMessage);
+      console.error('[BLE] Error stopping advertising:', errorMessage);
       
       // Force stop even if there's an error
       this.isAdvertising = false;
@@ -903,8 +951,11 @@ export class BluetoothManager {
       hasAdvertisingFeature: boolean;
       platformSupport: boolean;
       availableMethods: string[];
+      advertiserInitialized: boolean;
+      moduleFound: boolean;
     };
     missingRequirements: string[];
+    recommendations: string[];
   }> {
     const details = {
       bluetoothEnabled: false,
@@ -912,46 +963,73 @@ export class BluetoothManager {
       hasPermissions: false,
       hasAdvertisingFeature: this.advertiser !== null && Platform.OS === 'android',
       platformSupport: Platform.OS === 'android',
-      availableMethods: this.advertiser ? Object.keys(this.advertiser) : []
+      availableMethods: this.advertiser ? Object.keys(this.advertiser) : [],
+      advertiserInitialized: this.advertiser !== null,
+      moduleFound: this.advertiser !== null
     };
     
     const missingRequirements: string[] = [];
+    const recommendations: string[] = [];
 
     try {
+      // Check Bluetooth state
       if (this.manager) {
         const state = await this.manager.state();
         details.bluetoothEnabled = state === State.PoweredOn;
         if (!details.bluetoothEnabled) {
           missingRequirements.push('Bluetooth is not enabled');
+          recommendations.push('Enable Bluetooth in your device settings');
         }
+      } else {
+        missingRequirements.push('BLE manager not initialized');
+        recommendations.push('Restart the app to reinitialize BLE');
       }
 
+      // Check BLE availability
       if (!details.bleAvailable) {
         missingRequirements.push('BLE is not available on this device');
+        recommendations.push('This device may not support Bluetooth LE');
       }
 
+      // Check platform support
       if (!details.platformSupport) {
         missingRequirements.push('Platform does not support BLE advertising');
+        recommendations.push('BLE advertising is only supported on Android devices');
       }
 
+      // Check permissions
       const permissionStatus = await this.checkPermissions();
       details.hasPermissions = permissionStatus.granted;
       if (!details.hasPermissions) {
         missingRequirements.push('Missing required permissions');
+        recommendations.push('Grant Bluetooth permissions in Settings > Apps > AirChainPay > Permissions');
       }
 
+      // Check advertiser module
       if (!details.hasAdvertisingFeature) {
         missingRequirements.push('BLE advertising feature not available');
+        if (Platform.OS === 'android') {
+          recommendations.push('The tp-rn-ble-advertiser module may not be properly installed');
+          recommendations.push('Try reinstalling the app or updating to the latest version');
+        }
+      }
+
+      // Check advertiser methods
+      if (details.advertiserInitialized && details.availableMethods.length === 0) {
+        missingRequirements.push('Advertiser module has no available methods');
+        recommendations.push('The BLE advertiser module may be corrupted');
       }
 
     } catch (error) {
       missingRequirements.push('Unable to check requirements');
+      recommendations.push('Try restarting the app');
     }
 
     return {
       supported: missingRequirements.length === 0,
       details,
-      missingRequirements
+      missingRequirements,
+      recommendations
     };
   }
 

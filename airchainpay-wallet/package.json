@@ -34,7 +34,8 @@
     "test-camera": "node ./scripts/test-camera-fix.js",
     "test-apk-readiness": "node ./scripts/test-apk-readiness.js",
     "test-ble-resolution": "node ./scripts/test-ble-module-resolution.js",
-    "verify-ble-fix": "node ./scripts/verify-ble-fix.js"
+    "verify-ble-fix": "node ./scripts/verify-ble-fix.js",
+    "test-ble-advertising-fix": "node ./scripts/test-ble-advertising-fix.js"
   },
   "dependencies": {
     "@adraffy/ens-normalize": "1.11.0",

@@ -438,6 +438,96 @@ export class BLEPaymentService {
   }
 
   /**
+   * Run comprehensive BLE advertising diagnostics
+   */
+  async runAdvertisingDiagnostics(): Promise<{
+    supported: boolean;
+    issues: string[];
+    recommendations: string[];
+    details: {
+      platform: string;
+      bluetoothEnabled: boolean;
+      bleAvailable: boolean;
+      permissionsGranted: boolean;
+      advertiserAvailable: boolean;
+      moduleMethods: string[];
+    };
+  }> {
+    const issues: Array<string> = [];
+    const recommendations: Array<string> = [];
+    
+    const details = {
+      platform: Platform.OS,
+      bluetoothEnabled: false,
+      bleAvailable: this.isBleAvailable(),
+      permissionsGranted: false,
+      advertiserAvailable: this.isAdvertisingSupported(),
+      moduleMethods: [] as string[]
+    };
+
+    try {
+      // Check platform
+      if (Platform.OS !== 'android') {
+        issues.push('BLE advertising is only supported on Android devices');
+        recommendations.push('Use an Android device for BLE advertising functionality');
+        return { supported: false, issues, recommendations, details };
+      }
+
+      // Check BLE availability
+      if (!details.bleAvailable) {
+        issues.push('Bluetooth LE is not available on this device');
+        recommendations.push('This device may not support Bluetooth LE');
+      }
+
+      // Check Bluetooth state
+      const bleStatus = await this.getBleStatus();
+      details.bluetoothEnabled = bleStatus.available;
+      if (!details.bluetoothEnabled) {
+        issues.push('Bluetooth is not enabled');
+        recommendations.push('Enable Bluetooth in your device settings');
+      }
+
+      // Check permissions
+      const permissionStatus = await this.bleManager.checkPermissions();
+      details.permissionsGranted = permissionStatus.granted;
+      if (!details.permissionsGranted) {
+        issues.push('Missing Bluetooth permissions');
+        recommendations.push('Grant Bluetooth permissions in Settings > Apps > AirChainPay > Permissions');
+      }
+
+      // Check advertiser module
+      if (!details.advertiserAvailable) {
+        issues.push('BLE advertiser module not available');
+        recommendations.push('The tp-rn-ble-advertiser module may not be properly installed');
+        recommendations.push('Try reinstalling the app or updating to the latest version');
+      }
+
+      // Get detailed advertising support info
+      const advertisingSupport = await this.bleManager.checkAdvertisingSupport();
+      details.moduleMethods = advertisingSupport.details.availableMethods;
+      
+      if (advertisingSupport.missingRequirements.length > 0) {
+        issues.push(...advertisingSupport.missingRequirements);
+      }
+      
+      if (advertisingSupport.recommendations.length > 0) {
+        recommendations.push(...advertisingSupport.recommendations);
+      }
+
+    } catch (error) {
+      issues.push('Unable to run diagnostics');
+      recommendations.push('Try restarting the app');
+    }
+
+    return {
+      supported: issues.length === 0,
+      issues,
+      recommendations,
+      details
+    };
+  }
+
+  /**
    * Clean up resources
    */
   destroy(): void {

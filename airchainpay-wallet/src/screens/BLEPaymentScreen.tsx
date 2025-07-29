@@ -214,6 +214,31 @@ export default function BLEPaymentScreen() {
     }
   };
 
+  // Run diagnostics
+  const handleRunDiagnostics = async () => {
+    try {
+      setAdvertisingStatus('Running diagnostics...');
+      setAdvertisingError(null);
+      
+      const diagnostics = await blePaymentService.runAdvertisingDiagnostics();
+      
+      if (diagnostics.supported) {
+        setAdvertisingStatus('✅ All systems ready for advertising');
+        setAdvertisingError(null);
+      } else {
+        setAdvertisingStatus('❌ Issues detected');
+        setAdvertisingError(`Issues found:\n${diagnostics.issues.join('\n')}\n\nRecommendations:\n${diagnostics.recommendations.join('\n')}`);
+      }
+      
+      logger.info('[BLE Payment] Diagnostics completed:', diagnostics);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setAdvertisingError(`Diagnostics failed: ${errorMessage}`);
+      setAdvertisingStatus('Diagnostics failed');
+      logger.error('[BLE Payment] Diagnostics error:', error);
+    }
+  };
+
   // Stop advertising
   const handleStopAdvertising = async () => {
     try {
@@ -443,6 +468,20 @@ export default function BLEPaymentScreen() {
           />
           <Text style={styles.advertiseButtonText}>
             {isAdvertising ? 'Stop Advertising' : 'Start Advertising'}
+          </Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity
+          style={[styles.diagnosticButton]}
+          onPress={handleRunDiagnostics}
+        >
+          <Ionicons 
+            name="bug" 
+            size={16} 
+            color="#666" 
+          />
+          <Text style={styles.diagnosticButtonText}>
+            Run Diagnostics
           </Text>
         </TouchableOpacity>
         
@@ -776,6 +815,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     marginLeft: 10,
+  },
+  diagnosticButton: {
+    backgroundColor: '#f0f0f0',
+    padding: 10,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  diagnosticButtonText: {
+    color: '#666',
+    fontSize: 14,
+    marginLeft: 8,
   },
   advertisingStatus: {
     textAlign: 'center',
