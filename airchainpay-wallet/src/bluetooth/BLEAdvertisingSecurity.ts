@@ -1,44 +1,41 @@
+import { Platform } from 'react-native';
 import { logger } from '../utils/Logger';
+import { BLEPaymentData, SupportedToken, SUPPORTED_TOKENS } from './BluetoothManager';
 
 /**
- * BLE Advertising Security
- * Handles encryption, authentication, and security for BLE advertising
+ * Security configuration for BLE advertising
  */
-
 export interface SecurityConfig {
   enableEncryption: boolean;
   enableAuthentication: boolean;
   encryptionKey?: string;
   authenticationToken?: string;
-  sessionTimeout: number;
-  maxRetries: number;
 }
 
-export interface SecurityMetrics {
-  encryptionAttempts: number;
-  authenticationAttempts: number;
-  successfulEncryptions: number;
-  successfulAuthentications: number;
-  failedEncryptions: number;
-  failedAuthentications: number;
-  securityErrors: string[];
-}
-
-interface Advertiser {
-  start: () => void;
-  stop: () => void;
-  isAdvertising: boolean;
-  [key: string]: unknown;
+/**
+ * BLE Advertising Security for simplified payment data
+ */
+export interface Advertiser {
+  startBroadcast(message: string): Promise<any>;
+  stopBroadcast(): Promise<any>;
 }
 
 export class BLEAdvertisingSecurity {
   private static instance: BLEAdvertisingSecurity | null = null;
-  private metrics: Map<string, SecurityMetrics> = new Map();
-  private sessionTokens: Map<string, { token: string; expiresAt: number }> = new Map();
-  private encryptionKeys: Map<string, string> = new Map();
+  private securityMetrics: Map<string, {
+    startTime: number;
+    endTime?: number;
+    success: boolean;
+    encryptionSuccess: boolean;
+    authenticationSuccess: boolean;
+    error?: string;
+  }> = new Map();
 
   private constructor() {}
 
+  /**
+   * Get singleton instance
+   */
   public static getInstance(): BLEAdvertisingSecurity {
     if (!BLEAdvertisingSecurity.instance) {
       BLEAdvertisingSecurity.instance = new BLEAdvertisingSecurity();
@@ -52,21 +49,27 @@ export class BLEAdvertisingSecurity {
   createSecureAdvertisingConfig(
     deviceName: string,
     serviceUUID: string,
+    paymentData: BLEPaymentData,
     securityConfig: SecurityConfig
   ): { config: Record<string, unknown>; security: SecurityConfig } {
     const baseConfig: Record<string, unknown> = {
       deviceName,
       serviceUUID,
-      manufacturerData: this.encryptManufacturerData(
-        Buffer.from('AirChainPay', 'utf8').toJSON().data,
-        securityConfig.encryptionKey
-      ),
-      txPowerLevel: -12,
-      advertiseMode: 0,
-      includeDeviceName: securityConfig.enableAuthentication,
-      includeTxPowerLevel: true,
-      connectable: true
+      paymentData: {
+        walletAddress: paymentData.walletAddress,
+        amount: paymentData.amount,
+        token: paymentData.token,
+        chainId: paymentData.chainId,
+        timestamp: paymentData.timestamp
+      },
+      timestamp: Date.now()
     };
+
+    // Add encryption if enabled
+    if (securityConfig.enableEncryption && securityConfig.encryptionKey) {
+      baseConfig.encrypted = true;
+      baseConfig.encryptionKey = this.generateEncryptionKey(securityConfig.encryptionKey);
+    }
 
     // Add authentication token if enabled
     if (securityConfig.enableAuthentication && securityConfig.authenticationToken) {
@@ -80,111 +83,17 @@ export class BLEAdvertisingSecurity {
   }
 
   /**
-   * Encrypt manufacturer data
-   */
-  private encryptManufacturerData(data: number[], key?: string): number[] {
-    if (!key) {
-      return data; // No encryption if no key provided
-    }
-
-    try {
-      // Simple XOR encryption for demonstration
-      // In production, use proper encryption like AES
-      const keyBytes = Buffer.from(key, 'utf8');
-      const encrypted = data.map((byte, index) => 
-        byte ^ keyBytes[index % keyBytes.length]
-      );
-      
-      return encrypted;
-    } catch (error) {
-      logger.error('[BLE] Encryption failed', { error });
-      return data; // Return original data if encryption fails
-    }
-  }
-
-  /**
-   * Decrypt manufacturer data
-   */
-  decryptManufacturerData(data: number[], key?: string): number[] {
-    if (!key) {
-      return data; // No decryption if no key provided
-    }
-
-    try {
-      // XOR decryption (same as encryption)
-      const keyBytes = Buffer.from(key, 'utf8');
-      const decrypted = data.map((byte, index) => 
-        byte ^ keyBytes[index % keyBytes.length]
-      );
-      
-      return decrypted;
-    } catch (error) {
-      logger.error('[BLE] Decryption failed', { error });
-      return data; // Return original data if decryption fails
-    }
-  }
-
-  /**
-   * Generate authentication token
-   */
-  private generateAuthenticationToken(deviceName: string): string {
-    const timestamp = Date.now();
-    const random = Math.random().toString(36).substring(2);
-    const token = `${deviceName}-${timestamp}-${random}`;
-    
-    // Store token with expiration
-    this.sessionTokens.set(deviceName, {
-      token,
-      expiresAt: timestamp + (30 * 60 * 1000) // 30 minutes
-    });
-    
-    return token;
-  }
-
-  /**
-   * Validate authentication token
-   */
-  validateAuthenticationToken(deviceName: string, token: string): boolean {
-    const session = this.sessionTokens.get(deviceName);
-    
-    if (!session) {
-      return false;
-    }
-
-    if (Date.now() > session.expiresAt) {
-      this.sessionTokens.delete(deviceName);
-      return false;
-    }
-
-    return session.token === token;
-  }
-
-  /**
-   * Generate encryption key
-   */
-  generateEncryptionKey(deviceName: string): string {
-    const key = `${deviceName}-${Date.now()}-${Math.random().toString(36).substring(2)}`;
-    this.encryptionKeys.set(deviceName, key);
-    return key;
-  }
-
-  /**
-   * Get encryption key for device
-   */
-  getEncryptionKey(deviceName: string): string | undefined {
-    return this.encryptionKeys.get(deviceName);
-  }
-
-  /**
-   * Start secure advertising
+   * Start secure advertising with payment data
    */
   async startSecureAdvertising(
     advertiser: Advertiser,
     deviceName: string,
     serviceUUID: string,
+    paymentData: BLEPaymentData,
     securityConfig: SecurityConfig
   ): Promise<{ success: boolean; error?: string; sessionId?: string }> {
     const sessionId = `${deviceName}-${Date.now()}`;
+    const startTime = Date.now();
     
     try {
       // Initialize security metrics
@@ -194,10 +103,11 @@ export class BLEAdvertisingSecurity {
       const { config, security } = this.createSecureAdvertisingConfig(
         deviceName,
         serviceUUID,
+        paymentData,
         securityConfig
       );
 
-      // Start advertising with security using tp-rn-ble-advertiser
+      // Create secure advertising message
       const secureAdvertisingMessage = JSON.stringify({
         name: deviceName,
         serviceUUID: serviceUUID,
@@ -205,11 +115,13 @@ export class BLEAdvertisingSecurity {
         version: '1.0.0',
         capabilities: ['payment', 'secure_ble', 'encrypted'],
         timestamp: Date.now(),
-        encrypted: true,
-        authenticationToken: config.authenticationToken || null
+        encrypted: security.enableEncryption,
+        authenticationToken: config.authenticationToken || null,
+        paymentData: config.paymentData
       });
       
-      await advertiser.start();
+      // Start advertising
+      await advertiser.startBroadcast(secureAdvertisingMessage);
 
       // Record successful security metrics
       this.recordSecuritySuccess(sessionId, 'encryption');
@@ -229,40 +141,36 @@ export class BLEAdvertisingSecurity {
   }
 
   /**
-   * Stop secure advertising
+   * Generate encryption key
    */
-  async stopSecureAdvertising(
-    advertiser: Advertiser,
-    sessionId: string
-  ): Promise<{ success: boolean; error?: string }> {
-    try {
-      await advertiser.stop();
-      
-      // Clean up security data
-      this.cleanupSecurityData(sessionId);
-      
-      logger.info('[BLE] Secure advertising stopped', { sessionId });
-      return { success: true };
+  private generateEncryptionKey(baseKey: string): string {
+    // Simple key derivation for demo purposes
+    // In production, use proper cryptographic key derivation
+    const timestamp = Date.now().toString();
+    const combined = `${baseKey}-${timestamp}`;
+    return Buffer.from(combined).toString('base64').substring(0, 32);
+  }
 
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('[BLE] Secure advertising stop failed', { sessionId, error: errorMessage });
-      return { success: false, error: errorMessage };
-    }
+  /**
+   * Generate authentication token
+   */
+  private generateAuthenticationToken(deviceName: string): string {
+    // Simple token generation for demo purposes
+    // In production, use proper cryptographic token generation
+    const timestamp = Date.now().toString();
+    const combined = `${deviceName}-${timestamp}`;
+    return Buffer.from(combined).toString('base64').substring(0, 16);
   }
 
   /**
    * Initialize security metrics
    */
   private initializeSecurityMetrics(sessionId: string): void {
-    this.metrics.set(sessionId, {
-      encryptionAttempts: 0,
-      authenticationAttempts: 0,
-      successfulEncryptions: 0,
-      successfulAuthentications: 0,
-      failedEncryptions: 0,
-      failedAuthentications: 0,
-      securityErrors: []
+    this.securityMetrics.set(sessionId, {
+      startTime: Date.now(),
+      success: false,
+      encryptionSuccess: false,
+      authenticationSuccess: false
     });
   }
 
@@ -270,15 +178,15 @@ export class BLEAdvertisingSecurity {
    * Record security success
    */
   private recordSecuritySuccess(sessionId: string, type: 'encryption' | 'authentication'): void {
-    const metrics = this.metrics.get(sessionId);
+    const metrics = this.securityMetrics.get(sessionId);
     if (metrics) {
       if (type === 'encryption') {
-        metrics.encryptionAttempts++;
-        metrics.successfulEncryptions++;
-      } else {
-        metrics.authenticationAttempts++;
-        metrics.successfulAuthentications++;
+        metrics.encryptionSuccess = true;
+      } else if (type === 'authentication') {
+        metrics.authenticationSuccess = true;
       }
+      metrics.success = metrics.encryptionSuccess && metrics.authenticationSuccess;
+      metrics.endTime = Date.now();
     }
   }
 
@@ -286,39 +194,11 @@ export class BLEAdvertisingSecurity {
    * Record security error
    */
   private recordSecurityError(sessionId: string, error: string): void {
-    const metrics = this.metrics.get(sessionId);
+    const metrics = this.securityMetrics.get(sessionId);
     if (metrics) {
-      metrics.securityErrors.push(error);
+      metrics.error = error;
+      metrics.endTime = Date.now();
     }
-  }
-
-  /**
-   * Clean up security data
-   */
-  private cleanupSecurityData(sessionId: string): void {
-    this.metrics.delete(sessionId);
-    
-    // Clean up expired session tokens
-    const now = Date.now();
-    for (const [deviceName, session] of Array.from(this.sessionTokens.entries())) {
-      if (now > session.expiresAt) {
-        this.sessionTokens.delete(deviceName);
-      }
-    }
-  }
-
-  /**
-   * Get security metrics
-   */
-  getSecurityMetrics(sessionId: string): SecurityMetrics | undefined {
-    return this.metrics.get(sessionId);
-  }
-
-  /**
-   * Get all security metrics
-   */
-  getAllSecurityMetrics(): Map<string, SecurityMetrics> {
-    return new Map(this.metrics);
   }
 
   /**
@@ -326,36 +206,121 @@ export class BLEAdvertisingSecurity {
    */
   getSecurityStatistics(): {
     totalSessions: number;
+    successfulSessions: number;
     successfulEncryptions: number;
     successfulAuthentications: number;
-    failedEncryptions: number;
-    failedAuthentications: number;
-    averageSecurityErrors: number;
+    failedSessions: number;
+    averageSessionDuration: number;
   } {
-    const sessions = Array.from(this.metrics.values());
-    const totalEncryptions = sessions.reduce((sum, s) => sum + s.successfulEncryptions, 0);
-    const totalAuthentications = sessions.reduce((sum, s) => sum + s.successfulAuthentications, 0);
-    const totalFailedEncryptions = sessions.reduce((sum, s) => sum + s.failedEncryptions, 0);
-    const totalFailedAuthentications = sessions.reduce((sum, s) => sum + s.failedAuthentications, 0);
-    const totalErrors = sessions.reduce((sum, s) => sum + s.securityErrors.length, 0);
-    const averageErrors = sessions.length > 0 ? totalErrors / sessions.length : 0;
+    const sessions = Array.from(this.securityMetrics.values());
+    const totalSessions = sessions.length;
+    const successfulSessions = sessions.filter(s => s.success).length;
+    const successfulEncryptions = sessions.filter(s => s.encryptionSuccess).length;
+    const successfulAuthentications = sessions.filter(s => s.authenticationSuccess).length;
+    const failedSessions = totalSessions - successfulSessions;
+    
+    const totalDuration = sessions.reduce((sum, session) => {
+      if (session.endTime) {
+        return sum + (session.endTime - session.startTime);
+      }
+      return sum;
+    }, 0);
+    
+    const averageSessionDuration = totalSessions > 0 ? totalDuration / totalSessions : 0;
 
     return {
-      totalSessions: sessions.length,
-      successfulEncryptions: totalEncryptions,
-      successfulAuthentications: totalAuthentications,
-      failedEncryptions: totalFailedEncryptions,
-      failedAuthentications: totalFailedAuthentications,
-      averageSecurityErrors: averageErrors
+      totalSessions,
+      successfulSessions,
+      successfulEncryptions,
+      successfulAuthentications,
+      failedSessions,
+      averageSessionDuration
     };
   }
 
   /**
-   * Clear all security data
+   * Validate payment data for security
    */
-  clearAllSecurityData(): void {
-    this.metrics.clear();
-    this.sessionTokens.clear();
-    this.encryptionKeys.clear();
+  validatePaymentDataForSecurity(paymentData: BLEPaymentData): { valid: boolean; errors: string[] } {
+    const errors: string[] = [];
+
+    if (!paymentData.walletAddress) {
+      errors.push('Wallet address is required for secure advertising');
+    }
+
+    if (!paymentData.amount) {
+      errors.push('Amount is required for secure advertising');
+    } else {
+      const num = parseFloat(paymentData.amount);
+      if (isNaN(num) || num <= 0) {
+        errors.push('Amount must be a positive number');
+      }
+    }
+
+    if (!paymentData.token) {
+      errors.push('Token is required for secure advertising');
+    } else if (!Object.keys(SUPPORTED_TOKENS).includes(paymentData.token)) {
+      errors.push(`Unsupported token: ${paymentData.token}`);
+    }
+
+    if (!paymentData.timestamp) {
+      errors.push('Timestamp is required for secure advertising');
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors
+    };
+  }
+
+  /**
+   * Format secure amount for display
+   */
+  formatSecureAmount(amount: string, token: SupportedToken): string {
+    const tokenConfig = SUPPORTED_TOKENS[token];
+    const num = parseFloat(amount);
+    
+    if (isNaN(num)) {
+      return '0';
+    }
+    
+    // Format based on token decimals
+    if (tokenConfig.decimals === 6) {
+      return num.toFixed(6).replace(/\.?0+$/, '');
+    } else {
+      return num.toFixed(4).replace(/\.?0+$/, '');
+    }
+  }
+
+  /**
+   * Get supported tokens for secure advertising
+   */
+  getSupportedTokensForSecurity(): SupportedToken[] {
+    return Object.keys(SUPPORTED_TOKENS) as SupportedToken[];
+  }
+
+  /**
+   * Get token info for security
+   */
+  getTokenInfoForSecurity(token: SupportedToken) {
+    return SUPPORTED_TOKENS[token];
+  }
+
+  /**
+   * Clear old security metrics
+   */
+  clearOldSecurityMetrics(maxAge: number = 24 * 60 * 60 * 1000): void { // 24 hours default
+    const now = Date.now();
+    const oldSessions = Array.from(this.securityMetrics.entries()).filter(([_, session]) => {
+      return (now - session.startTime) > maxAge;
+    });
+
+    oldSessions.forEach(([sessionId, _]) => {
+      this.securityMetrics.delete(sessionId);
+    });
+
+    if (oldSessions.length > 0) {
+      logger.info('[BLE] Cleared old security metrics', { count: oldSessions.length });
+    }
   }
 } 

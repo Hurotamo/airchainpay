@@ -1,83 +1,42 @@
-import { Platform } from 'react-native';
 import { logger } from '../utils/Logger';
 
 /**
- * BLE Advertising Monitor
- * Provides monitoring, analytics, and performance tracking for BLE advertising
+ * BLE Advertising Monitor for simplified payment data
  */
-
 export interface MonitoringConfig {
-  enablePerformanceTracking: boolean;
-  enableErrorTracking: boolean;
-  enableUsageAnalytics: boolean;
-  samplingRate: number; // Percentage of events to track (0-100)
-  maxEventHistory: number;
-}
-
-export interface PerformanceMetrics {
-  startTime: number;
-  stopTime?: number;
-  duration: number;
-  batteryImpact: number;
-  memoryUsage: number;
-  cpuUsage: number;
-  advertisingInterval: number;
-  packetLoss: number;
-  signalStrength: number;
-}
-
-export interface ErrorMetrics {
-  errorType: string;
-  errorMessage: string;
-  timestamp: number;
-  deviceInfo: {
-    platform: string;
-    version: string;
-    model: string;
-  };
-  context: {
-    advertisingState: string;
-    bluetoothState: string;
-    permissions: string[];
-  };
-}
-
-export interface UsageAnalytics {
   sessionId: string;
   deviceName: string;
+  mode: 'basic' | 'enhanced' | 'secure';
+  paymentData?: {
+    walletAddress: string;
+    amount: string;
+    token: string;
+    chainId?: string;
+  };
+}
+
+export interface MonitoringMetrics {
   startTime: number;
   endTime?: number;
   duration: number;
-  advertisingMode: string;
-  securityEnabled: boolean;
-  encryptionEnabled: boolean;
-  authenticationEnabled: boolean;
-  totalPacketsSent: number;
-  totalBytesTransmitted: number;
-  averageSignalStrength: number;
-  connectionAttempts: number;
-  successfulConnections: number;
-  failedConnections: number;
+  success: boolean;
+  errorCount: number;
+  signalStrength: number;
+  bytesTransmitted: number;
+  successRate: number;
 }
 
 export class BLEAdvertisingMonitor {
   private static instance: BLEAdvertisingMonitor | null = null;
-  private performanceMetrics: Map<string, PerformanceMetrics> = new Map();
-  private errorMetrics: Map<string, ErrorMetrics[]> = new Map();
-  private usageAnalytics: Map<string, UsageAnalytics> = new Map();
-  private eventHistory: { type: string; data: unknown; timestamp: number }[] = [];
-  private config: MonitoringConfig;
+  private activeSessions: Map<string, MonitoringConfig> = new Map();
+  private metrics: Map<string, MonitoringMetrics> = new Map();
+  private errorLogs: Map<string, string[]> = new Map();
 
-  private constructor() {
-    this.config = {
-      enablePerformanceTracking: true,
-      enableErrorTracking: true,
-      enableUsageAnalytics: true,
-      samplingRate: 100, // Track all events
-      maxEventHistory: 1000
-    };
-  }
+  private constructor() {}
 
+  /**
+   * Get singleton instance
+   */
   public static getInstance(): BLEAdvertisingMonitor {
     if (!BLEAdvertisingMonitor.instance) {
       BLEAdvertisingMonitor.instance = new BLEAdvertisingMonitor();
@@ -86,301 +45,222 @@ export class BLEAdvertisingMonitor {
   }
 
   /**
-   * Configure monitoring settings
-   */
-  configureMonitoring(config: Partial<MonitoringConfig>): void {
-    this.config = { ...this.config, ...config };
-    logger.info('[BLE] Monitoring configuration updated', this.config);
-  }
-
-  /**
    * Start monitoring advertising session
    */
-  startMonitoring(sessionId: string, deviceName: string, advertisingMode: string): void {
-    if (!this.config.enablePerformanceTracking) {
-      return;
-    }
-
-    const metrics: PerformanceMetrics = {
+  startMonitoring(config: MonitoringConfig): void {
+    const { sessionId, deviceName, mode } = config;
+    
+    logger.info('[BLE Monitor] Starting monitoring', { sessionId, deviceName, mode });
+    
+    this.activeSessions.set(sessionId, config);
+    
+    // Initialize metrics
+    this.metrics.set(sessionId, {
       startTime: Date.now(),
       duration: 0,
-      batteryImpact: 0,
-      memoryUsage: 0,
-      cpuUsage: 0,
-      advertisingInterval: 100,
-      packetLoss: 0,
-      signalStrength: -50 // Default signal strength
-    };
-
-    this.performanceMetrics.set(sessionId, metrics);
-
-    // Start usage analytics
-    if (this.config.enableUsageAnalytics) {
-      const analytics: UsageAnalytics = {
-        sessionId,
-        deviceName,
-        startTime: Date.now(),
-        duration: 0,
-        advertisingMode,
-        securityEnabled: false,
-        encryptionEnabled: false,
-        authenticationEnabled: false,
-        totalPacketsSent: 0,
-        totalBytesTransmitted: 0,
-        averageSignalStrength: -50,
-        connectionAttempts: 0,
-        successfulConnections: 0,
-        failedConnections: 0
-      };
-
-      this.usageAnalytics.set(sessionId, analytics);
-    }
-
-    this.recordEvent('monitoring_started', { sessionId, deviceName, advertisingMode });
-    logger.info('[BLE] Monitoring started', { sessionId, deviceName });
+      success: false,
+      errorCount: 0,
+      signalStrength: 0,
+      bytesTransmitted: 0,
+      successRate: 0
+    });
+    
+    // Initialize error logs
+    this.errorLogs.set(sessionId, []);
+    
+    logger.info('[BLE Monitor] Monitoring started successfully', { sessionId });
   }
 
   /**
    * Stop monitoring advertising session
    */
   stopMonitoring(sessionId: string): void {
-    const metrics = this.performanceMetrics.get(sessionId);
-    if (metrics) {
-      metrics.stopTime = Date.now();
-      metrics.duration = metrics.stopTime - metrics.startTime;
-    }
-
-    const analytics = this.usageAnalytics.get(sessionId);
-    if (analytics) {
-      analytics.endTime = Date.now();
-      analytics.duration = analytics.endTime - analytics.startTime;
-    }
-
-    this.recordEvent('monitoring_stopped', { sessionId });
-    logger.info('[BLE] Monitoring stopped', { sessionId });
-  }
-
-  /**
-   * Record performance metrics
-   */
-  recordPerformanceMetrics(sessionId: string, metrics: Partial<PerformanceMetrics>): void {
-    if (!this.config.enablePerformanceTracking) {
+    const config = this.activeSessions.get(sessionId);
+    if (!config) {
+      logger.warn('[BLE Monitor] Session not found for stopping:', sessionId);
       return;
     }
-
-    const currentMetrics = this.performanceMetrics.get(sessionId);
-    if (currentMetrics) {
-      Object.assign(currentMetrics, metrics);
+    
+    logger.info('[BLE Monitor] Stopping monitoring', { sessionId, deviceName: config.deviceName });
+    
+    // Update metrics
+    const metrics = this.metrics.get(sessionId);
+    if (metrics) {
+      metrics.endTime = Date.now();
+      metrics.duration = metrics.endTime - metrics.startTime;
+      metrics.success = metrics.errorCount === 0;
+      metrics.successRate = metrics.errorCount === 0 ? 100 : 0;
     }
+    
+    // Clean up
+    this.activeSessions.delete(sessionId);
+    this.errorLogs.delete(sessionId);
+    
+    logger.info('[BLE Monitor] Monitoring stopped', { sessionId, duration: metrics?.duration });
   }
 
   /**
    * Record error metrics
    */
-  recordErrorMetrics(sessionId: string, error: Error, context: unknown): void {
-    if (!this.config.enableErrorTracking) {
-      return;
+  recordErrorMetrics(sessionId: string, error: Error, context: any): void {
+    const metrics = this.metrics.get(sessionId);
+    if (metrics) {
+      metrics.errorCount++;
     }
-
-    const errorMetrics: ErrorMetrics = {
-      errorType: error.constructor.name,
-      errorMessage: error.message,
-      timestamp: Date.now(),
-      deviceInfo: {
-        platform: Platform.OS,
-        version: Platform.Version?.toString() || 'unknown',
-        model: 'unknown'
-      },
-      context: {
-        advertisingState: (context as any).advertisingState || 'unknown',
-        bluetoothState: (context as any).bluetoothState || 'unknown',
-        permissions: (context as any).permissions || []
-      }
-    };
-
-    if (!this.errorMetrics.has(sessionId)) {
-      this.errorMetrics.set(sessionId, []);
-    }
-
-    this.errorMetrics.get(sessionId)!.push(errorMetrics);
-    this.recordEvent('error_recorded', { sessionId, errorType: errorMetrics.errorType });
-  }
-
-  /**
-   * Update usage analytics
-   */
-  updateUsageAnalytics(sessionId: string, updates: Partial<UsageAnalytics>): void {
-    if (!this.config.enableUsageAnalytics) {
-      return;
-    }
-
-    const analytics = this.usageAnalytics.get(sessionId);
-    if (analytics) {
-      Object.assign(analytics, updates);
-    }
-  }
-
-  /**
-   * Record event for analytics
-   */
-  private recordEvent(type: string, data: unknown): void {
-    if (Math.random() * 100 > this.config.samplingRate) {
-      return; // Skip based on sampling rate
-    }
-
-    this.eventHistory.push({
-      type,
-      data,
-      timestamp: Date.now()
-    });
-
-    // Maintain event history size
-    if (this.eventHistory.length > this.config.maxEventHistory) {
-      this.eventHistory = this.eventHistory.slice(-this.config.maxEventHistory);
-    }
-  }
-
-  /**
-   * Get performance metrics for session
-   */
-  getPerformanceMetrics(sessionId: string): PerformanceMetrics | undefined {
-    return this.performanceMetrics.get(sessionId);
-  }
-
-  /**
-   * Get error metrics for session
-   */
-  getErrorMetrics(sessionId: string): ErrorMetrics[] | undefined {
-    return this.errorMetrics.get(sessionId);
-  }
-
-  /**
-   * Get usage analytics for session
-   */
-  getUsageAnalytics(sessionId: string): UsageAnalytics | undefined {
-    return this.usageAnalytics.get(sessionId);
-  }
-
-  /**
-   * Get comprehensive monitoring report
-   */
-  getMonitoringReport(sessionId: string): {
-    performance: PerformanceMetrics | undefined;
-    errors: ErrorMetrics[] | undefined;
-    analytics: UsageAnalytics | undefined;
-    eventCount: number;
-  } {
-    const events = this.eventHistory.filter(e => (e.data as any).sessionId === sessionId);
     
-    return {
-      performance: this.getPerformanceMetrics(sessionId),
-      errors: this.getErrorMetrics(sessionId),
-      analytics: this.getUsageAnalytics(sessionId),
-      eventCount: events.length
-    };
+    // Log error
+    const errorLogs = this.errorLogs.get(sessionId) || [];
+    errorLogs.push(`${Date.now()}: ${error.message}`);
+    this.errorLogs.set(sessionId, errorLogs);
+    
+    logger.error('[BLE Monitor] Error recorded', { 
+      sessionId, 
+      error: error.message, 
+      context 
+    });
   }
 
   /**
-   * Get overall statistics
+   * Record success metrics
    */
-  getOverallStatistics(): {
+  recordSuccessMetrics(sessionId: string, bytesTransmitted: number = 0): void {
+    const metrics = this.metrics.get(sessionId);
+    if (metrics) {
+      metrics.bytesTransmitted += bytesTransmitted;
+      metrics.successRate = 100; // Assume success if this is called
+    }
+    
+    logger.info('[BLE Monitor] Success recorded', { sessionId, bytesTransmitted });
+  }
+
+  /**
+   * Record signal strength
+   */
+  recordSignalStrength(sessionId: string, strength: number): void {
+    const metrics = this.metrics.get(sessionId);
+    if (metrics) {
+      metrics.signalStrength = strength;
+    }
+    
+    logger.debug('[BLE Monitor] Signal strength recorded', { sessionId, strength });
+  }
+
+  /**
+   * Get monitoring statistics
+   */
+  getMonitoringStatistics(): {
     totalSessions: number;
+    activeSessions: number;
     totalErrors: number;
     averageSessionDuration: number;
     averageSignalStrength: number;
     totalBytesTransmitted: number;
     successRate: number;
   } {
-    const sessions = Array.from(this.usageAnalytics.values());
-    const errors = Array.from(this.errorMetrics.values()).flat();
-    
+    const sessions = Array.from(this.metrics.values());
     const totalSessions = sessions.length;
-    const totalErrors = errors.length;
-    const averageSessionDuration = sessions.length > 0 
-      ? sessions.reduce((sum, s) => sum + s.duration, 0) / sessions.length 
-      : 0;
-    const averageSignalStrength = sessions.length > 0
-      ? sessions.reduce((sum, s) => sum + s.averageSignalStrength, 0) / sessions.length
-      : 0;
-    const totalBytesTransmitted = sessions.reduce((sum, s) => sum + s.totalBytesTransmitted, 0);
-    const successfulSessions = sessions.filter(s => s.successfulConnections > 0).length;
-    const successRate = totalSessions > 0 ? (successfulSessions / totalSessions) * 100 : 0;
-
+    const activeSessions = this.activeSessions.size;
+    const totalErrors = sessions.reduce((sum, s) => sum + s.errorCount, 0);
+    const totalDuration = sessions.reduce((sum, s) => sum + s.duration, 0);
+    const totalSignalStrength = sessions.reduce((sum, s) => sum + s.signalStrength, 0);
+    const totalBytes = sessions.reduce((sum, s) => sum + s.bytesTransmitted, 0);
+    const totalSuccessRate = sessions.reduce((sum, s) => sum + s.successRate, 0);
+    
     return {
       totalSessions,
+      activeSessions,
       totalErrors,
-      averageSessionDuration,
-      averageSignalStrength,
-      totalBytesTransmitted,
-      successRate
+      averageSessionDuration: totalSessions > 0 ? totalDuration / totalSessions : 0,
+      averageSignalStrength: totalSessions > 0 ? totalSignalStrength / totalSessions : 0,
+      totalBytesTransmitted: totalBytes,
+      successRate: totalSessions > 0 ? totalSuccessRate / totalSessions : 0
     };
   }
 
   /**
-   * Export monitoring data
+   * Get session metrics
    */
-  exportMonitoringData(): {
-    performanceMetrics: Map<string, PerformanceMetrics>;
-    errorMetrics: Map<string, ErrorMetrics[]>;
-    usageAnalytics: Map<string, UsageAnalytics>;
-    eventHistory: { type: string; data: unknown; timestamp: number }[];
-    statistics: {
-      totalSessions: number;
-      totalErrors: number;
-      averageSessionDuration: number;
-      averageSignalStrength: number;
-      totalBytesTransmitted: number;
-      successRate: number;
-    };
-  } {
-    return {
-      performanceMetrics: new Map(this.performanceMetrics),
-      errorMetrics: new Map(this.errorMetrics),
-      usageAnalytics: new Map(this.usageAnalytics),
-      eventHistory: [...this.eventHistory],
-      statistics: this.getOverallStatistics()
-    };
+  getSessionMetrics(sessionId: string): MonitoringMetrics | undefined {
+    return this.metrics.get(sessionId);
   }
 
   /**
-   * Clear monitoring data
+   * Get active sessions
    */
-  clearMonitoringData(): void {
-    this.performanceMetrics.clear();
-    this.errorMetrics.clear();
-    this.usageAnalytics.clear();
-    this.eventHistory = [];
-    logger.info('[BLE] Monitoring data cleared');
+  getActiveSessions(): Map<string, MonitoringConfig> {
+    return new Map(this.activeSessions);
   }
 
   /**
-   * Generate monitoring report
+   * Check if session is active
    */
-  generateReport(): string {
-    const stats = this.getOverallStatistics();
-    const config = this.config;
+  isSessionActive(sessionId: string): boolean {
+    return this.activeSessions.has(sessionId);
+  }
+
+  /**
+   * Get session error logs
+   */
+  getSessionErrorLogs(sessionId: string): string[] {
+    return this.errorLogs.get(sessionId) || [];
+  }
+
+  /**
+   * Clear old metrics
+   */
+  clearOldMetrics(maxAge: number = 24 * 60 * 60 * 1000): void { // 24 hours default
+    const now = Date.now();
+    const oldSessions = Array.from(this.metrics.entries()).filter(([_, metrics]) => {
+      return (now - metrics.startTime) > maxAge;
+    });
+
+    oldSessions.forEach(([sessionId, _]) => {
+      this.metrics.delete(sessionId);
+      this.activeSessions.delete(sessionId);
+      this.errorLogs.delete(sessionId);
+    });
+
+    if (oldSessions.length > 0) {
+      logger.info('[BLE Monitor] Cleared old metrics', { count: oldSessions.length });
+    }
+  }
+
+  /**
+   * Get monitoring report
+   */
+  getMonitoringReport(): string {
+    const stats = this.getMonitoringStatistics();
+    const activeSessions = this.getActiveSessions();
     
-    return `
-BLE Advertising Monitoring Report
-================================
+    let report = '=== BLE Advertising Monitor Report ===\n';
+    report += `Total Sessions: ${stats.totalSessions}\n`;
+    report += `Active Sessions: ${stats.activeSessions}\n`;
+    report += `Total Errors: ${stats.totalErrors}\n`;
+    report += `Average Session Duration: ${Math.round(stats.averageSessionDuration)}ms\n`;
+    report += `Average Signal Strength: ${stats.averageSignalStrength.toFixed(2)}dBm\n`;
+    report += `Total Bytes Transmitted: ${stats.totalBytesTransmitted}\n`;
+    report += `Success Rate: ${stats.successRate.toFixed(2)}%\n\n`;
+    
+    if (activeSessions.size > 0) {
+      report += 'Active Sessions:\n';
+      activeSessions.forEach((config, sessionId) => {
+        report += `- ${sessionId}: ${config.deviceName} (${config.mode})\n`;
+      });
+    }
+    
+    return report;
+  }
 
-Configuration:
-- Performance Tracking: ${config.enablePerformanceTracking ? 'Enabled' : 'Disabled'}
-- Error Tracking: ${config.enableErrorTracking ? 'Enabled' : 'Disabled'}
-- Usage Analytics: ${config.enableUsageAnalytics ? 'Enabled' : 'Disabled'}
-- Sampling Rate: ${config.samplingRate}%
-
-Statistics:
-- Total Sessions: ${stats.totalSessions}
-- Total Errors: ${stats.totalErrors}
-- Average Session Duration: ${Math.round(stats.averageSessionDuration)}ms
-- Average Signal Strength: ${Math.round(stats.averageSignalStrength)}dBm
-- Total Bytes Transmitted: ${stats.totalBytesTransmitted}
-- Success Rate: ${Math.round(stats.successRate)}%
-
-Event History:
-- Total Events: ${this.eventHistory.length}
-- Recent Events: ${this.eventHistory.slice(-5).map(e => e.type).join(', ')}
-    `.trim();
+  /**
+   * Clean up all monitoring data
+   */
+  cleanup(): void {
+    logger.info('[BLE Monitor] Cleaning up monitoring data');
+    
+    this.activeSessions.clear();
+    this.metrics.clear();
+    this.errorLogs.clear();
+    
+    logger.info('[BLE Monitor] Cleanup completed');
   }
 } 

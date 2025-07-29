@@ -1,49 +1,37 @@
 import { Platform } from 'react-native';
 import { logger } from '../utils/Logger';
+import { BLEPaymentData, SupportedToken, SUPPORTED_TOKENS } from './BluetoothManager';
 
 /**
- * BLE Advertising 
- * 
+ * BLE Advertising Enhancements for simplified payment data
  */
-
 export interface AdvertisingConfig {
   deviceName: string;
   serviceUUID: string;
-  manufacturerData: number[];
-  txPowerLevel: number;
-  advertiseMode: number;
-  includeDeviceName: boolean;
-  includeTxPowerLevel: boolean;
-  connectable: boolean;
+  paymentData: BLEPaymentData;
   timeout?: number;
   interval?: number;
 }
 
-export interface AdvertisingMetrics {
-  startTime: number;
-  stopTime?: number;
-  duration: number;
-  success: boolean;
-  errorCount: number;
-  restartCount: number;
-}
-
-interface Advertiser {
-  start: () => void;
-  stop: () => void;
-  isAdvertising: boolean;
-  [key: string]: unknown;
+export interface Advertiser {
+  startBroadcast(message: string): Promise<any>;
+  stopBroadcast(): Promise<any>;
 }
 
 export class BLEAdvertisingEnhancements {
   private static instance: BLEAdvertisingEnhancements | null = null;
-  private metrics: Map<string, AdvertisingMetrics> = new Map();
-  private restartAttempts: Map<string, number> = new Map();
-  private maxRestartAttempts = 3;
-  private restartDelay = 2000; // 2 seconds
+  private metrics: Map<string, {
+    startTime: number;
+    endTime?: number;
+    success: boolean;
+    error?: string;
+  }> = new Map();
 
   private constructor() {}
 
+  /**
+   * Get singleton instance
+   */
   public static getInstance(): BLEAdvertisingEnhancements {
     if (!BLEAdvertisingEnhancements.instance) {
       BLEAdvertisingEnhancements.instance = new BLEAdvertisingEnhancements();
@@ -52,18 +40,18 @@ export class BLEAdvertisingEnhancements {
   }
 
   /**
+   * Create advertising configuration
    */
-  createAdvertisingConfig(deviceName: string, serviceUUID: string): AdvertisingConfig {
+  createAdvertisingConfig(
+    deviceName: string, 
+    serviceUUID: string, 
+    paymentData: BLEPaymentData
+  ): AdvertisingConfig {
     return {
       deviceName,
       serviceUUID,
-      manufacturerData: Buffer.from('AirChainPay', 'utf8').toJSON().data,
-      txPowerLevel: -12, // Typical BLE power level
-      advertiseMode: 0, // ADVERTISE_MODE_BALANCED
-      includeDeviceName: true,
-      includeTxPowerLevel: true,
-      connectable: true,
-      timeout: 0, // Advertise indefinitely
+      paymentData,
+      timeout: 60000, // 60 seconds auto-stop
       interval: 100 // 100ms advertising interval
     };
   }
@@ -74,28 +62,29 @@ export class BLEAdvertisingEnhancements {
   validateAdvertisingConfig(config: AdvertisingConfig): { valid: boolean; errors: string[] } {
     const errors: string[] = [];
 
-    if (!config.deviceName || config.deviceName.length === 0) {
+    if (!config.deviceName) {
       errors.push('Device name is required');
     }
 
-    if (!config.serviceUUID || config.serviceUUID.length === 0) {
+    if (!config.serviceUUID) {
       errors.push('Service UUID is required');
     }
 
-    if (!this.isValidUUID(config.serviceUUID)) {
-      errors.push('Invalid service UUID format');
-    }
-
-    if (config.txPowerLevel < -30 || config.txPowerLevel > 10) {
-      errors.push('TX power level must be between -30 and 10 dBm');
-    }
-
-    if (config.advertiseMode < 0 || config.advertiseMode > 2) {
-      errors.push('Advertise mode must be 0, 1, or 2');
-    }
-
-    if (config.interval && (config.interval < 20 || config.interval > 10240)) {
-      errors.push('Advertising interval must be between 20ms and 10240ms');
+    if (!config.paymentData) {
+      errors.push('Payment data is required');
+    } else {
+      if (!config.paymentData.walletAddress) {
+        errors.push('Wallet address is required');
+      }
+      if (!config.paymentData.amount) {
+        errors.push('Amount is required');
+      }
+      if (!config.paymentData.token) {
+        errors.push('Token is required');
+      }
+      if (!Object.keys(SUPPORTED_TOKENS).includes(config.paymentData.token)) {
+        errors.push(`Unsupported token: ${config.paymentData.token}`);
+      }
     }
 
     return {
@@ -105,9 +94,9 @@ export class BLEAdvertisingEnhancements {
   }
 
   /**
-   * Start advertising with enhanced error handling and metrics
+   * Start advertising with simplified payment data
    */
-  async startAdvertisingWithEnhancements(
+  async startAdvertisingWithPaymentData(
     advertiser: Advertiser,
     config: AdvertisingConfig,
     sessionId: string
@@ -130,115 +119,69 @@ export class BLEAdvertisingEnhancements {
         return { success: false, error };
       }
 
-      // Start advertising using tp-rn-ble-advertiser
-      await advertiser.start();
+      // Create advertising message
+      const advertisingMessage = this.createPaymentAdvertisingMessage(config);
+      
+      // Start advertising
+      await advertiser.startBroadcast(advertisingMessage);
 
       this.recordMetrics(sessionId, startTime, true);
-      logger.info('[BLE] Enhanced advertising started successfully', { sessionId, config });
+      logger.info('[BLE] Payment advertising started successfully', { sessionId, config });
       
       return { success: true };
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.recordMetrics(sessionId, startTime, false, errorMessage);
-      logger.error('[BLE] Enhanced advertising failed', { sessionId, error: errorMessage });
+      logger.error('[BLE] Payment advertising failed', { sessionId, error: errorMessage });
       
       return { success: false, error: errorMessage };
     }
   }
 
   /**
-   * Stop advertising with cleanup
+   * Create advertising message with payment data
    */
-  async stopAdvertisingWithEnhancements(
-    advertiser: Advertiser,
-    sessionId: string
-  ): Promise<{ success: boolean; error?: string }> {
-    try {
-      await advertiser.stop();
-      
-      // Update metrics
-      const metrics = this.metrics.get(sessionId);
-      if (metrics) {
-        metrics.stopTime = Date.now();
-        metrics.duration = metrics.stopTime - metrics.startTime;
+  private createPaymentAdvertisingMessage(config: AdvertisingConfig): string {
+    const { deviceName, serviceUUID, paymentData } = config;
+    
+    return JSON.stringify({
+      name: deviceName,
+      serviceUUID: serviceUUID,
+      type: 'AirChainPay',
+      version: '1.0.0',
+      capabilities: ['payment', 'ble'],
+      timestamp: Date.now(),
+      paymentData: {
+        walletAddress: paymentData.walletAddress,
+        amount: paymentData.amount,
+        token: paymentData.token,
+        chainId: paymentData.chainId,
+        timestamp: paymentData.timestamp
       }
-
-      // Clean up restart attempts
-      this.restartAttempts.delete(sessionId);
-      
-      logger.info('[BLE] Enhanced advertising stopped successfully', { sessionId });
-      return { success: true };
-
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('[BLE] Enhanced advertising stop failed', { sessionId, error: errorMessage });
-      return { success: false, error: errorMessage };
-    }
+    });
   }
 
   /**
-   * Auto-restart advertising if it fails
+   * Record advertising metrics
    */
-  async restartAdvertisingIfNeeded(
-    advertiser: Advertiser,
-    config: AdvertisingConfig,
-    sessionId: string
-  ): Promise<boolean> {
-    const attempts = this.restartAttempts.get(sessionId) || 0;
+  private recordMetrics(sessionId: string, startTime: number, success: boolean, error?: string): void {
+    const endTime = Date.now();
+    const duration = endTime - startTime;
     
-    if (attempts >= this.maxRestartAttempts) {
-      logger.warn('[BLE] Max restart attempts reached', { sessionId, attempts });
-      return false;
-    }
+    this.metrics.set(sessionId, {
+      startTime,
+      endTime,
+      success,
+      error,
+    });
 
-    this.restartAttempts.set(sessionId, attempts + 1);
-    
-    // Wait before restarting
-    await new Promise(resolve => setTimeout(resolve, this.restartDelay));
-    
-    logger.info('[BLE] Attempting to restart advertising', { sessionId, attempt: attempts + 1 });
-    
-    const result = await this.startAdvertisingWithEnhancements(advertiser, config, sessionId);
-    
-    if (result.success) {
-      const metrics = this.metrics.get(sessionId);
-      if (metrics) {
-        metrics.restartCount++;
-      }
-    }
-    
-    return result.success;
-  }
-
-  /**
-   * Get advertising metrics
-   */
-  getAdvertisingMetrics(sessionId: string): AdvertisingMetrics | undefined {
-    return this.metrics.get(sessionId);
-  }
-
-  /**
-   * Get all advertising metrics
-   */
-  getAllAdvertisingMetrics(): Map<string, AdvertisingMetrics> {
-    return new Map(this.metrics);
-  }
-
-  /**
-   * Clear metrics for a session
-   */
-  clearMetrics(sessionId: string): void {
-    this.metrics.delete(sessionId);
-    this.restartAttempts.delete(sessionId);
-  }
-
-  /**
-   * Clear all metrics
-   */
-  clearAllMetrics(): void {
-    this.metrics.clear();
-    this.restartAttempts.clear();
+    logger.info('[BLE] Advertising metrics recorded', {
+      sessionId,
+      success,
+      duration,
+      error
+    });
   }
 
   /**
@@ -249,50 +192,112 @@ export class BLEAdvertisingEnhancements {
     successfulSessions: number;
     failedSessions: number;
     averageDuration: number;
-    totalRestarts: number;
   } {
     const sessions = Array.from(this.metrics.values());
-    const successfulSessions = sessions.filter(s => s.success);
-    const failedSessions = sessions.filter(s => !s.success);
-    const totalRestarts = sessions.reduce((sum, s) => sum + s.restartCount, 0);
-    const averageDuration = sessions.length > 0 
-      ? sessions.reduce((sum, s) => sum + s.duration, 0) / sessions.length 
-      : 0;
+    const totalSessions = sessions.length;
+    const successfulSessions = sessions.filter(s => s.success).length;
+    const failedSessions = totalSessions - successfulSessions;
+    
+    const totalDuration = sessions.reduce((sum, session) => {
+      if (session.endTime) {
+        return sum + (session.endTime - session.startTime);
+      }
+      return sum;
+    }, 0);
+    
+    const averageDuration = totalSessions > 0 ? totalDuration / totalSessions : 0;
 
     return {
-      totalSessions: sessions.length,
-      successfulSessions: successfulSessions.length,
-      failedSessions: failedSessions.length,
-      averageDuration,
-      totalRestarts
+      totalSessions,
+      successfulSessions,
+      failedSessions,
+      averageDuration
     };
   }
 
   /**
-   * Validate UUID format
+   * Clear old metrics
    */
-  private isValidUUID(uuid: string): boolean {
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    return uuidRegex.test(uuid);
+  clearOldMetrics(maxAge: number = 24 * 60 * 60 * 1000): void { // 24 hours default
+    const now = Date.now();
+    const oldSessions = Array.from(this.metrics.entries()).filter(([_, session]) => {
+      return (now - session.startTime) > maxAge;
+    });
+
+    oldSessions.forEach(([sessionId, _]) => {
+      this.metrics.delete(sessionId);
+    });
+
+    if (oldSessions.length > 0) {
+      logger.info('[BLE] Cleared old advertising metrics', { count: oldSessions.length });
+    }
   }
 
   /**
-   * Record advertising metrics
+   * Format amount for display
    */
-  private recordMetrics(
-    sessionId: string, 
-    startTime: number, 
-    success: boolean, 
-    error?: string
-  ): void {
-    const metrics: AdvertisingMetrics = {
-      startTime,
-      success,
-      errorCount: error ? 1 : 0,
-      restartCount: 0,
-      duration: 0
-    };
+  formatAmount(amount: string, token: SupportedToken): string {
+    const tokenConfig = SUPPORTED_TOKENS[token];
+    const num = parseFloat(amount);
+    
+    if (isNaN(num)) {
+      return '0';
+    }
+    
+    // Format based on token decimals
+    if (tokenConfig.decimals === 6) {
+      return num.toFixed(6).replace(/\.?0+$/, '');
+    } else {
+      return num.toFixed(4).replace(/\.?0+$/, '');
+    }
+  }
 
-    this.metrics.set(sessionId, metrics);
+  /**
+   * Validate payment data
+   */
+  validatePaymentData(paymentData: BLEPaymentData): { valid: boolean; errors: string[] } {
+    const errors: string[] = [];
+
+    if (!paymentData.walletAddress) {
+      errors.push('Wallet address is required');
+    }
+
+    if (!paymentData.amount) {
+      errors.push('Amount is required');
+    } else {
+      const num = parseFloat(paymentData.amount);
+      if (isNaN(num) || num <= 0) {
+        errors.push('Amount must be a positive number');
+      }
+    }
+
+    if (!paymentData.token) {
+      errors.push('Token is required');
+    } else if (!Object.keys(SUPPORTED_TOKENS).includes(paymentData.token)) {
+      errors.push(`Unsupported token: ${paymentData.token}`);
+    }
+
+    if (!paymentData.timestamp) {
+      errors.push('Timestamp is required');
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors
+    };
+  }
+
+  /**
+   * Get supported tokens
+   */
+  getSupportedTokens(): SupportedToken[] {
+    return Object.keys(SUPPORTED_TOKENS) as SupportedToken[];
+  }
+
+  /**
+   * Get token info
+   */
+  getTokenInfo(token: SupportedToken) {
+    return SUPPORTED_TOKENS[token];
   }
 } 
