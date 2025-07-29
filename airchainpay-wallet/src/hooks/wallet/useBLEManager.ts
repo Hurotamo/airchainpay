@@ -14,12 +14,6 @@ export function useBLEManager() {
     state: string;
   } | null>(null);
 
-  const [healthStatus, setHealthStatus] = useState<{
-    healthy: boolean;
-    issues: string[];
-    recommendations: string[];
-  } | null>(null);
-
   useEffect(() => {
     let mounted = true;
     
@@ -43,16 +37,6 @@ export function useBLEManager() {
             }
           } catch (statusError) {
             console.warn('[useBLEManager] Error getting BLE status:', statusError);
-          }
-
-          // Get initial BLE health status
-          try {
-            const health = await bleManager.checkBLEHealth();
-            if (mounted) {
-              setHealthStatus(health);
-            }
-          } catch (healthError) {
-            console.warn('[useBLEManager] Error checking BLE health:', healthError);
           }
         }
         
@@ -91,25 +75,11 @@ export function useBLEManager() {
     }
   };
 
-  // Function to refresh BLE health status
-  const refreshHealthStatus = async () => {
-    if (manager) {
-      try {
-        const health = await manager.checkBLEHealth();
-        setHealthStatus(health);
-      } catch (error) {
-        console.warn('[useBLEManager] Error refreshing BLE health:', error);
-      }
-    }
-  };
-
   return { 
     manager, 
     error, 
     isInitializing,
     bleStatus,
-    healthStatus,
-    refreshBleStatus,
-    refreshHealthStatus
+    refreshBleStatus
   };
 } 

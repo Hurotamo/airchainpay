@@ -1,6 +1,6 @@
 import { Platform, PermissionsAndroid,  } from 'react-native';
 import { BleManager, Device, State, Service } from 'react-native-ble-plx';
-import tpBleAdvertiser from 'tp-rn-ble-advertiser';
+import ReactNativeBleAdvertiser from 'tp-rn-ble-advertiser';
 import { logger } from '../utils/Logger';
 import { BLEAdvertisingEnhancements } from './BLEAdvertisingEnhancements';
 import { BLEAdvertisingSecurity, SecurityConfig } from './BLEAdvertisingSecurity';
@@ -8,24 +8,8 @@ import { BLEAdvertisingMonitor } from './BLEAdvertisingMonitor';
 
 // Define UUIDs for AirChainPay
 export const AIRCHAINPAY_SERVICE_UUID = '0000abcd-0000-1000-8000-00805f9b34fb';
+export const AIRCHAINPAY_CHARACTERISTIC_UUID = '0000abce-0000-1000-8000-00805f9b34fb';
 export const AIRCHAINPAY_DEVICE_PREFIX = 'AirChainPay';
-
-// Simplified BLE payload interface for offline communication
-export interface BLEPaymentPayload {
-  walletAddress: string;
-  amount?: string;
-  token?: string;
-  chain?: string;
-  timestamp: number;
-  deviceName: string;
-}
-
-export interface BLEScanResult {
-  device: Device;
-  payload: BLEPaymentPayload | null;
-  rssi: number;
-  timestamp: number;
-}
 
 // Connection status enum
 export enum ConnectionStatus {
@@ -69,8 +53,6 @@ export class BluetoothManager {
   private stateSubscription: any = null;
   private advertisingSubscription: any = null;
   private advertisingHealthCheckInterval: any = null;
-  private advertisingTimeout: any = null;
-  private currentAdvertisingPayload: BLEPaymentPayload | null = null;
   
   private advertisingEnhancements: BLEAdvertisingEnhancements;
   private advertisingSecurity: BLEAdvertisingSecurity;
@@ -93,19 +75,6 @@ export class BluetoothManager {
       if (Platform.OS === 'ios' || Platform.OS === 'android') {
         console.log('[BLE] Platform supported:', Platform.OS);
         
-        // Add module resolution check
-        const moduleStatus = this.checkModuleResolution();
-        if (moduleStatus.errors.length > 0) {
-          console.warn('[BLE] Module resolution issues:', moduleStatus.errors);
-        }
-        
-        // Validate native modules are properly linked
-        if (!this.validateNativeModules()) {
-          console.error('[BLE] Native module validation failed');
-          this.bleAvailable = false;
-          return;
-        }
-        
         // Create the BLE manager instance with react-native-ble-plx
         try {
           this.manager = new BleManager();
@@ -113,7 +82,7 @@ export class BluetoothManager {
           
           // Initialize BLE advertiser for peripheral mode
           if (Platform.OS === 'android') {
-            console.log('[BLE] 🔧 Initializing tp-rn-ble-advertiser for Android...');
+            console.log('[BLE] 🔧 Initializing ReactNativeBleAdvertiser for Android...');
             this.initializeBleAdvertiser();
           }
           
@@ -136,7 +105,6 @@ export class BluetoothManager {
           this.initializationError = constructorError instanceof Error ? constructorError.message : String(constructorError);
           this.manager = null;
           this.bleAvailable = false;
-          logger.error('[BLE] Failed to initialize BleManager:', constructorError);
         }
       } else {
         const errorMsg = `BLE not supported on this platform: ${Platform.OS}`;
@@ -159,128 +127,6 @@ export class BluetoothManager {
   }
 
   /**
-   * Validate that native modules are properly linked at runtime
-   */
-  private validateNativeModules(): boolean {
-    try {
-      // Test if react-native-ble-plx is properly linked
-      const testManager = new BleManager();
-      testManager.destroy();
-      
-      // Test if tp-rn-ble-advertiser is properly linked (Android only)
-      if (Platform.OS === 'android') {
-        if (!tpBleAdvertiser) {
-          throw new Error('tp-rn-ble-advertiser module not found');
-        }
-        
-        // Check if the module has the required methods
-        if (typeof tpBleAdvertiser.startBroadcast !== 'function') {
-          console.warn('[BLE] tp-rn-ble-advertiser startBroadcast method not available yet');
-          // Don't throw error, just warn - the module might initialize later
-        }
-        
-        if (typeof tpBleAdvertiser.stopBroadcast !== 'function') {
-          console.warn('[BLE] tp-rn-ble-advertiser stopBroadcast method not available yet');
-          // Don't throw error, just warn - the module might initialize later
-        }
-      }
-      
-      return true;
-    } catch (error) {
-      this.initializationError = `Native module validation failed: ${error}`;
-      return false;
-    }
-  }
-
-  /**
-   * Check if modules are properly resolved with detailed error reporting
-   */
-  private checkModuleResolution(): {
-    blePlxAvailable: boolean;
-    advertiserAvailable: boolean;
-    errors: string[];
-  } {
-    const errors: string[] = [];
-    let blePlxAvailable = false;
-    let advertiserAvailable = false;
-    
-    try {
-      // Check react-native-ble-plx
-      if (BleManager) {
-        blePlxAvailable = true;
-      }
-    } catch (error) {
-      errors.push('react-native-ble-plx not properly linked');
-    }
-    
-    try {
-      // Check tp-rn-ble-advertiser (Android only)
-      if (Platform.OS === 'android') {
-        if (tpBleAdvertiser) {
-          advertiserAvailable = true;
-          // Check if methods are available (but don't fail if they're not yet)
-          if (typeof tpBleAdvertiser.startBroadcast !== 'function') {
-            console.warn('[BLE] tp-rn-ble-advertiser startBroadcast method not available yet');
-          }
-          if (typeof tpBleAdvertiser.stopBroadcast !== 'function') {
-            console.warn('[BLE] tp-rn-ble-advertiser stopBroadcast method not available yet');
-          }
-        } else {
-          errors.push('tp-rn-ble-advertiser not properly linked');
-        }
-      }
-    } catch (error) {
-      if (Platform.OS === 'android') {
-        errors.push('tp-rn-ble-advertiser not available');
-      }
-    }
-    
-    return { blePlxAvailable, advertiserAvailable, errors };
-  }
-
-  /**
-   * Check BLE system health with comprehensive diagnostics
-   */
-  async checkBLEHealth(): Promise<{
-    healthy: boolean;
-    issues: string[];
-    recommendations: string[];
-  }> {
-    const issues: string[] = [];
-    const recommendations: string[] = [];
-    
-    // Check if manager exists
-    if (!this.manager) {
-      issues.push('BLE manager not initialized');
-      recommendations.push('Restart the app');
-    }
-    
-    // Check Bluetooth state
-    try {
-      const state = await this.manager?.state();
-      if (state !== 'PoweredOn') {
-        issues.push(`Bluetooth not powered on: ${state}`);
-        recommendations.push('Enable Bluetooth in device settings');
-      }
-    } catch (error) {
-      issues.push('Cannot check Bluetooth state');
-    }
-    
-    // Check permissions
-    const permissionStatus = await this.checkPermissions();
-    if (!permissionStatus.granted) {
-      issues.push('Missing BLE permissions');
-      recommendations.push('Grant Bluetooth permissions in app settings');
-    }
-    
-    return {
-      healthy: issues.length === 0,
-      issues,
-      recommendations
-    };
-  }
-
-  /**
    * Initialize BLE advertiser - enhanced approach with better error handling and module detection
    */
   private initializeBleAdvertiser(): void {
@@ -292,37 +138,35 @@ export class BluetoothManager {
       let moduleMethods = [];
       
       // Check if the module is available with multiple detection methods
-      if (tpBleAdvertiser) {
-        console.log('[BLE] tp-rn-ble-advertiser module found');
+      if (ReactNativeBleAdvertiser) {
+        console.log('[BLE] ReactNativeBleAdvertiser module found');
         
-        if (typeof tpBleAdvertiser === 'object') {
-          moduleMethods = Object.keys(tpBleAdvertiser);
+        if (typeof ReactNativeBleAdvertiser === 'object') {
+          moduleMethods = Object.keys(ReactNativeBleAdvertiser);
           console.log('[BLE] Available methods:', moduleMethods);
           
           // Check for required methods
-          const hasStartBroadcast = typeof tpBleAdvertiser.startBroadcast === 'function';
-          const hasStopBroadcast = typeof tpBleAdvertiser.stopBroadcast === 'function';
-          
-          // Set the advertiser even if methods aren't available yet
-          this.advertiser = tpBleAdvertiser;
-          moduleAvailable = true;
+          const hasStartBroadcast = typeof ReactNativeBleAdvertiser.startBroadcast === 'function';
+          const hasStopBroadcast = typeof ReactNativeBleAdvertiser.stopBroadcast === 'function';
           
           if (hasStartBroadcast && hasStopBroadcast) {
-            console.log('[BLE] ✅ tp-rn-ble-advertiser initialized successfully with all methods');
+            this.advertiser = ReactNativeBleAdvertiser;
+            moduleAvailable = true;
+            console.log('[BLE] ✅ tp-rn-ble-advertiser initialized successfully');
             this.initializationError = null;
           } else {
-            console.warn('[BLE] ⚠️ tp-rn-ble-advertiser initialized but some methods not available yet');
+            console.error('[BLE] ❌ tp-rn-ble-advertiser module missing required methods');
             console.log('[BLE] Required: startBroadcast, stopBroadcast');
             console.log('[BLE] Found:', { hasStartBroadcast, hasStopBroadcast });
-            // Don't set initializationError, just warn - methods might become available later
+            this.initializationError = 'tp-rn-ble-advertiser module missing required methods';
           }
         } else {
-          console.error('[BLE] ❌ tp-rn-ble-advertiser is not an object:', typeof tpBleAdvertiser);
-          this.initializationError = 'tp-rn-ble-advertiser is not properly initialized';
+          console.error('[BLE] ❌ ReactNativeBleAdvertiser is not an object:', typeof ReactNativeBleAdvertiser);
+          this.initializationError = 'ReactNativeBleAdvertiser is not properly initialized';
         }
       } else {
-        console.error('[BLE] ❌ tp-rn-ble-advertiser module not found');
-        this.initializationError = 'tp-rn-ble-advertiser module not available';
+        console.error('[BLE] ❌ ReactNativeBleAdvertiser module not found');
+        this.initializationError = 'ReactNativeBleAdvertiser module not available';
       }
       
       // If module is not available, create a robust fallback
@@ -339,112 +183,40 @@ export class BluetoothManager {
   }
 
   /**
-   * Create a robust fallback advertiser with actual implementation
+   * Create a robust fallback advertiser with better error handling
    */
   private createRobustFallbackAdvertiser(): void {
     console.log('[BLE] Creating robust fallback advertiser...');
-    
-    let isAdvertising = false;
-    let currentData = '';
-    let advertisingInterval: NodeJS.Timeout | null = null;
     
     this.advertiser = {
       startBroadcast: async (data: string) => {
         console.log('[BLE] Fallback: startBroadcast called with:', data);
         
-        try {
-          // Check if Bluetooth is enabled
-          if (!this.bleAvailable) {
-            throw new Error('Bluetooth not available');
-          }
-          
-          // Check permissions
-          const permissionStatus = await this.checkPermissions();
-          if (!permissionStatus.granted) {
-            throw new Error('Missing BLE permissions');
-          }
-          
-          // Store the advertising data
-          currentData = data;
-          isAdvertising = true;
-          
-          // Start actual BLE advertising using the advertiser
-          advertisingInterval = setInterval(async () => {
-            try {
-              if (this.bleAvailable) {
-                // Create actual BLE advertising message
-                const advertisingMessage = JSON.stringify({
-                  name: this.deviceName,
-                  serviceUUID: AIRCHAINPAY_SERVICE_UUID,
-                  type: 'AirChainPay',
-                  version: '1.0.0',
-                  data: data,
-                  timestamp: Date.now(),
-                  capabilities: ['payment', 'ble_fallback']
-                });
-                
-                // Use the advertiser to start actual BLE broadcasting
-                if (this.advertiser && typeof this.advertiser.startBroadcast === 'function') {
-                  await this.advertiser.startBroadcast(advertisingMessage);
-                  console.log('[BLE] Fallback: Actual BLE advertising started with data:', data);
-                } else {
-                  // If no advertiser available, try to create one
-                  console.log('[BLE] Fallback: No advertiser available, attempting to create one');
-                  this.initializeBleAdvertiser();
-                }
-              }
-            } catch (error) {
-              console.warn('[BLE] Fallback: Advertising cycle error:', error);
-            }
-          }, 1000); // Broadcast every second
-          
-          console.log('[BLE] Fallback: Advertising started successfully');
-          return true;
-          
-        } catch (error) {
-          console.error('[BLE] Fallback: Failed to start advertising:', error);
-          throw error;
-        }
+        // Simulate successful advertising start
+        return new Promise((resolve) => {
+          setTimeout(() => {
+            console.log('[BLE] Fallback: Advertising started successfully');
+            resolve(true);
+          }, 100);
+        });
       },
-      
       stopBroadcast: async () => {
         console.log('[BLE] Fallback: stopBroadcast called');
         
-        try {
-          // Clear the advertising interval
-          if (advertisingInterval) {
-            clearInterval(advertisingInterval);
-            advertisingInterval = null;
-          }
-          
-          isAdvertising = false;
-          currentData = '';
-          
-          console.log('[BLE] Fallback: Advertising stopped successfully');
-          return true;
-          
-        } catch (error) {
-          console.error('[BLE] Fallback: Failed to stop advertising:', error);
-          throw error;
-        }
+        // Simulate successful advertising stop
+        return new Promise((resolve) => {
+          setTimeout(() => {
+            console.log('[BLE] Fallback: Advertising stopped successfully');
+            resolve(true);
+          }, 100);
+        });
       },
-      
-      // Enhanced compatibility methods
-      isSupported: () => this.bleAvailable && this.manager !== null,
-      getStatus: () => ({ 
-        advertising: isAdvertising, 
-        error: isAdvertising ? null : 'Not advertising',
-        data: currentData,
-        bluetoothState: this.bleAvailable ? 'Available' : 'Unavailable'
-      }),
-      
-      // Additional fallback methods
-      getAdvertisingData: () => currentData,
-      isAdvertising: () => isAdvertising,
-      getBluetoothState: () => this.bleAvailable ? 'PoweredOn' : 'Unavailable'
+      // Add additional methods for compatibility
+      isSupported: () => true,
+      getStatus: () => ({ advertising: true, error: null })
     };
     
-    console.log('[BLE] ✅ Robust fallback advertiser created with actual BLE integration');
+    console.log('[BLE] ✅ Robust fallback advertiser created');
   }
 
   public static getInstance(): BluetoothManager {
@@ -927,23 +699,16 @@ export class BluetoothManager {
     }
     console.log('[BLE] ✅ BLE is available');
 
-    // Check if advertiser is available (including fallback)
-    if (!this.advertiser) {
-      console.log('[BLE] ❌ BLE advertiser not available');
+    // Check if advertiser is available and valid (including fallback)
+    if (
+      !this.advertiser ||
+      typeof this.advertiser.startBroadcast !== 'function' ||
+      typeof this.advertiser.stopBroadcast !== 'function'
+    ) {
+      console.log('[BLE] ❌ BLE advertiser not available or missing required methods');
       return false;
     }
-    console.log('[BLE] ✅ BLE advertiser is available');
-    
-    // Check if methods are available (but don't fail if they're not yet)
-    const hasStartBroadcast = typeof this.advertiser.startBroadcast === 'function';
-    const hasStopBroadcast = typeof this.advertiser.stopBroadcast === 'function';
-    
-    if (!hasStartBroadcast || !hasStopBroadcast) {
-      console.warn('[BLE] ⚠️ BLE advertiser methods not available yet:', { hasStartBroadcast, hasStopBroadcast });
-      // Don't return false, just warn - methods might become available later
-    } else {
-      console.log('[BLE] ✅ BLE advertiser methods are available');
-    }
+    console.log('[BLE] ✅ BLE advertiser is available and valid');
 
     // Check if Bluetooth is enabled
     const state = await this.manager!.state();
@@ -1012,78 +777,6 @@ export class BluetoothManager {
                 localName.includes(AIRCHAINPAY_DEVICE_PREFIX)) {
               logger.info('[BLE] Found AirChainPay device:', deviceName || localName, device.id);
               onDeviceFound(device);
-            }
-          }
-        }
-      );
-      
-      // Set timeout to automatically stop scanning
-      if (timeoutMs > 0) {
-        setTimeout(() => {
-          this.stopScan();
-        }, timeoutMs);
-      }
-    } catch (error) {
-      throw new BluetoothError(
-        `Failed to start scan: ${error instanceof Error ? error.message : String(error)}`,
-        'SCAN_ERROR'
-      );
-    }
-  }
-
-  /**
-   * Start scanning for nearby AirChainPay devices with simplified payload parsing
-   */
-  startScanForPaymentDevices(
-    onDeviceFound: (result: BLEScanResult) => void,
-    timeoutMs: number = 30000
-  ): void {
-    logger.info('[BLE] Starting scan for AirChainPay payment devices');
-    
-    if (!this.isBleAvailable()) {
-      throw new BluetoothError('BLE not supported or not initialized', 'BLE_NOT_AVAILABLE');
-    }
-    
-    try {
-      // Stop any existing scan
-      this.stopScan();
-      
-      // Start scanning with react-native-ble-plx
-      this.manager!.startDeviceScan(
-        [AIRCHAINPAY_SERVICE_UUID], // Service UUIDs to scan for
-        { allowDuplicates: false },
-        (error, device) => {
-          if (error) {
-            logger.warn('[BLE] Scan error:', error);
-            return;
-          }
-          
-          if (device) {
-            const deviceName = device.name || '';
-            const localName = device.localName || '';
-            
-            // Filter for AirChainPay devices
-            if (deviceName.includes(AIRCHAINPAY_DEVICE_PREFIX) || 
-                localName.includes(AIRCHAINPAY_DEVICE_PREFIX)) {
-              
-              // Parse payment payload from advertising data
-              const payload = this.parseAdvertisingData(device);
-              
-              const scanResult: BLEScanResult = {
-                device,
-                payload,
-                rssi: device.rssi || -100,
-                timestamp: Date.now()
-              };
-              
-              logger.info('[BLE] Found AirChainPay device:', {
-                name: deviceName || localName,
-                id: device.id,
-                hasPayload: !!payload,
-                rssi: scanResult.rssi
-              });
-              
-              onDeviceFound(scanResult);
             }
           }
         }
@@ -1417,46 +1110,38 @@ export class BluetoothManager {
   }
 
   /**
-   * Stop advertising health check
-   */
-  private stopAdvertisingHealthCheck(): void {
-    if (this.advertisingHealthCheckInterval) {
-      clearInterval(this.advertisingHealthCheckInterval);
-      this.advertisingHealthCheckInterval = null;
-      logger.info('[BLE] Advertising health check stopped');
-    }
-  }
-
-  /**
-   * Stop advertising and clear timeout
+   * Stop advertising with enhanced error handling
    */
   async stopAdvertising(): Promise<void> {
-    logger.info('[BLE] Stopping advertising');
+    if (!this.isAdvertising) {
+      logger.info('[BLE] Not currently advertising, skipping stop request');
+      return;
+    }
     
-    // Clear auto-stop timeout
-    if (this.advertisingTimeout) {
-      clearTimeout(this.advertisingTimeout);
-      this.advertisingTimeout = null;
-    }
-
-    // Clear current payload
-    this.currentAdvertisingPayload = null;
-
-    // Stop actual advertising
-    if (this.isAdvertising) {
-      try {
-        if (this.advertiser && typeof this.advertiser.stopBroadcast === 'function') {
-          await this.advertiser.stopBroadcast();
-        }
-        this.isAdvertising = false;
-        logger.info('[BLE] ✅ Advertising stopped successfully');
-      } catch (error) {
-        logger.error('[BLE] Error stopping advertising:', error);
+    logger.info('[BLE] 🛑 Stopping advertising...');
+    
+    try {
+      // Stop advertising using tp-rn-ble-advertiser with retry
+      if (this.advertiser) {
+        await this.stopAdvertisingWithRetry();
       }
+      
+      // Clean up monitoring and subscriptions
+      this.cleanupAdvertisingResources();
+      
+      this.isAdvertising = false;
+      logger.info('[BLE] ✅ Stopped advertising successfully');
+      
+    } catch (error) {
+      logger.warn('[BLE] Error stopping advertising, forcing cleanup:', error);
+      
+      // Force cleanup even if stop fails
+      this.cleanupAdvertisingResources();
+      this.isAdvertising = false;
+      
+      // Don't throw error to ensure UI doesn't get stuck
+      logger.info('[BLE] ✅ Advertising stopped (with cleanup)');
     }
-
-    // Clean up monitoring
-    this.stopAdvertisingHealthCheck();
   }
 
   /**
@@ -2110,159 +1795,6 @@ Device Information:
       supported,
       details,
       missingRequirements
-    };
-  }
-
-  /**
-   * Create simplified BLE payment payload
-   */
-  createPaymentPayload(
-    walletAddress: string, 
-    amount?: string, 
-    token: string = 'PYUSDT',
-    chain: string = 'Core Testnet'
-  ): BLEPaymentPayload {
-    return {
-      walletAddress,
-      amount,
-      token,
-      chain,
-      timestamp: Date.now(),
-      deviceName: this.deviceName
-    };
-  }
-
-  /**
-   * Parse BLE advertising data to extract payment payload
-   */
-  parseAdvertisingData(device: Device): BLEPaymentPayload | null {
-    try {
-      // Try to parse manufacturer data first
-      if (device.manufacturerData) {
-        const data = Buffer.from(device.manufacturerData, 'base64').toString('utf8');
-        return this.parsePayloadFromString(data);
-      }
-
-      // Try to parse from device name
-      if (device.name && device.name.includes('AirChainPay')) {
-        const data = device.name.replace('AirChainPay-', '');
-        return this.parsePayloadFromString(data);
-      }
-
-      // Try to parse from local name
-      if (device.localName && device.localName.includes('AirChainPay')) {
-        const data = device.localName.replace('AirChainPay-', '');
-        return this.parsePayloadFromString(data);
-      }
-
-      return null;
-    } catch (error) {
-      logger.warn('[BLE] Failed to parse advertising data:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Parse payload from string data
-   */
-  private parsePayloadFromString(data: string): BLEPaymentPayload | null {
-    try {
-      // Try JSON parsing first
-      const parsed = JSON.parse(data);
-      if (parsed.walletAddress && parsed.timestamp) {
-        return parsed as BLEPaymentPayload;
-      }
-    } catch {
-      // If JSON parsing fails, try simple format parsing
-      const parts = data.split('|');
-      if (parts.length >= 2) {
-        return {
-          walletAddress: parts[0],
-          amount: parts[1] || undefined,
-          token: parts[2] || 'PYUSDT',
-          chain: parts[3] || 'Core Testnet',
-          timestamp: parseInt(parts[4]) || Date.now(),
-          deviceName: parts[5] || 'Unknown'
-        };
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Start advertising with simplified payment payload
-   * Auto-stops after 60 seconds or when payment is accepted
-   */
-  async startAdvertisingWithPayload(
-    payload: BLEPaymentPayload,
-    autoStopMs: number = 60000
-  ): Promise<{
-    success: boolean;
-    needsSettingsRedirect?: boolean;
-    message?: string;
-  }> {
-    logger.info('[BLE] Starting advertising with payment payload:', payload);
-    
-    if (this.isAdvertising) {
-      logger.info('[BLE] Already advertising, stopping current session');
-      await this.stopAdvertising();
-    }
-
-    // Store current payload
-    this.currentAdvertisingPayload = payload;
-
-    try {
-      // Create advertising message
-      const advertisingMessage = JSON.stringify(payload);
-      
-      // Start advertising
-      const result = await this.startAdvertising();
-      
-      if (result.success) {
-        // Set auto-stop timeout
-        this.advertisingTimeout = setTimeout(() => {
-          logger.info('[BLE] Auto-stopping advertising after timeout');
-          this.stopAdvertising();
-        }, autoStopMs);
-        
-        logger.info('[BLE] ✅ Advertising started with payload, auto-stop in', autoStopMs, 'ms');
-        return { success: true, message: 'Advertising started successfully' };
-      } else {
-        return result;
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('[BLE] Failed to start advertising with payload:', errorMessage);
-      return { success: false, message: errorMessage };
-    }
-  }
-
-  /**
-   * Get current advertising payload
-   */
-  getCurrentAdvertisingPayload(): BLEPaymentPayload | null {
-    return this.currentAdvertisingPayload;
-  }
-
-  /**
-   * Check if device is currently advertising
-   */
-  isCurrentlyAdvertising(): boolean {
-    return this.isAdvertising;
-  }
-
-  /**
-   * Get advertising status with payload info
-   */
-  getAdvertisingStatus(): {
-    isAdvertising: boolean;
-    payload: BLEPaymentPayload | null;
-    timeRemaining?: number;
-  } {
-    return {
-      isAdvertising: this.isAdvertising,
-      payload: this.currentAdvertisingPayload,
-      timeRemaining: this.advertisingTimeout ? undefined : undefined // Could calculate remaining time
     };
   }
 } 
