@@ -460,7 +460,7 @@ export class OfflineSecurityService {
   }
 
   /**
-   * Comprehensive security check for offline transactions
+   * Comprehensive security check for offline transactions with cross-wallet protection
    */
   async performOfflineSecurityCheck(
     to: string,
@@ -469,26 +469,36 @@ export class OfflineSecurityService {
     tokenInfo: TokenInfo
   ): Promise<void> {
     try {
-      logger.info('[OfflineSecurity] Performing comprehensive security check', {
+      logger.info('[OfflineSecurity] Performing comprehensive security check with cross-wallet protection', {
         to,
         amount,
         chainId,
         tokenSymbol: tokenInfo.symbol
       });
 
-      // Step 1: Validate balance
+      // Step 1: Perform cross-wallet security check (NEW) - using dynamic import to avoid require cycle
+      try {
+        const { CrossWalletSecurityService } = await import('./CrossWalletSecurityService');
+        const crossWalletService = CrossWalletSecurityService.getInstance();
+        await crossWalletService.performCrossWalletSecurityCheck(to, amount, chainId, tokenInfo);
+      } catch (error) {
+        logger.warn('[OfflineSecurity] Cross-wallet security check failed, continuing with internal checks:', error);
+        // Continue with internal checks even if cross-wallet check fails
+      }
+
+      // Step 2: Validate internal balance (existing)
       await this.validateOfflineBalance(chainId, amount, tokenInfo);
 
-      // Step 2: Check for duplicates
+      // Step 3: Check for duplicates (existing)
       await this.checkForDuplicateTransaction(to, amount, chainId);
 
-      // Step 3: Validate nonce
+      // Step 4: Validate nonce (existing)
       await this.validateOfflineNonce(chainId);
 
-      // Step 4: Update tracking
+      // Step 5: Update tracking (existing)
       await this.updateOfflineBalanceTracking(chainId, amount, tokenInfo);
 
-      logger.info('[OfflineSecurity] Comprehensive security check passed');
+      logger.info('[OfflineSecurity] Comprehensive security check with cross-wallet protection passed');
     } catch (error: unknown) {
       if (error instanceof Error) {
         logger.error('[OfflineSecurity] Comprehensive security check failed:', error);

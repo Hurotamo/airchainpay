@@ -17,6 +17,62 @@
       "deployer": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
       "blockExplorer": "https://scan.test2.btcs.network",
       "deployedAt": "2024-12-13T00:00:00.000Z"
+    },
+    {
+      "network": "lisk_sepolia",
+      "chainName": "Lisk Sepolia Testnet",
+      "chainId": 4202,
+      "contractAddress": "0x7B79117445C57eea1CEAb4733020A55e1D503934",
+      "owner": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
+      "deployer": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
+      "blockExplorer": "https://sepolia.lisk.com",
+      "deployedAt": "2025-07-30T10:06:03.706Z",
+      "txHash": "0xb9ae341499db53e9fa85aa4bba20c49e86877ef7e18eba2aa6d3e293dfc4a724",
+      "gasUsed": "634924",
+      "gasPrice": "1000000000",
+      "blockNumber": 24278484
+    },
+    {
+      "network": "holesky",
+      "chainName": "Ethereum Holesky",
+      "chainId": 17000,
+      "contractAddress": "0x7B79117445C57eea1CEAb4733020A55e1D503934",
+      "owner": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
+      "deployer": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
+      "blockExplorer": "https://holesky.etherscan.io",
+      "deployedAt": "2025-07-30T10:30:16.103Z",
+      "txHash": "0xfbcaad80e813e7e92a43364b1dfadf6754a97a7e73dc03f1fb345ba6d16810f1",
+      "gasUsed": "634924",
+      "gasPrice": "1000000000",
+      "blockNumber": 4252078
+    },
+    {
+      "network": "core_testnet",
+      "chainName": "Core Blockchain TestNet",
+      "chainId": 1114,
+      "contractAddress": "0xDF67EB213caf14500F149Ea42E97D87962B1E596",
+      "owner": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
+      "deployer": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
+      "blockExplorer": "https://scan.test2.btcs.network",
+      "deployedAt": "2025-07-30T23:38:18.006Z",
+      "txHash": "0x1d9e4716f183350e7ae71560ef6fdc683c420e3bc7669fe360491320ca525e9f",
+      "gasUsed": "634924",
+      "gasPrice": "10000000000",
+      "blockNumber": 6905270
+    },
+    {
+      "network": "core_mainnet",
+      "chainName": "Core Blockchain Mainnet",
+      "chainId": 1116,
+      "contractAddress": "0x2f47930Dc307bC30F53d85Fe16EAb63dac7Cf314",
+      "owner": "0x52F47632b183367D5369Be953faC3F2E3E67c6F2",
+      "deployer": "0x52F47632b183367D5369Be953faC3F2E3E67c6F2",
+      "blockExplorer": "https://scan.coredao.org",
+      "deployedAt": "2025-07-30T23:53:12.693Z",
+      "txHash": "0x77001fa475e9140e679654335cc998f12efe041a16076c742cda3b422c584c0b",
+      "gasUsed": "634924",
+      "gasPrice": "30000000000",
+      "blockNumber": 26871141
     }
   ],
   "failures": [],
@@ -30,9 +86,9 @@
       "explorer": "https://sepolia.basescan.org/address/0x7B79117445C57eea1CEAb4733020A55e1D503934"
     },
     "core_testnet": {
-      "status": "deployed", 
+      "status": "deployed",
       "address": "0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB",
       "explorer": "https://scan.test2.btcs.network/address/0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB"
     }
   }
-} 
+}

@@ -18,6 +18,20 @@ const CHAIN_CONFIGS = {
     blockExplorer: "https://scan.test2.btcs.network",
     nativeCurrency: "tCORE2"
   },
+  lisk_sepolia: {
+    name: "Lisk Sepolia Testnet",
+    chainId: 4202,
+    rpcUrl: "https://rpc.sepolia-api.lisk.com",
+    blockExplorer: "https://sepolia.lisk.com",
+    nativeCurrency: "ETH"
+  },
+  holesky: {
+    name: "Ethereum Holesky",
+    chainId: 17000,
+    rpcUrl: "https://ethereum-holesky-rpc.publicnode.com/",
+    blockExplorer: "https://holesky.etherscan.io",
+    nativeCurrency: "ETH"
+  },
   localhost: {
     name: "Localhost",
     chainId: 31337,

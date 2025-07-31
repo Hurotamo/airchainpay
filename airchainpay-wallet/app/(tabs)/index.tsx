@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -33,6 +33,10 @@ import {
 } from '../../components/AnimatedComponents';
 import { Colors, ChainColors, getChainColor, getBlueBlackGradient } from '../../constants/Colors';
 import { useThemeContext } from '../../hooks/useThemeContext';
+import { CrossWalletSecurityWarning } from '../../src/components/CrossWalletSecurityWarning';
+import { SecurityWarning } from '../../src/services/CrossWalletSecurityService';
+import { OfflineTransactionExpiryWarning } from '../../src/components/OfflineTransactionExpiryWarning';
+import { ExpiryWarning } from '../../src/services/OfflineTransactionExpiryService';
 
 // Initialize the transaction queue
 // initTxQueue();
@@ -474,6 +478,16 @@ export default function HomeScreen() {
   const chainInfo = getChainDisplayInfo();
   const chainColor = getChainColor(selectedChain);
 
+  const handleWarningDismiss = (warning: SecurityWarning) => {
+    logger.info('[HomeScreen] User dismissed security warning:', warning);
+    // Could implement analytics or user preference tracking here
+  };
+
+  const handleExpiryWarningDismiss = (warning: ExpiryWarning) => {
+    logger.info('[HomeScreen] User dismissed expiry warning:', warning);
+    // Could implement analytics or user preference tracking here
+  };
+
   if (loading && !address) {
     return (
       <LinearGradient
@@ -507,6 +521,17 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
+        {/* Cross-Wallet Security Warnings */}
+        <CrossWalletSecurityWarning
+          chainId={selectedChain}
+          onWarningDismiss={handleWarningDismiss}
+        />
+
+        {/* Offline Transaction Expiry Warnings */}
+        <OfflineTransactionExpiryWarning
+          onWarningDismiss={handleExpiryWarningDismiss}
+        />
+
         {!address ? (
           <AnimatedCard delay={200} style={styles.welcomeCard}>
             <View style={styles.welcomeContent}>

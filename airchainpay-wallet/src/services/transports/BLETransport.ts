@@ -8,6 +8,10 @@ import { TransactionService } from '../TransactionService';
 import { BLEError } from '../../utils/ErrorClasses';
 import { PaymentRequest } from '../PaymentService';
 import { Device } from 'react-native-ble-plx';
+import { TxQueue } from '../TxQueue';
+import { ethers } from 'ethers';
+import offlineSecurityService from '../OfflineSecurityService';
+import { TokenInfo } from '../../wallet/TokenWalletManager';
 
 export interface BLEPaymentRequest extends PaymentRequest {
   device: Device;
@@ -18,7 +22,7 @@ export interface IPaymentTransport<RequestType, ResultType> {
 }
 
 export interface EnhancedPaymentResult {
-  status: 'sent' | 'failed' | 'pending' | 'confirmed' | 'advertising';
+  status: 'sent' | 'failed' | 'pending' | 'confirmed' | 'advertising' | 'queued';
   transport: 'ble';
   deviceId?: string;
   deviceName?: string;
@@ -28,6 +32,7 @@ export interface EnhancedPaymentResult {
   message?: string;
   timestamp: number;
   metadata?: any;
+  transactionId?: string;
 }
 
 export class BLETransport implements IPaymentTransport<BLEPaymentRequest, EnhancedPaymentResult> {
@@ -55,6 +60,14 @@ export class BLETransport implements IPaymentTransport<BLEPaymentRequest, Enhanc
       if (!device || !device.id) {
         throw new Error('Missing BLE device information');
       }
+
+      // Check if we're offline by attempting to connect to the network
+      const isOnline = await this.checkNetworkStatus(chainId);
+      
+      if (!isOnline) {
+        logger.info('[BLETransport] Offline detected, performing security checks before queueing');
+        return await this.queueOfflineTransactionWithSecurity(txData);
+      }
       
       // Step 1: Check BLE availability and Bluetooth state
       await this.checkBLEAvailability();
@@ -63,7 +76,7 @@ export class BLETransport implements IPaymentTransport<BLEPaymentRequest, Enhanc
       await this.connectToDevice(device);
       
       // Step 3: Send payment data
-      const paymentData = await this.sendPaymentData(device, txData);
+      await this.sendPaymentData(device, txData);
       
       // Step 4: Listen for transaction hash and confirmation
       const transactionResult = await this.waitForTransactionConfirmation(device);
@@ -111,6 +124,186 @@ export class BLETransport implements IPaymentTransport<BLEPaymentRequest, Enhanc
   }
 
   /**
+   * Enhanced offline transaction queueing with comprehensive security checks
+   */
+  private async queueOfflineTransactionWithSecurity(txData: BLEPaymentRequest): Promise<EnhancedPaymentResult> {
+    try {
+      logger.info('[BLETransport] Performing security checks for offline transaction');
+
+      const { to, amount, chainId, token, paymentReference, device } = txData;
+
+      // Step 1: Validate balance before allowing offline transaction
+      await this.validateOfflineBalance(txData);
+
+      // Step 2: Check for duplicate transactions
+      await this.checkForDuplicateTransaction(txData);
+
+      // Step 3: Validate nonce for offline transaction
+      await this.validateOfflineNonce(chainId);
+
+      // Step 4: Create transaction object for signing
+      const transaction = {
+        to: to,
+        value: token?.isNative ? ethers.parseEther(amount) : ethers.parseUnits(amount, token?.decimals || 18),
+        data: paymentReference ? ethers.hexlify(ethers.toUtf8Bytes(paymentReference)) : undefined
+      };
+
+      // Step 5: Sign transaction for offline queueing
+      const signedTx = await this.walletManager.signTransaction(transaction, chainId);
+      
+      // Step 6: Add to offline queue with enhanced metadata
+      const transactionId = Date.now().toString();
+      await TxQueue.addTransaction({
+        id: transactionId,
+        to: to,
+        amount: amount,
+        status: 'pending',
+        chainId: chainId,
+        timestamp: Date.now(),
+        signedTx: signedTx,
+        transport: 'ble',
+        paymentReference: paymentReference,
+        metadata: {
+          merchant: device.name || device.localName || 'BLE Device',
+          location: 'Offline BLE Transaction',
+          timestamp: Date.now()
+        }
+      });
+
+      // Step 7: Update offline balance tracking
+      await this.updateOfflineBalanceTracking(txData);
+
+      logger.info('[BLETransport] Transaction queued for offline processing with security validation', {
+        transactionId,
+        to: to,
+        amount: amount,
+        chainId: chainId,
+        deviceId: device.id
+      });
+
+      return {
+        status: 'queued',
+        transport: 'ble',
+        transactionId: transactionId,
+        deviceId: device.id,
+        deviceName: device.name || device.localName || undefined,
+        message: 'Transaction queued for processing when online (security validated)',
+        timestamp: Date.now(),
+        metadata: {
+          ...txData,
+          security: {
+            balanceValidated: true,
+            duplicateChecked: true,
+            nonceValidated: true,
+            offlineTimestamp: Date.now()
+          }
+        }
+      };
+
+    } catch (error: unknown) {
+      logger.error('[BLETransport] Failed to queue offline transaction with security:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Validate balance before allowing offline transaction
+   */
+  private async validateOfflineBalance(txData: BLEPaymentRequest): Promise<void> {
+    try {
+      const { amount, chainId, token } = txData;
+      
+      const tokenInfo: TokenInfo = token ? {
+        symbol: token.symbol,
+        name: token.symbol, // Use symbol as name if not available
+        decimals: token.decimals,
+        address: token.address,
+        chainId: chainId, // Use the main chainId
+        isNative: token.isNative
+      } : {
+        symbol: 'ETH',
+        name: 'Ethereum',
+        decimals: 18,
+        address: '',
+        chainId: chainId,
+        isNative: true
+      };
+
+      await offlineSecurityService.validateOfflineBalance(chainId, amount, tokenInfo);
+    } catch (error: unknown) {
+      logger.error('[BLETransport] Balance validation failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Check for duplicate transactions
+   */
+  private async checkForDuplicateTransaction(txData: BLEPaymentRequest): Promise<void> {
+    try {
+      const { to, amount, chainId } = txData;
+      await offlineSecurityService.checkForDuplicateTransaction(to, amount, chainId);
+    } catch (error: unknown) {
+      logger.error('[BLETransport] Duplicate check failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Validate nonce for offline transaction
+   */
+  private async validateOfflineNonce(chainId: string): Promise<void> {
+    try {
+      await offlineSecurityService.validateOfflineNonce(chainId);
+    } catch (error: unknown) {
+      logger.error('[BLETransport] Nonce validation failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update offline balance tracking
+   */
+  private async updateOfflineBalanceTracking(txData: BLEPaymentRequest): Promise<void> {
+    try {
+      const { amount, chainId, token } = txData;
+      
+      const tokenInfo: TokenInfo = token ? {
+        symbol: token.symbol,
+        name: token.symbol, // Use symbol as name if not available
+        decimals: token.decimals,
+        address: token.address,
+        chainId: chainId, // Use the main chainId
+        isNative: token.isNative
+      } : {
+        symbol: 'ETH',
+        name: 'Ethereum',
+        decimals: 18,
+        address: '',
+        chainId: chainId,
+        isNative: true
+      };
+
+      await offlineSecurityService.updateOfflineBalanceTracking(chainId, amount, tokenInfo);
+    } catch (error: unknown) {
+      logger.error('[BLETransport] Failed to update offline balance tracking:', error);
+      // Don't throw error as this is not critical
+    }
+  }
+
+  /**
+   * Check if network is online for the specified chain
+   */
+  private async checkNetworkStatus(chainId: string): Promise<boolean> {
+    try {
+      return await this.walletManager.checkNetworkStatus(chainId);
+    } catch (error: unknown) {
+      logger.warn('[BLETransport] Failed to check network status:', error);
+      return false;
+    }
+  }
+
+  /**
    * Step 1: Check BLE availability and Bluetooth state
    */
   private async checkBLEAvailability(): Promise<void> {
@@ -143,7 +336,7 @@ export class BLETransport implements IPaymentTransport<BLEPaymentRequest, Enhanc
   /**
    * Step 3: Send payment data
    */
-  private async sendPaymentData(device: Device, txData: BLEPaymentRequest): Promise<{ sent: boolean; compressedSize: number }> {
+  private async sendPaymentData(device: Device, txData: BLEPaymentRequest): Promise<void> {
     const { to, amount, chainId } = txData;
     
     // When constructing BLE payment data, do not include 'timestamp' property
@@ -172,8 +365,6 @@ export class BLETransport implements IPaymentTransport<BLEPaymentRequest, Enhanc
       chainId,
       compressedSize: compressedData.length
     });
-    
-    return { sent: true, compressedSize: compressedData.length };
   }
 
   /**
@@ -279,7 +470,15 @@ export class BLETransport implements IPaymentTransport<BLEPaymentRequest, Enhanc
         throw new Error('BLE advertising not supported on this device');
       }
       
-      await this.bluetoothManager.startAdvertising();
+      // Create minimal payment data for advertising as receiver
+      const paymentData = {
+        walletAddress: '0x0000000000000000000000000000000000000000', // Placeholder
+        amount: '0', // No amount for receiver
+        token: 'ETH' as const,
+        timestamp: Date.now()
+      };
+      
+      await this.bluetoothManager.startAdvertising(paymentData);
       logger.info('[BLETransport] Started advertising as payment receiver');
       
     } catch (error) {

@@ -11,8 +11,7 @@ import { ethers } from 'ethers';
 import { TokenInfo } from '../wallet/TokenWalletManager';
 import offlineSecurityService from './OfflineSecurityService';
 import { RelayTransport } from './transports/RelayTransport';
-import { WalletError, TransactionError } from '../utils/ErrorClasses';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { WalletError,  } from '../utils/ErrorClasses';
 
 export interface PaymentRequest {
   to: string;
@@ -114,14 +113,41 @@ export class PaymentService {
       const isOnline = await this.checkNetworkStatus(request.chainId);
 
       if (!isOnline) {
-        logger.info('[PaymentService] No internet connection detected, queueing transaction for relay');
+        logger.info('[PaymentService] No internet connection detected, queueing transaction for offline processing');
         
+        // Perform comprehensive security checks for offline transaction
+        const tokenInfo: TokenInfo = request.token
+          ? {
+              symbol: request.token.symbol,
+              name: request.token.symbol, // Use symbol as name if not available
+              decimals: request.token.decimals,
+              address: request.token.address,
+              chainId: request.chainId, // Use the main chainId
+              isNative: request.token.isNative
+            }
+          : {
+              symbol: 'ETH',
+              name: 'Ethereum',
+              decimals: 18,
+              address: '',
+              chainId: request.chainId,
+              isNative: true
+            };
+
+        await offlineSecurityService.performOfflineSecurityCheck(
+          request.to,
+          request.amount,
+          request.chainId,
+          tokenInfo
+        );
+
         // Sign the transaction for offline queueing
         const signedTx = await this.signTransactionForRelay(request);
         
         // Queue transaction for later relay submission
+        const transactionId = Date.now().toString();
         const queuedTx = {
-          id: Date.now().toString() + Math.random().toString(36).substring(2),
+          id: transactionId,
           ...request,
           status: 'queued' as const,
           timestamp: Date.now(),
@@ -139,12 +165,19 @@ export class PaymentService {
         
         await TxQueue.addTransaction(queuedTx);
         
+        // Update offline balance tracking
+        await offlineSecurityService.updateOfflineBalanceTracking(
+          request.chainId,
+          request.amount,
+          tokenInfo
+        );
+        
         return {
           status: 'queued',
           transport: 'relay',
-          message: 'Transaction queued for relay submission when online',
+          transactionId: transactionId,
+          message: 'Transaction queued for relay submission when online (security validated)',
           timestamp: Date.now(),
-          transactionId: queuedTx.id,
         };
       }
 
@@ -270,354 +303,6 @@ export class PaymentService {
     } catch (error: unknown) {
       logger.warn('[PaymentService] Failed to check network status:', error);
       return false;
-    }
-  }
-
-  /**
-   * Enhanced offline transaction queueing with comprehensive security checks
-   */
-  private async queueOfflineTransactionWithSecurity(request: PaymentRequest): Promise<PaymentResult> {
-    try {
-      logger.info('[PaymentService] Performing security checks for offline transaction');
-
-      // Step 1: Perform comprehensive security check
-      const tokenInfo: TokenInfo = request.token
-        ? {
-            symbol: request.token.symbol,
-            name: typeof (request.token as any).name === 'string' && (request.token as any).name ? (request.token as any).name : request.token.symbol,
-            decimals: request.token.decimals,
-            address: request.token.address,
-            chainId: typeof (request.token as any).chainId === 'string' && (request.token as any).chainId ? (request.token as any).chainId : request.chainId,
-            isNative: request.token.isNative
-          }
-        : {
-            symbol: 'ETH',
-            name: 'Ethereum',
-            decimals: 18,
-            address: '',
-            chainId: request.chainId,
-            isNative: true
-          };
-
-      await offlineSecurityService.performOfflineSecurityCheck(
-        request.to,
-        request.amount,
-        request.chainId,
-        tokenInfo
-      );
-
-      // Step 4: Create transaction object for signing
-      const transaction = {
-        to: request.to,
-        value: request.token?.isNative 
-          ? ethers.parseEther(request.amount) 
-          : ethers.parseUnits(request.amount, request.token?.decimals || 18),
-        data: request.paymentReference 
-          ? ethers.hexlify(ethers.toUtf8Bytes(request.paymentReference)) 
-          : undefined
-      };
-
-      // Step 5: Sign transaction for offline queueing
-      const signedTx = await this.walletManager.signTransaction(transaction, request.chainId);
-      
-      // Step 6: Add to offline queue with enhanced metadata
-      const transactionId = Date.now().toString();
-      await TxQueue.addTransaction({
-        id: transactionId,
-        to: request.to,
-        amount: request.amount,
-        status: 'pending',
-        chainId: request.chainId,
-        timestamp: Date.now(),
-        signedTx: signedTx,
-        transport: request.transport,
-        metadata: {
-          merchant: request.metadata?.merchant,
-          location: request.metadata?.location
-        }
-      });
-
-      // Step 7: Update offline balance tracking
-      await this.updateOfflineBalanceTracking(request);
-
-      logger.info('[PaymentService] Transaction queued for offline processing with security validation', {
-        transactionId,
-        to: request.to,
-        amount: request.amount,
-        chainId: request.chainId,
-        transport: request.transport
-      });
-
-      return {
-        status: 'queued',
-        transport: request.transport,
-        transactionId: transactionId,
-        message: 'Transaction queued for processing when online (security validated)',
-        timestamp: Date.now()
-      };
-
-    } catch (error: unknown) {
-      logger.error('[PaymentService] Failed to queue offline transaction with security:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Validate balance before allowing offline transaction
-   */
-  private async validateOfflineBalance(request: PaymentRequest): Promise<void> {
-    try {
-      const walletInfo = await this.walletManager.getWalletInfo(request.chainId);
-      if (!walletInfo) {
-        throw new Error('No wallet found for chain');
-      }
-
-             // Get current balance
-       const TokenWalletManager = (await import('../wallet/TokenWalletManager')).default;
-       const tokenInfo: TokenInfo = request.token ? {
-         symbol: request.token.symbol,
-         name: request.token.name || request.token.symbol,
-         decimals: request.token.decimals,
-         address: request.token.address,
-         chainId: request.token.chainId || request.chainId,
-         isNative: request.token.isNative
-       } : {
-         symbol: 'ETH',
-         name: 'Ethereum',
-         decimals: 18,
-         address: '',
-         chainId: request.chainId,
-         isNative: true
-       };
-
-      const balance = await TokenWalletManager.getTokenBalance(walletInfo.address, tokenInfo);
-      const requiredAmount = request.token?.isNative 
-        ? ethers.parseEther(request.amount)
-        : ethers.parseUnits(request.amount, request.token?.decimals || 18);
-
-      // Get pending transactions total
-      const pendingAmount = await this.getPendingTransactionsTotal(request.chainId, tokenInfo);
-      
-      // Calculate available balance (current balance - pending transactions)
-      const availableBalance = BigInt(balance.balance) - BigInt(pendingAmount);
-      
-      logger.info('[PaymentService] Balance validation', {
-        currentBalance: balance.balance,
-        pendingAmount: pendingAmount.toString(),
-        availableBalance: availableBalance.toString(),
-        requiredAmount: requiredAmount.toString(),
-        walletAddress: walletInfo.address
-      });
-
-      if (availableBalance < BigInt(requiredAmount)) {
-        throw new TransactionError(`Insufficient available balance. Required: ${ethers.formatEther(requiredAmount)}, Available: ${ethers.formatEther(availableBalance)}`);
-      }
-
-      logger.info('[PaymentService] Balance validation passed');
-    } catch (error: unknown) {
-      logger.error('[PaymentService] Balance validation failed:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Check for duplicate transactions
-   */
-  private async checkForDuplicateTransaction(request: PaymentRequest): Promise<void> {
-    try {
-      const pendingTxs = await TxQueue.getPendingTransactions();
-      
-      // Check for exact duplicates (same recipient, amount, and chain)
-      const duplicate = pendingTxs.find(tx => 
-        tx.to === request.to && 
-        tx.amount === request.amount && 
-        tx.chainId === request.chainId &&
-        tx.status === 'pending'
-      );
-
-      if (duplicate) {
-        throw new Error('Duplicate transaction detected. This transaction is already queued.');
-      }
-
-      // Check for similar transactions within a time window (5 minutes)
-      const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
-      const recentSimilar = pendingTxs.find(tx => 
-        tx.to === request.to && 
-        tx.chainId === request.chainId &&
-        tx.timestamp > fiveMinutesAgo &&
-        tx.status === 'pending'
-      );
-
-      if (recentSimilar) {
-        logger.warn('[PaymentService] Similar transaction found within 5 minutes', {
-          existing: recentSimilar,
-          new: request
-        });
-        // Don't throw error for similar transactions, just log warning
-      }
-
-      logger.info('[PaymentService] Duplicate check passed');
-    } catch (error: unknown) {
-      logger.error('[PaymentService] Duplicate check failed:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Validate nonce for offline transaction
-   */
-  private async validateOfflineNonce(chainId: string): Promise<void> {
-    try {
-      // Get current nonce from blockchain (if online) or from local storage
-      const currentNonce = await this.getCurrentNonce(chainId);
-      const offlineNonce = await this.getOfflineNonce(chainId);
-      
-      logger.info('[PaymentService] Nonce validation', {
-        currentNonce,
-        offlineNonce,
-        chainId
-      });
-
-      // Ensure offline nonce is not ahead of current nonce
-      if (offlineNonce >= currentNonce) {
-        throw new TransactionError('Invalid nonce for offline transaction. Please sync with network first.');
-      }
-
-      // Update offline nonce
-      await this.updateOfflineNonce(chainId, offlineNonce + 1);
-      
-      logger.info('[PaymentService] Nonce validation passed');
-    } catch (error: unknown) {
-      logger.error('[PaymentService] Nonce validation failed:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get current nonce from blockchain or local storage
-   */
-  private async getCurrentNonce(chainId: string): Promise<number> {
-    try {
-      // Try to get nonce from blockchain first
-      const isOnline = await this.checkNetworkStatus(chainId);
-      if (isOnline) {
-        const walletInfo = await this.walletManager.getWalletInfo(chainId);
-        const provider = this.transactionService['getProvider'](chainId);
-        return await provider.getTransactionCount(walletInfo.address);
-      } else {
-        // Use stored nonce if offline
-        const storedNonce = await this.getStoredNonce(chainId);
-        return storedNonce;
-      }
-    } catch (error: unknown) {
-      logger.error('[PaymentService] Failed to get current nonce:', error);
-      // Fallback to stored nonce
-      return await this.getStoredNonce(chainId);
-    }
-  }
-
-  /**
-   * Get offline nonce from local storage
-   */
-  private async getOfflineNonce(chainId: string): Promise<number> {
-    try {
-      const key = `offline_nonce_${chainId}`;
-      const stored = await AsyncStorage.getItem(key);
-      return stored ? parseInt(stored, 10) : 0;
-    } catch (error: unknown) {
-      logger.error('[PaymentService] Failed to get offline nonce:', error);
-      return 0;
-    }
-  }
-
-  /**
-   * Update offline nonce in local storage
-   */
-  private async updateOfflineNonce(chainId: string, nonce: number): Promise<void> {
-    try {
-      const key = `offline_nonce_${chainId}`;
-      await AsyncStorage.setItem(key, nonce.toString());
-      logger.info('[PaymentService] Updated offline nonce', { chainId, nonce });
-    } catch (error: unknown) {
-      logger.error('[PaymentService] Failed to update offline nonce:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get stored nonce from local storage
-   */
-  private async getStoredNonce(chainId: string): Promise<number> {
-    try {
-      const key = `stored_nonce_${chainId}`;
-      const stored = await AsyncStorage.getItem(key);
-      return stored ? parseInt(stored, 10) : 0;
-    } catch (error: unknown) {
-      logger.error('[PaymentService] Failed to get stored nonce:', error);
-      return 0;
-    }
-  }
-
-  /**
-   * Get total amount of pending transactions for a specific chain and token
-   */
-  private async getPendingTransactionsTotal(chainId: string, tokenInfo: TokenInfo): Promise<bigint> {
-    try {
-      const pendingTxs = await TxQueue.getPendingTransactions();
-      let total = BigInt(0);
-
-      for (const tx of pendingTxs) {
-        if (tx.chainId === chainId && tx.status === 'pending') {
-          const txAmount = tokenInfo.isNative 
-            ? ethers.parseEther(tx.amount)
-            : ethers.parseUnits(tx.amount, tokenInfo.decimals || 18);
-          total += BigInt(txAmount);
-        }
-      }
-
-      logger.info('[PaymentService] Pending transactions total', {
-        chainId,
-        total: total.toString(),
-        pendingCount: pendingTxs.filter(tx => tx.chainId === chainId && tx.status === 'pending').length
-      });
-
-      return total;
-    } catch (error: unknown) {
-      logger.error('[PaymentService] Failed to get pending transactions total:', error);
-      return BigInt(0);
-    }
-  }
-
-  /**
-   * Update offline balance tracking
-   */
-  private async updateOfflineBalanceTracking(request: PaymentRequest): Promise<void> {
-    try {
-      const key = `offline_balance_${request.chainId}`;
-      
-      // Get current offline balance tracking
-      const stored = await AsyncStorage.getItem(key);
-      const tracking = stored ? JSON.parse(stored) : { pendingAmount: '0', lastUpdated: Date.now() };
-      
-      // Add current transaction amount to pending
-      const currentPending = BigInt(tracking.pendingAmount);
-      const newAmount = request.token?.isNative 
-        ? ethers.parseEther(request.amount)
-        : ethers.parseUnits(request.amount, request.token?.decimals || 18);
-      
-      tracking.pendingAmount = (currentPending + BigInt(newAmount)).toString();
-      tracking.lastUpdated = Date.now();
-      
-      await AsyncStorage.setItem(key, JSON.stringify(tracking));
-      
-      logger.info('[PaymentService] Updated offline balance tracking', {
-        chainId: request.chainId,
-        newPendingAmount: tracking.pendingAmount,
-        transactionAmount: request.amount
-      });
-    } catch (error: unknown) {
-      logger.error('[PaymentService] Failed to update offline balance tracking:', error);
-      // Don't throw error as this is not critical
     }
   }
 

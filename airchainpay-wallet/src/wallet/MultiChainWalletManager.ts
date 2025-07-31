@@ -851,6 +851,17 @@ export class MultiChainWalletManager {
     return SUPPORTED_CHAINS[chainId];
   }
 
+  /**
+   * Get the provider for a specific chain
+   */
+  public getProvider(chainId: string): ethers.Provider {
+    const provider = this.providers[chainId];
+    if (!provider) {
+      throw new Error(`Provider not initialized for chain ${chainId}`);
+    }
+    return provider;
+  }
+
   // Add logout method to clear all wallet data
   async logout(): Promise<void> {
     try {

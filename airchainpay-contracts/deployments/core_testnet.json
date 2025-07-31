@@ -1,15 +1,14 @@
 {
-  "chainName": "core_testnet",
+  "network": "core_testnet",
+  "chainName": "Core Blockchain TestNet",
   "chainId": 1114,
-  "contractAddress": "0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB",
+  "contractAddress": "0xDF67EB213caf14500F149Ea42E97D87962B1E596",
   "owner": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
   "deployer": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
   "blockExplorer": "https://scan.test2.btcs.network",
-  "deployedAt": "2024-12-13T00:00:00.000Z",
-  "verified": true,
-  "network": {
-    "name": "Core Blockchain TestNet",
-    "rpcUrl": "https://rpc.test2.btcs.network",
-    "nativeCurrency": "tCORE2"
-  }
-} 
+  "deployedAt": "2025-07-30T23:38:18.006Z",
+  "txHash": "0x1d9e4716f183350e7ae71560ef6fdc683c420e3bc7669fe360491320ca525e9f",
+  "gasUsed": "634924",
+  "gasPrice": "10000000000",
+  "blockNumber": 6905270
+}

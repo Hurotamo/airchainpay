@@ -6,20 +6,19 @@ import { TxQueue } from '../TxQueue';
 import { MultiChainWalletManager } from '../../wallet/MultiChainWalletManager';
 import { ethers } from 'ethers';
 import { TokenInfo } from '../../wallet/TokenWalletManager';
-import { QRCodeSigner, SignedQRPayload } from '../../utils/crypto/QRCodeSigner';
+import { QRCodeSigner } from '../../utils/crypto/QRCodeSigner';
 import { WalletError, TransactionError } from '../../utils/ErrorClasses';
 import { PaymentRequest, PaymentResult } from '../PaymentService';
-// See global type declaration for 'qrcode' in qrcode.d.ts
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export class QRTransport implements IPaymentTransport {
+export class QRTransport implements IPaymentTransport<PaymentRequest, PaymentResult> {
   async send(txData: PaymentRequest): Promise<PaymentResult> {
     try {
       logger.info('[QRTransport] Processing QR payment', txData);
       
       // Extract payment data
       const {
-        to, amount, chainId, token, paymentReference,
-        merchant, location, maxAmount, minAmount, expiry, timestamp: inputTimestamp, ...rest
+        to, amount, chainId, token, paymentReference
       } = txData;
       
       if (!to || !amount || !chainId) {
@@ -34,7 +33,7 @@ export class QRTransport implements IPaymentTransport {
         return await this.queueOfflineTransactionWithSecurity(txData);
       }
       
-      // Create QR payment payload with all possible fields
+      // Create QR payment payload with essential fields only
       const qrPayload: any = {
         type: 'payment_request',
         to,
@@ -42,14 +41,8 @@ export class QRTransport implements IPaymentTransport {
         chainId,
         token: token || null,
         paymentReference: paymentReference || null,
-        merchant: merchant || null,
-        location: location || null,
-        maxAmount: maxAmount || null,
-        minAmount: minAmount || null,
-        expiry: expiry || null,
-        timestamp: inputTimestamp || Date.now(),
-        version: '1.0',
-        ...rest // include any other extra fields
+        timestamp: Date.now(),
+        version: '1.0'
       };
 
       // Sign the QR payload with digital signature
@@ -70,7 +63,7 @@ export class QRTransport implements IPaymentTransport {
         transport: 'qr',
         qrData,
         message: 'QR payment generated successfully',
-        ...txData
+        timestamp: Date.now()
       };
 
     } catch (error) {
@@ -118,17 +111,9 @@ export class QRTransport implements IPaymentTransport {
         timestamp: Date.now(),
         signedTx: signedTx,
         transport: 'qr',
+        paymentReference: paymentReference,
         metadata: {
-          token: token,
-          paymentReference: paymentReference,
-          merchant: txData.merchant,
-          location: txData.location,
-          security: {
-            balanceValidated: true,
-            duplicateChecked: true,
-            nonceValidated: true,
-            offlineTimestamp: Date.now()
-          }
+          timestamp: Date.now()
         }
       });
 
@@ -146,7 +131,7 @@ export class QRTransport implements IPaymentTransport {
         status: 'queued',
         transport: 'qr',
         message: 'Transaction queued for processing when online (security validated)',
-        ...txData
+        timestamp: Date.now()
       };
 
     } catch (error) {
@@ -160,7 +145,7 @@ export class QRTransport implements IPaymentTransport {
    */
   private async validateOfflineBalance(txData: PaymentRequest): Promise<void> {
     try {
-      const { to, amount, chainId, token } = txData;
+      const { amount, chainId, token } = txData;
       const walletManager = MultiChainWalletManager.getInstance();
       const walletInfo = await walletManager.getWalletInfo(chainId);
       
@@ -172,7 +157,7 @@ export class QRTransport implements IPaymentTransport {
       const TokenWalletManager = (await import('../../wallet/TokenWalletManager')).default;
       const tokenInfo: TokenInfo = token ? {
         symbol: token.symbol,
-        name: token.symbol, // Use symbol as name if not provided
+        name: token.symbol, 
         decimals: token.decimals,
         address: token.address,
         chainId: chainId,
@@ -319,7 +304,6 @@ export class QRTransport implements IPaymentTransport {
    */
   private async getOfflineNonce(chainId: string): Promise<number> {
     try {
-      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
       const key = `offline_nonce_${chainId}`;
       const stored = await AsyncStorage.getItem(key);
       return stored ? parseInt(stored, 10) : 0;
@@ -334,7 +318,6 @@ export class QRTransport implements IPaymentTransport {
    */
   private async updateOfflineNonce(chainId: string, nonce: number): Promise<void> {
     try {
-      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
       const key = `offline_nonce_${chainId}`;
       await AsyncStorage.setItem(key, nonce.toString());
       logger.info('[QRTransport] Updated offline nonce', { chainId, nonce });
@@ -349,7 +332,6 @@ export class QRTransport implements IPaymentTransport {
    */
   private async getStoredNonce(chainId: string): Promise<number> {
     try {
-      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
       const key = `stored_nonce_${chainId}`;
       const stored = await AsyncStorage.getItem(key);
       return stored ? parseInt(stored, 10) : 0;
@@ -395,7 +377,6 @@ export class QRTransport implements IPaymentTransport {
   private async updateOfflineBalanceTracking(txData: PaymentRequest): Promise<void> {
     try {
       const { amount, chainId, token } = txData;
-      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
       const key = `offline_balance_${chainId}`;
       
       // Get current offline balance tracking
