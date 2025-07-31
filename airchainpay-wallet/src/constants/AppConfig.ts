@@ -20,6 +20,9 @@ function getRpcUrl(chainId: string): string {
     case 'core_testnet':
       rpcUrl = extra.CORE_TESTNET_RPC_URL || 'https://rpc.test2.btcs.network';
       break;
+    case 'morph_holesky':
+      rpcUrl = extra.MORPH_HOLESKY_RPC_URL || 'https://ethereum-holesky-rpc.publicnode.com/';
+      break;
     default:
       rpcUrl = '';
   }
@@ -75,6 +78,34 @@ export const SUPPORTED_CHAINS: { [key: string]: ChainConfig } = {
     contractAddress: '0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB',
     type: 'evm',
   },
+  morph_holesky: {
+    id: 'morph_holesky',
+    name: 'Morph Holesky Testnet',
+    chainId: 17000,
+    rpcUrl: 'https://holesky.drpc.org',
+    nativeCurrency: {
+      name: 'Ethereum',
+      symbol: 'ETH',
+      decimals: 18,
+    },
+    blockExplorer: 'https://holesky.etherscan.io',
+    contractAddress: '0x0000000000000000000000000000000000000000', // Native ETH
+    type: 'evm',
+  },
+  lisk_sepolia: {
+    id: 'lisk_sepolia',
+    name: 'Lisk Sepolia Testnet',
+    chainId: 4202,
+    rpcUrl: 'https://rpc.sepolia-api.lisk.com',
+    nativeCurrency: {
+      name: 'Ethereum',
+      symbol: 'ETH',
+      decimals: 18,
+    },
+    blockExplorer: 'https://sepolia-blockscout.lisk.com/',
+    contractAddress: '0x7B79117445C57eea1CEAb4733020A55e1D503934',
+    type: 'evm',
+  },
 };
 
 // Gas configuration for better organization
@@ -92,6 +123,18 @@ export const GAS_CONFIG = {
       max: 100,      // Higher limit for Core
       warning: 50,
       emergency: 200
+    },
+    morph_holesky: {
+      min: 0.1,
+      max: 50,
+      warning: 20,
+      emergency: 100
+    },
+    lisk_sepolia: {
+      min: 0.1,
+      max: 50,
+      warning: 20,
+      emergency: 100
     }
   },
   
@@ -276,6 +319,8 @@ export const TRANSACTION_CONFIG = {
   maxGasPrice: {
     base_sepolia: '50000000000', // 50 gwei (updated to match GasPriceValidator)
     core_testnet: '100000000000', // 100 gwei (updated to match GasPriceValidator)
+    morph_holesky: '50000000000', // 50 gwei
+    lisk_sepolia: '50000000000', // 50 gwei
   },
 };
 

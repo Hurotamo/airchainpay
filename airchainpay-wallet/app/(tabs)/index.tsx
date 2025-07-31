@@ -470,6 +470,10 @@ export default function HomeScreen() {
         return { name: 'Core Testnet', symbol: 'CORE', icon: 'diamond' };
       case 'base_sepolia':
         return { name: 'Base Sepolia', symbol: 'ETH', icon: 'logo-bitcoin' };
+      case 'morph_holesky':
+        return { name: 'Morph Holesky', symbol: 'ETH', icon: 'layers' };
+      case 'lisk_sepolia':
+        return { name: 'Lisk Sepolia', symbol: 'ETH', icon: 'flash' };
       default:
         return { name: 'Base Sepolia', symbol: 'ETH', icon: 'logo-bitcoin' };
     }
@@ -618,26 +622,99 @@ export default function HomeScreen() {
               <View style={styles.networkInfoActions}>
                 <View style={styles.availableNetworks}>
                   <Text style={[styles.availableNetworksTitle, { color: colors.text }]}>
-                    Available Networks (Tap to Switch):
+                    Multi-Chain Networks
                   </Text>
-                  <View style={styles.networkChipsContainer}>
-                    <TouchableOpacity 
-                      style={[styles.networkChip, { backgroundColor: getChainColor('core_testnet') + '20', borderColor: getChainColor('core_testnet') }]}
-                      onPress={() => changeChain('core_testnet')}
-                    >
-                      <Text style={[styles.networkChipText, { color: getChainColor('core_testnet') }]}>
-                        Core Testnet {selectedChain === 'core_testnet' ? '✓' : ''}
-                      </Text>
-                    </TouchableOpacity>
+                  <Text style={[styles.availableNetworksSubtitle, { color: colors.icon }]}>
+                    Tap to switch between supported networks
+                  </Text>
+                  <View style={styles.networkGrid}>
+                    <View style={styles.networkRow}>
+                      <TouchableOpacity 
+                        style={[
+                          styles.networkCard, 
+                          { 
+                            backgroundColor: getChainColor('core_testnet') + '15', 
+                            borderColor: selectedChain === 'core_testnet' ? getChainColor('core_testnet') : 'transparent',
+                            borderWidth: selectedChain === 'core_testnet' ? 2 : 0
+                          }
+                        ]}
+                        onPress={() => changeChain('core_testnet')}
+                      >
+                        <Text style={[styles.networkCardText, { color: getChainColor('core_testnet') }]}>
+                          Core Testnet
+                        </Text>
+                        {selectedChain === 'core_testnet' && (
+                          <View style={[styles.selectedIndicator, { backgroundColor: getChainColor('core_testnet') }]}>
+                            <Ionicons name="checkmark" size={12} color="white" />
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                      
+                      <TouchableOpacity 
+                        style={[
+                          styles.networkCard, 
+                          { 
+                            backgroundColor: getChainColor('base_sepolia') + '15', 
+                            borderColor: selectedChain === 'base_sepolia' ? getChainColor('base_sepolia') : 'transparent',
+                            borderWidth: selectedChain === 'base_sepolia' ? 2 : 0
+                          }
+                        ]}
+                        onPress={() => changeChain('base_sepolia')}
+                      >
+                        <Text style={[styles.networkCardText, { color: getChainColor('base_sepolia') }]}>
+                          Base Sepolia
+                        </Text>
+                        {selectedChain === 'base_sepolia' && (
+                          <View style={[styles.selectedIndicator, { backgroundColor: getChainColor('base_sepolia') }]}>
+                            <Ionicons name="checkmark" size={12} color="white" />
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    </View>
                     
-                    <TouchableOpacity 
-                      style={[styles.networkChip, { backgroundColor: getChainColor('base_sepolia') + '20', borderColor: getChainColor('base_sepolia') }]}
-                      onPress={() => changeChain('base_sepolia')}
-                    >
-                      <Text style={[styles.networkChipText, { color: getChainColor('base_sepolia') }]}>
-                        Base Sepolia {selectedChain === 'base_sepolia' ? '✓' : ''}
-                      </Text>
-                    </TouchableOpacity>
+                    <View style={styles.networkRow}>
+                      <TouchableOpacity 
+                        style={[
+                          styles.networkCard, 
+                          { 
+                            backgroundColor: selectedChain === 'morph_holesky' ? getChainColor('morph_holesky') : getChainColor('morph_holesky') + '15', 
+                            borderColor: selectedChain === 'morph_holesky' ? getChainColor('morph_holesky') : 'transparent',
+                            borderWidth: selectedChain === 'morph_holesky' ? 2 : 0
+                          }
+                        ]}
+                        onPress={() => changeChain('morph_holesky')}
+                      >
+                        <Text style={[styles.networkCardText, { color: selectedChain === 'morph_holesky' ? 'white' : getChainColor('morph_holesky') }]}>
+                          Morph
+                        </Text>
+                        {selectedChain === 'morph_holesky' && (
+                          <View style={[styles.selectedIndicator, { backgroundColor: 'white' }]}>
+                            <Ionicons name="checkmark" size={12} color={getChainColor('morph_holesky')} />
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                      
+                      <TouchableOpacity 
+                        style={[
+                          styles.networkCard, 
+                          { 
+                            backgroundColor: getChainColor('lisk_sepolia') + '15', 
+                            borderColor: selectedChain === 'lisk_sepolia' ? getChainColor('lisk_sepolia') : 'transparent',
+                            borderWidth: selectedChain === 'lisk_sepolia' ? 2 : 0
+                          }
+                        ]}
+                        onPress={() => changeChain('lisk_sepolia')}
+                      >
+                        <Text style={[styles.networkCardText, { color: getChainColor('lisk_sepolia') }]}>
+                          Lisk Sepolia
+                        </Text>
+                        {selectedChain === 'lisk_sepolia' && (
+                          <View style={[styles.selectedIndicator, { backgroundColor: getChainColor('lisk_sepolia') }]}>
+                            <Ionicons name="checkmark" size={12} color="white" />
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 </View>
               </View>
@@ -1238,18 +1315,52 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 8,
   },
-  networkChipsContainer: {
+  availableNetworksSubtitle: {
+    fontSize: 12,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  networkGrid: {
+    width: '100%',
+  },
+  networkRow: {
     flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 12,
   },
-  networkChip: {
-    padding: 8,
-    borderWidth: 1,
-    borderColor: 'transparent',
-    borderRadius: 8,
+  networkCard: {
+    width: '45%',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    minHeight: 60,
   },
-  networkChipText: {
-    fontSize: 14,
+  networkCardText: {
+    fontSize: 16,
     fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  networkCardSubtext: {
+    fontSize: 12,
+  },
+  selectedIndicator: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'white',
   },
   loadingContainer: {
     flex: 1,

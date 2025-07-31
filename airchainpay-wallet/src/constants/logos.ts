@@ -6,6 +6,8 @@
 export const NETWORK_LOGOS = {
   base_sepolia: 'https://raw.githubusercontent.com/base-org/brand-kit/main/logo/symbol/Base_Symbol_Blue.png',
   core_testnet: 'https://rose-imaginative-lion-87.mypinata.cloud/ipfs/bafkreidlgylpefyha2y3z7uhwestzi2zxsdxluiakugha6wxk2p3lozoci',
+  morph_holesky: 'https://morphl2.io/favicon.ico',
+  lisk_sepolia: 'https://lisk.com/favicon.ico',
 } as const;
 
 // Token-specific logos with reliable URLs
@@ -29,6 +31,16 @@ export const NETWORK_TOKEN_LOGOS = {
   },
   core_testnet: {
     TCORE2: 'https://rose-imaginative-lion-87.mypinata.cloud/ipfs/bafkreidlgylpefyha2y3z7uhwestzi2zxsdxluiakugha6wxk2p3lozoci',
+    USDC: 'https://s2.coinmarketcap.com/static/img/coins/64x64/3408.png',
+    USDT: 'https://s2.coinmarketcap.com/static/img/coins/64x64/825.png',
+  },
+  morph_holesky: {
+    ETH: 'https://morphl2.io/favicon.ico',
+    USDC: 'https://s2.coinmarketcap.com/static/img/coins/64x64/3408.png',
+    USDT: 'https://s2.coinmarketcap.com/static/img/coins/64x64/825.png',
+  },
+  lisk_sepolia: {
+    ETH: 'https://lisk.com/favicon.ico',
     USDC: 'https://s2.coinmarketcap.com/static/img/coins/64x64/3408.png',
     USDT: 'https://s2.coinmarketcap.com/static/img/coins/64x64/825.png',
   },

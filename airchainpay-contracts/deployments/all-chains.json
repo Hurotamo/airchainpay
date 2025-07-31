@@ -36,15 +36,15 @@
       "network": "holesky",
       "chainName": "Ethereum Holesky",
       "chainId": 17000,
-      "contractAddress": "0x7B79117445C57eea1CEAb4733020A55e1D503934",
+      "contractAddress": "0xf1446112EBC42A33A0fb3163079046ba086b5bbB",
       "owner": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
       "deployer": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
       "blockExplorer": "https://holesky.etherscan.io",
-      "deployedAt": "2025-07-30T10:30:16.103Z",
-      "txHash": "0xfbcaad80e813e7e92a43364b1dfadf6754a97a7e73dc03f1fb345ba6d16810f1",
+      "deployedAt": "2025-07-31T11:34:19.098Z",
+      "txHash": "0x16dde991a5cd6ec8165a3ac0de8c00c266d4bb75a0b42383e519ac8e76e094d1",
       "gasUsed": "634924",
       "gasPrice": "1000000000",
-      "blockNumber": 4252078
+      "blockNumber": 4257984
     },
     {
       "network": "core_testnet",

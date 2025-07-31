@@ -21,6 +21,18 @@ export const ChainColors = {
     accent: '#00D4FF',     // Light blue
     gradient: ['#00D4AA', '#00FFD1'] as const,
   },
+  morph: {
+    primary: '#10B981',    // Morph green
+    secondary: '#34D399',  // Light green
+    accent: '#6EE7B7',     // Very light green
+    gradient: ['#10B981', '#34D399'] as const,
+  },
+  lisk: {
+    primary: '#F59E0B',    // Lisk orange
+    secondary: '#FBBF24',  // Light orange
+    accent: '#FCD34D',     // Very light orange
+    gradient: ['#F59E0B', '#FBBF24'] as const,
+  },
   success: "#10B981",
   info: "#3B82F6",
   warning: "#F59E0B",
@@ -130,6 +142,10 @@ export const getChainColor = (chain: string): string => {
       return ChainColors.base.primary;
     case 'core_testnet':
       return ChainColors.core.primary;
+    case 'morph_holesky':
+      return ChainColors.morph.primary;
+    case 'lisk_sepolia':
+      return ChainColors.lisk.primary;
     default:
       return ChainColors.base.primary;
   }
@@ -141,6 +157,10 @@ export const getChainGradient = (chain: string): readonly [string, string] => {
       return ChainColors.base.gradient;
     case 'core_testnet':
       return ChainColors.core.gradient;
+    case 'morph_holesky':
+      return ChainColors.morph.gradient;
+    case 'lisk_sepolia':
+      return ChainColors.lisk.gradient;
     default:
       return ChainColors.base.gradient;
   }

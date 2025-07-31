@@ -635,6 +635,40 @@ export default function QRPayScreen() {
                       <Ionicons name="flash" size={16} color={selectedChain === 'core_testnet' ? 'white' : chainColor} />
                       <ThemedText style={{ fontSize: 15, fontWeight: 600, color: selectedChain === 'core_testnet' ? 'white' : chainColor, marginTop: 4 }}>Core Testnet</ThemedText>
                     </TouchableOpacity>
+                    <TouchableOpacity
+                      style={{
+                        flex: 1,
+                        marginHorizontal: 4,
+                        paddingVertical: 12,
+                        borderRadius: 10,
+                        alignItems: 'center',
+                        backgroundColor: selectedChain === 'morph_holesky' ? chainColor : colors.inputBackground,
+                        shadowColor: selectedChain === 'morph_holesky' ? chainColor : 'transparent',
+                        shadowOpacity: selectedChain === 'morph_holesky' ? 0.18 : 0,
+                      }}
+                      onPress={() => handleChainChange('morph_holesky')}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons name="layers" size={16} color={selectedChain === 'morph_holesky' ? 'white' : chainColor} />
+                      <ThemedText style={{ fontSize: 15, fontWeight: 600, color: selectedChain === 'morph_holesky' ? 'white' : chainColor, marginTop: 4 }}>Morph Holesky</ThemedText>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={{
+                        flex: 1,
+                        marginHorizontal: 4,
+                        paddingVertical: 12,
+                        borderRadius: 10,
+                        alignItems: 'center',
+                        backgroundColor: selectedChain === 'lisk_sepolia' ? chainColor : colors.inputBackground,
+                        shadowColor: selectedChain === 'lisk_sepolia' ? chainColor : 'transparent',
+                        shadowOpacity: selectedChain === 'lisk_sepolia' ? 0.18 : 0,
+                      }}
+                      onPress={() => handleChainChange('lisk_sepolia')}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons name="flash" size={16} color={selectedChain === 'lisk_sepolia' ? 'white' : chainColor} />
+                      <ThemedText style={{ fontSize: 15, fontWeight: 600, color: selectedChain === 'lisk_sepolia' ? 'white' : chainColor, marginTop: 4 }}>Lisk Sepolia</ThemedText>
+                    </TouchableOpacity>
                   </View>
                 </AnimatedCard>
 

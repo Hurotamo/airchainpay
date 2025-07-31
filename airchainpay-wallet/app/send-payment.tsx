@@ -301,47 +301,120 @@ export default function SendPaymentScreen() {
           {/* Network Selector (Chip Style) */}
           <View style={{ marginBottom: 16 }}>
             <Text style={{ color: colors.text, fontWeight: 'bold', marginBottom: 8, fontSize: 16 }}>
-              Available Networks (Tap to Switch):
+              Multi-Chain Networks
             </Text>
-            <View style={{ flexDirection: 'row', gap: 12 }}>
-              <TouchableOpacity
-                style={[
-                  styles.networkChip,
-                  { backgroundColor: getChainColor('core_testnet') + '20', borderColor: getChainColor('core_testnet') },
-                  selectedChain === 'core_testnet' && { borderWidth: 2 }
-                ]}
-                onPress={() => {
-                  setSelectedChain('core_testnet');
-                  setSelectedToken(null);
-                }}
-              >
-                <Text style={[
-                  styles.networkChipText,
-                  { color: getChainColor('core_testnet') },
-                  selectedChain === 'core_testnet' && { fontWeight: 'bold' }
-                ]}>
-                  Core Testnet {selectedChain === 'core_testnet' ? '✓' : ''}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.networkChip,
-                  { backgroundColor: getChainColor('base_sepolia') + '20', borderColor: getChainColor('base_sepolia') },
-                  selectedChain === 'base_sepolia' && { borderWidth: 2 }
-                ]}
-                onPress={() => {
-                  setSelectedChain('base_sepolia');
-                  setSelectedToken(null);
-                }}
-              >
-                <Text style={[
-                  styles.networkChipText,
-                  { color: getChainColor('base_sepolia') },
-                  selectedChain === 'base_sepolia' && { fontWeight: 'bold' }
-                ]}>
-                  Base Sepolia {selectedChain === 'base_sepolia' ? '✓' : ''}
-                </Text>
-              </TouchableOpacity>
+            <Text style={{ color: colors.icon, marginBottom: 16, fontSize: 12 }}>
+              Tap to switch between supported networks
+            </Text>
+            <View style={{ flexDirection: 'column', gap: 12 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+                <TouchableOpacity
+                  style={[
+                    styles.networkChip,
+                    { 
+                      backgroundColor: getChainColor('core_testnet') + '20', 
+                      borderColor: getChainColor('core_testnet'),
+                      width: '45%',
+                      paddingVertical: 12,
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    },
+                    selectedChain === 'core_testnet' && { borderWidth: 2 }
+                  ]}
+                  onPress={() => {
+                    setSelectedChain('core_testnet');
+                    setSelectedToken(null);
+                  }}
+                >
+                  <Text style={[
+                    styles.networkChipText,
+                    { color: getChainColor('core_testnet') },
+                    selectedChain === 'core_testnet' && { fontWeight: 'bold' }
+                  ]}>
+                    Core Testnet {selectedChain === 'core_testnet' ? '✓' : ''}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.networkChip,
+                    { 
+                      backgroundColor: getChainColor('base_sepolia') + '20', 
+                      borderColor: getChainColor('base_sepolia'),
+                      width: '45%',
+                      paddingVertical: 12,
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    },
+                    selectedChain === 'base_sepolia' && { borderWidth: 2 }
+                  ]}
+                  onPress={() => {
+                    setSelectedChain('base_sepolia');
+                    setSelectedToken(null);
+                  }}
+                >
+                  <Text style={[
+                    styles.networkChipText,
+                    { color: getChainColor('base_sepolia') },
+                    selectedChain === 'base_sepolia' && { fontWeight: 'bold' }
+                  ]}>
+                    Base Sepolia {selectedChain === 'base_sepolia' ? '✓' : ''}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+                <TouchableOpacity
+                  style={[
+                    styles.networkChip,
+                    { 
+                      backgroundColor: selectedChain === 'morph_holesky' ? getChainColor('morph_holesky') : getChainColor('morph_holesky') + '20', 
+                      borderColor: getChainColor('morph_holesky'),
+                      width: '45%',
+                      paddingVertical: 12,
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    },
+                    selectedChain === 'morph_holesky' && { borderWidth: 2 }
+                  ]}
+                  onPress={() => {
+                    setSelectedChain('morph_holesky');
+                    setSelectedToken(null);
+                  }}
+                >
+                  <Text style={[
+                    styles.networkChipText,
+                    { color: selectedChain === 'morph_holesky' ? 'white' : getChainColor('morph_holesky') },
+                    selectedChain === 'morph_holesky' && { fontWeight: 'bold' }
+                  ]}>
+                    Morph {selectedChain === 'morph_holesky' ? '✓' : ''}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.networkChip,
+                    { 
+                      backgroundColor: getChainColor('lisk_sepolia') + '20', 
+                      borderColor: getChainColor('lisk_sepolia'),
+                      width: '45%',
+                      paddingVertical: 12,
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    },
+                    selectedChain === 'lisk_sepolia' && { borderWidth: 2 }
+                  ]}
+                  onPress={() => {
+                    setSelectedChain('lisk_sepolia');
+                    setSelectedToken(null);
+                  }}
+                >
+                  <Text style={[
+                    styles.networkChipText,
+                    { color: getChainColor('lisk_sepolia') },
+                    selectedChain === 'lisk_sepolia' && { fontWeight: 'bold' }
+                  ]}>
+                    Lisk Sepolia {selectedChain === 'lisk_sepolia' ? '✓' : ''}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
           {/* Token Selector */}

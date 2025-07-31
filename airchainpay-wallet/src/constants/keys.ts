@@ -53,6 +53,13 @@ const API_KEYS = {
   quicknode: {
     apiKey: process.env.QUICKNODE_API_KEY || '',
   } as APIConfig,
+  morph_holesky: {
+    // Morph Holesky RPC
+    rpcUrl: process.env.MORPH_HOLESKY_RPC_URL || 'https://holesky.drpc.org',
+    chainId: 17000,
+    contractAddress: '0x0000000000000000000000000000000000000000', // Native ETH
+    explorer: 'https://holesky.etherscan.io',
+  } as ChainAPIKeys,
 };
 
 // RPC URL helper functions
@@ -78,6 +85,12 @@ export const SUPPORTED_CHAINS = {
     contractAddress: '0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB',
     explorer: 'https://scan.test2.btcs.network',
   },
+  morph_holesky: {
+    rpcUrl: process.env.MORPH_HOLESKY_RPC_URL || 'https://holesky.drpc.org',
+    chainId: 17000,
+    contractAddress: '0x0000000000000000000000000000000000000000', // Native ETH
+    explorer: 'https://holesky.etherscan.io',
+  },
 } as const;
 
 export const RPC_URLS: { [key: string]: { rpcUrl: string } } = {
@@ -86,6 +99,9 @@ export const RPC_URLS: { [key: string]: { rpcUrl: string } } = {
   },
   core_testnet: {
     rpcUrl: process.env.CORE_TESTNET_RPC_URL || 'https://rpc.test2.btcs.network',
+  },
+  morph_holesky: {
+    rpcUrl: process.env.MORPH_HOLESKY_RPC_URL || 'https://holesky.drpc.org',
   },
 };
 

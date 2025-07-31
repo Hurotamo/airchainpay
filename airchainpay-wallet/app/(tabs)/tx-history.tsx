@@ -115,49 +115,196 @@ export default function TransactionHistoryScreen() {
         
         {/* Chain Selector */}
         <View style={{ marginTop: 15 }}>
-          <Text style={{ fontSize: 14, color: colors.text, marginBottom: 8 }}>
-            Select Network:
+          <Text style={{ fontSize: 16, fontWeight: 'bold', color: colors.text, marginBottom: 8, textAlign: 'center' }}>
+            Multi-Chain Networks
           </Text>
-          <View style={{ flexDirection: 'row', gap: 12 }}>
-            <TouchableOpacity
-              style={{
-                paddingHorizontal: 16,
-                paddingVertical: 8,
-                borderRadius: 20,
-                backgroundColor: getChainColor('core_testnet') + '20',
-                borderWidth: 2,
-                borderColor: selectedChain === 'core_testnet' ? getChainColor('core_testnet') : 'transparent',
-              }}
-              onPress={() => changeChain('core_testnet')}
-            >
-              <Text style={{
-                color: selectedChain === 'core_testnet' ? getChainColor('core_testnet') : colors.text,
-                fontWeight: selectedChain === 'core_testnet' ? 'bold' : 'normal',
-                fontSize: 14,
-              }}>
-                Core Testnet {selectedChain === 'core_testnet' ? '\u2713' : ''}
-              </Text>
-            </TouchableOpacity>
+          <Text style={{ fontSize: 12, color: colors.icon, marginBottom: 16, textAlign: 'center' }}>
+            Select network to view transactions
+          </Text>
+          <View style={{ flexDirection: 'column', gap: 12 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+              <TouchableOpacity
+                style={{
+                  width: '45%',
+                  paddingVertical: 16,
+                  paddingHorizontal: 16,
+                  borderRadius: 12,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: getChainColor('core_testnet') + '15',
+                  borderWidth: 2,
+                  borderColor: selectedChain === 'core_testnet' ? getChainColor('core_testnet') : 'transparent',
+                  shadowColor: selectedChain === 'core_testnet' ? getChainColor('core_testnet') : 'transparent',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: selectedChain === 'core_testnet' ? 0.2 : 0,
+                  shadowRadius: 4,
+                  elevation: selectedChain === 'core_testnet' ? 3 : 0,
+                  minHeight: 60,
+                }}
+                onPress={() => changeChain('core_testnet')}
+              >
+                <Text style={{
+                  color: getChainColor('core_testnet'),
+                  fontWeight: selectedChain === 'core_testnet' ? 'bold' : '600',
+                  fontSize: 16,
+                  textAlign: 'center',
+                }}>
+                  Core Testnet
+                </Text>
+                {selectedChain === 'core_testnet' && (
+                  <View style={{
+                    position: 'absolute',
+                    top: 8,
+                    right: 8,
+                    width: 16,
+                    height: 16,
+                    borderRadius: 8,
+                    backgroundColor: getChainColor('core_testnet'),
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}>
+                    <Ionicons name="checkmark" size={10} color="white" />
+                  </View>
+                )}
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={{
+                  width: '45%',
+                  paddingVertical: 16,
+                  paddingHorizontal: 16,
+                  borderRadius: 12,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: getChainColor('base_sepolia') + '15',
+                  borderWidth: 2,
+                  borderColor: selectedChain === 'base_sepolia' ? getChainColor('base_sepolia') : 'transparent',
+                  shadowColor: selectedChain === 'base_sepolia' ? getChainColor('base_sepolia') : 'transparent',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: selectedChain === 'base_sepolia' ? 0.2 : 0,
+                  shadowRadius: 4,
+                  elevation: selectedChain === 'base_sepolia' ? 3 : 0,
+                  minHeight: 60,
+                }}
+                onPress={() => changeChain('base_sepolia')}
+              >
+                <Text style={{
+                  color: getChainColor('base_sepolia'),
+                  fontWeight: selectedChain === 'base_sepolia' ? 'bold' : '600',
+                  fontSize: 16,
+                  textAlign: 'center',
+                }}>
+                  Base Sepolia
+                </Text>
+                {selectedChain === 'base_sepolia' && (
+                  <View style={{
+                    position: 'absolute',
+                    top: 8,
+                    right: 8,
+                    width: 16,
+                    height: 16,
+                    borderRadius: 8,
+                    backgroundColor: getChainColor('base_sepolia'),
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}>
+                    <Ionicons name="checkmark" size={10} color="white" />
+                  </View>
+                )}
+              </TouchableOpacity>
+            </View>
             
-            <TouchableOpacity
-              style={{
-                paddingHorizontal: 16,
-                paddingVertical: 8,
-                borderRadius: 20,
-                backgroundColor: getChainColor('base_sepolia') + '20',
-                borderWidth: 2,
-                borderColor: selectedChain === 'base_sepolia' ? getChainColor('base_sepolia') : 'transparent',
-              }}
-              onPress={() => changeChain('base_sepolia')}
-            >
-              <Text style={{
-                color: selectedChain === 'base_sepolia' ? getChainColor('base_sepolia') : colors.text,
-                fontWeight: selectedChain === 'base_sepolia' ? 'bold' : 'normal',
-                fontSize: 14,
-              }}>
-                Base Sepolia {selectedChain === 'base_sepolia' ? '\u2713' : ''}
-              </Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+              <TouchableOpacity
+                style={{
+                  width: '45%',
+                  paddingVertical: 16,
+                  paddingHorizontal: 16,
+                  borderRadius: 12,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: selectedChain === 'morph_holesky' ? getChainColor('morph_holesky') : getChainColor('morph_holesky') + '15',
+                  borderWidth: 2,
+                  borderColor: selectedChain === 'morph_holesky' ? getChainColor('morph_holesky') : 'transparent',
+                  shadowColor: selectedChain === 'morph_holesky' ? getChainColor('morph_holesky') : 'transparent',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: selectedChain === 'morph_holesky' ? 0.2 : 0,
+                  shadowRadius: 4,
+                  elevation: selectedChain === 'morph_holesky' ? 3 : 0,
+                  minHeight: 60,
+                }}
+                onPress={() => changeChain('morph_holesky')}
+              >
+                <Text style={{
+                  color: selectedChain === 'morph_holesky' ? 'white' : getChainColor('morph_holesky'),
+                  fontWeight: selectedChain === 'morph_holesky' ? 'bold' : '600',
+                  fontSize: 16,
+                  textAlign: 'center',
+                }}>
+                  Morph
+                </Text>
+                {selectedChain === 'morph_holesky' && (
+                  <View style={{
+                    position: 'absolute',
+                    top: 8,
+                    right: 8,
+                    width: 16,
+                    height: 16,
+                    borderRadius: 8,
+                    backgroundColor: 'white',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}>
+                    <Ionicons name="checkmark" size={10} color={getChainColor('morph_holesky')} />
+                  </View>
+                )}
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={{
+                  width: '45%',
+                  paddingVertical: 16,
+                  paddingHorizontal: 16,
+                  borderRadius: 12,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: getChainColor('lisk_sepolia') + '15',
+                  borderWidth: 2,
+                  borderColor: selectedChain === 'lisk_sepolia' ? getChainColor('lisk_sepolia') : 'transparent',
+                  shadowColor: selectedChain === 'lisk_sepolia' ? getChainColor('lisk_sepolia') : 'transparent',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: selectedChain === 'lisk_sepolia' ? 0.2 : 0,
+                  shadowRadius: 4,
+                  elevation: selectedChain === 'lisk_sepolia' ? 3 : 0,
+                  minHeight: 60,
+                }}
+                onPress={() => changeChain('lisk_sepolia')}
+              >
+                <Text style={{
+                  color: getChainColor('lisk_sepolia'),
+                  fontWeight: selectedChain === 'lisk_sepolia' ? 'bold' : '600',
+                  fontSize: 16,
+                  textAlign: 'center',
+                }}>
+                  Lisk Sepolia
+                </Text>
+                {selectedChain === 'lisk_sepolia' && (
+                  <View style={{
+                    position: 'absolute',
+                    top: 8,
+                    right: 8,
+                    width: 16,
+                    height: 16,
+                    borderRadius: 8,
+                    backgroundColor: getChainColor('lisk_sepolia'),
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}>
+                    <Ionicons name="checkmark" size={10} color="white" />
+                  </View>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </View>

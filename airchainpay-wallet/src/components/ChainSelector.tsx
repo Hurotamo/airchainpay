@@ -91,6 +91,10 @@ export const ChainSelector: React.FC<ChainSelectorProps> = ({
         return 'Base Sepolia';
       case 'core_testnet':
         return 'Core Testnet';
+      case 'morph_holesky':
+        return 'Morph';
+      case 'lisk_sepolia':
+        return 'Lisk Sepolia';
       default:
         return config.name;
     }
