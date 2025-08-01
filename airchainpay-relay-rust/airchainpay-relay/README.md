@@ -101,7 +101,7 @@ ENABLE_HEALTH_CHECKS=true
 ---
 
 ## ✨ Features
-- Multi-chain support (Core Testnet 2, Base Sepolia)
+- Multi-chain support (Core Testnet 2, Base Sepolia, Lisk Sepolia, Ethereum Holesky)
 - Secure transaction validation and broadcasting
 - Structured logging, metrics, and health checks
 - Rate limiting, JWT authentication, CORS
