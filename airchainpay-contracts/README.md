@@ -131,10 +131,10 @@ npx hardhat run scripts/check-holesky.js --network holesky
 
 | Network | Contract Address |
 |---------|------------------|
-| Base Sepolia | `0x776621fE8c191591aBc978510bb8AA5cF3204F06` |
-| Core Testnet | `0x8dCcDf8Be8B32492896281413B45e075B1f5EDe5` |
-| Lisk Sepolia | `0xf1446112EBC42A33A0fb3163079046ba086b5bbB` |
-| Ethereum Holesky | `0xaBEEEc6e6c1f6bfDE1d05db74B28847Ba5b44EAF` |
+| Core Testnet | `0xcE2D2A50DaA794c12d079F2E2E2aF656ebB981fF` |
+| Base Sepolia | `0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB` |
+| Ethereum Holesky | `0x26C59cd738Df90604Ebb13Ed8DB76657cfD51f40` |
+| Lisk Sepolia | `0xaBEEEc6e6c1f6bfDE1d05db74B28847Ba5b44EAF` |
 
 ## Network Information
 
