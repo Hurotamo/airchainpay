@@ -4,6 +4,7 @@ import { logger } from '../utils/Logger';
 import { secureStorage } from '../utils/SecureStorageService';
 import { PasswordHasher } from '../utils/crypto/PasswordHasher';
 import { PasswordMigration } from '../utils/crypto/PasswordMigration';
+import { ERC20_ABI, AIRCHAINPAY_TOKEN_ABI } from '../constants/abi';
 
 // Storage keys - hardcoded to avoid import issues
 const STORAGE_KEYS = {
@@ -669,7 +670,7 @@ export class MultiChainWalletManager {
   }
 
   /**
-   * Send a token transaction (native or ERC-20)
+   * Send a token transaction using meta-transactions (native or ERC-20)
    */
   async sendTokenTransaction(
     to: string,
@@ -700,62 +701,37 @@ export class MultiChainWalletManager {
       let transaction: ethers.TransactionResponse;
 
       if (!tokenInfo || tokenInfo.isNative) {
-        // Native token transaction (ETH, MATIC, etc.)
-        logger.info('[MultiChain] Sending native token transaction', {
+        // Native token meta-transaction (ETH, MATIC, etc.)
+        logger.info('[MultiChain] Sending native token meta-transaction', {
           to,
           amount: amountBigInt.toString(),
           chainId
         });
 
-        // Get current gas price
-        const gasPrice = await this.getGasPrice(chainId);
-        
-        // Estimate gas for the transaction
-        const gasEstimate = await this.estimateGas({
+        transaction = await this.executeNativeMetaTransaction(
           to,
-          value: amountBigInt
-        }, chainId);
-
-        transaction = await connectedWallet.sendTransaction({
-          to,
-          value: amountBigInt,
-          gasPrice
-        });
+          amountBigInt,
+          chainId
+        );
 
       } else {
-        // ERC-20 token transaction
-        logger.info('[MultiChain] Sending ERC-20 token transaction', {
+        // ERC-20 token meta-transaction
+        logger.info('[MultiChain] Sending ERC-20 token meta-transaction', {
           to,
           amount: amountBigInt.toString(),
           tokenAddress: tokenInfo.address,
           chainId
         });
 
-        const tokenContract = new ethers.Contract(
+        transaction = await this.executeTokenMetaTransaction(
+          to,
           tokenInfo.address,
-          [
-            'function transfer(address to, uint256 amount) returns (bool)',
-            'function balanceOf(address owner) view returns (uint256)',
-            'function decimals() view returns (uint8)'
-          ],
-          connectedWallet
+          amountBigInt,
+          chainId
         );
-
-        // Verify token balance
-        const balance = await tokenContract.balanceOf(wallet.address);
-        if (balance < amountBigInt) {
-          throw new Error(`Insufficient token balance. Required: ${amountBigInt}, Available: ${balance}`);
-        }
-
-        // Get current gas price
-        const gasPrice = await this.getGasPrice(chainId);
-
-        transaction = await tokenContract.transfer(to, amountBigInt, {
-          gasPrice
-        });
       }
 
-      logger.info('[MultiChain] Transaction sent successfully', {
+      logger.info('[MultiChain] Meta-transaction sent successfully', {
         hash: transaction.hash,
         chainId,
         to,
@@ -769,12 +745,234 @@ export class MultiChainWalletManager {
 
     } catch (error: unknown) {
       if (error instanceof Error) {
-        logger.error('[MultiChain] Failed to send token transaction:', error);
+        logger.error('[MultiChain] Failed to send token meta-transaction:', error);
       } else {
-        logger.error('[MultiChain] Failed to send token transaction:', String(error));
+        logger.error('[MultiChain] Failed to send token meta-transaction:', String(error));
       }
       throw error;
     }
+  }
+
+  /**
+   * Execute a native token meta-transaction
+   */
+  private async executeNativeMetaTransaction(
+    to: string,
+    amount: bigint,
+    chainId: string
+  ): Promise<ethers.TransactionResponse> {
+    const wallet = await this.createOrLoadWallet();
+    const provider = this.providers[chainId];
+    const contractAddress = this.getContractAddress(chainId);
+    
+    if (!isEthersWallet(wallet)) {
+      throw new Error('Unsupported wallet type for meta-transaction');
+    }
+
+    const connectedWallet = wallet.connect(provider);
+    const contract = new ethers.Contract(contractAddress, AIRCHAINPAY_TOKEN_ABI, connectedWallet);
+
+    // Get current nonce
+    const nonce = await contract.getNonce(wallet.address);
+    
+    // Create deadline (1 hour from now)
+    const deadline = Math.floor(Date.now() / 1000) + 3600;
+    
+    // Create payment reference
+    const paymentReference = `Payment from ${wallet.address} to ${to} at ${Date.now()}`;
+
+    // Create signature
+    const signature = await this.createNativeMetaTransactionSignature(
+      wallet.address,
+      to,
+      amount,
+      paymentReference,
+      nonce,
+      deadline,
+      contractAddress,
+      chainId
+    );
+
+    // Execute meta-transaction
+    const tx = await contract.executeNativeMetaTransaction(
+      wallet.address,
+      to,
+      amount,
+      paymentReference,
+      deadline,
+      signature,
+      { value: amount }
+    );
+
+    return tx;
+  }
+
+  /**
+   * Execute an ERC-20 token meta-transaction
+   */
+  private async executeTokenMetaTransaction(
+    to: string,
+    tokenAddress: string,
+    amount: bigint,
+    chainId: string
+  ): Promise<ethers.TransactionResponse> {
+    const wallet = await this.createOrLoadWallet();
+    const provider = this.providers[chainId];
+    const contractAddress = this.getContractAddress(chainId);
+    
+    if (!isEthersWallet(wallet)) {
+      throw new Error('Unsupported wallet type for meta-transaction');
+    }
+
+    const connectedWallet = wallet.connect(provider);
+    const contract = new ethers.Contract(contractAddress, AIRCHAINPAY_TOKEN_ABI, connectedWallet);
+
+    // Get current nonce
+    const nonce = await contract.getNonce(wallet.address);
+    
+    // Create deadline (1 hour from now)
+    const deadline = Math.floor(Date.now() / 1000) + 3600;
+    
+    // Create payment reference
+    const paymentReference = `Token payment from ${wallet.address} to ${to} at ${Date.now()}`;
+
+    // Create signature
+    const signature = await this.createTokenMetaTransactionSignature(
+      wallet.address,
+      to,
+      tokenAddress,
+      amount,
+      paymentReference,
+      nonce,
+      deadline,
+      contractAddress,
+      chainId
+    );
+
+    // Execute meta-transaction
+    const tx = await contract.executeTokenMetaTransaction(
+      wallet.address,
+      to,
+      tokenAddress,
+      amount,
+      paymentReference,
+      deadline,
+      signature
+    );
+
+    return tx;
+  }
+
+  /**
+   * Create signature for native meta-transaction
+   */
+  private async createNativeMetaTransactionSignature(
+    from: string,
+    to: string,
+    amount: bigint,
+    paymentReference: string,
+    nonce: bigint,
+    deadline: number,
+    contractAddress: string,
+    chainId: string
+  ): Promise<string> {
+    const wallet = await this.createOrLoadWallet();
+    
+    if (!isEthersWallet(wallet)) {
+      throw new Error('Unsupported wallet type for signature creation');
+    }
+
+    const domain = {
+      name: 'AirChainPayToken',
+      version: '1',
+      chainId: parseInt(chainId),
+      verifyingContract: contractAddress
+    };
+
+    const types = {
+      NativePayment: [
+        { name: 'from', type: 'address' },
+        { name: 'to', type: 'address' },
+        { name: 'amount', type: 'uint256' },
+        { name: 'paymentReference', type: 'string' },
+        { name: 'nonce', type: 'uint256' },
+        { name: 'deadline', type: 'uint256' }
+      ]
+    };
+
+    const value = {
+      from,
+      to,
+      amount,
+      paymentReference,
+      nonce,
+      deadline
+    };
+
+    return await wallet.signTypedData(domain, types, value);
+  }
+
+  /**
+   * Create signature for token meta-transaction
+   */
+  private async createTokenMetaTransactionSignature(
+    from: string,
+    to: string,
+    token: string,
+    amount: bigint,
+    paymentReference: string,
+    nonce: bigint,
+    deadline: number,
+    contractAddress: string,
+    chainId: string
+  ): Promise<string> {
+    const wallet = await this.createOrLoadWallet();
+    
+    if (!isEthersWallet(wallet)) {
+      throw new Error('Unsupported wallet type for signature creation');
+    }
+
+    const domain = {
+      name: 'AirChainPayToken',
+      version: '1',
+      chainId: parseInt(chainId),
+      verifyingContract: contractAddress
+    };
+
+    const types = {
+      TokenPayment: [
+        { name: 'from', type: 'address' },
+        { name: 'to', type: 'address' },
+        { name: 'token', type: 'address' },
+        { name: 'amount', type: 'uint256' },
+        { name: 'paymentReference', type: 'string' },
+        { name: 'nonce', type: 'uint256' },
+        { name: 'deadline', type: 'uint256' }
+      ]
+    };
+
+    const value = {
+      from,
+      to,
+      token,
+      amount,
+      paymentReference,
+      nonce,
+      deadline
+    };
+
+    return await wallet.signTypedData(domain, types, value);
+  }
+
+  /**
+   * Get contract address for a specific chain
+   */
+  private getContractAddress(chainId: string): string {
+    const chain = SUPPORTED_CHAINS[chainId];
+    if (!chain?.contractAddress) {
+      throw new Error(`Contract address not configured for chain: ${chainId}`);
+    }
+    return chain.contractAddress;
   }
 
   // Add method to check if wallet password exists

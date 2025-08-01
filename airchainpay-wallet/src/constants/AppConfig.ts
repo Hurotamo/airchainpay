@@ -61,7 +61,7 @@ export const SUPPORTED_CHAINS: { [key: string]: ChainConfig } = {
       decimals: 18,
     },
     blockExplorer: 'https://sepolia.basescan.org',
-    contractAddress: '0x7B79117445C57eea1CEAb4733020A55e1D503934',
+    contractAddress: '0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB',
     type: 'evm',
   },
   core_testnet: {
@@ -75,7 +75,7 @@ export const SUPPORTED_CHAINS: { [key: string]: ChainConfig } = {
       decimals: 18,
     },
     blockExplorer: 'https://scan.test2.btcs.network',
-    contractAddress: '0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB',
+    contractAddress: '0xcE2D2A50DaA794c12d079F2E2E2aF656ebB981fF',
     type: 'evm',
   },
   morph_holesky: {
@@ -89,7 +89,7 @@ export const SUPPORTED_CHAINS: { [key: string]: ChainConfig } = {
       decimals: 18,
     },
     blockExplorer: 'https://holesky.etherscan.io',
-    contractAddress: '0x0000000000000000000000000000000000000000', // Native ETH
+    contractAddress: '0x26C59cd738Df90604Ebb13Ed8DB76657cfD51f40',
     type: 'evm',
   },
   lisk_sepolia: {
@@ -103,7 +103,7 @@ export const SUPPORTED_CHAINS: { [key: string]: ChainConfig } = {
       decimals: 18,
     },
     blockExplorer: 'https://sepolia-blockscout.lisk.com/',
-    contractAddress: '0x7B79117445C57eea1CEAb4733020A55e1D503934',
+    contractAddress: '0xaBEEEc6e6c1f6bfDE1d05db74B28847Ba5b44EAF',
     type: 'evm',
   },
 };

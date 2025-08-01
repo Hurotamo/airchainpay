@@ -7,7 +7,7 @@
       "owner": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
       "deployer": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
       "blockExplorer": "https://sepolia.basescan.org",
-      "deployedAt": "2024-12-13T00:00:00.000Z"
+      "deployedAt": ""
     },
     {
       "chainName": "core_testnet",
@@ -16,7 +16,7 @@
       "owner": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
       "deployer": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
       "blockExplorer": "https://scan.test2.btcs.network",
-      "deployedAt": "2024-12-13T00:00:00.000Z"
+      "deployedAt": ""
     },
     {
       "network": "lisk_sepolia",
