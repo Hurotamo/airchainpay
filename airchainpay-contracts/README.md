@@ -127,6 +127,15 @@ npx hardhat run scripts/check-lisk-sepolia.js --network lisk_sepolia
 npx hardhat run scripts/check-holesky.js --network holesky
 ```
 
+## Deployed Contract Addresses
+
+| Network | Contract Address |
+|---------|------------------|
+| Base Sepolia | `0x776621fE8c191591aBc978510bb8AA5cF3204F06` |
+| Core Testnet | `0x8dCcDf8Be8B32492896281413B45e075B1f5EDe5` |
+| Lisk Sepolia | `0xf1446112EBC42A33A0fb3163079046ba086b5bbB` |
+| Ethereum Holesky | `0xaBEEEc6e6c1f6bfDE1d05db74B28847Ba5b44EAF` |
+
 ## Network Information
 
 | Network | Chain ID | RPC URL | Block Explorer | Native Currency |

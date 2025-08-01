@@ -2,19 +2,19 @@ const { ethers } = require("hardhat");
 const fs = require("fs");
 const path = require("path");
 
-// Ethereum Holesky Testnet configuration
-const HOLESKY_CONFIG = {
-  name: "Ethereum Holesky",
-  chainId: 17000,
-  rpcUrl: "https://ethereum-holesky-rpc.publicnode.com/",
-  blockExplorer: "https://holesky.etherscan.io",
-  nativeCurrency: "ETH",
-  gasPrice: "1000000000" // 1 gwei
+// Core Testnet configuration
+const CORE_TESTNET_CONFIG = {
+  name: "Core Blockchain TestNet",
+  chainId: 1114,
+  rpcUrl: "https://rpc.test2.btcs.network",
+  blockExplorer: "https://scan.test2.btcs.network",
+  nativeCurrency: "tCORE2",
+  gasPrice: "10000000000" // 10 gwei
 };
 
-async function deployToHolesky() {
-  console.log("🌐 AirChainPay - Ethereum Holesky Testnet Deployment");
-  console.log("===================================================");
+async function deployAirChainPayToCoreTestnet() {
+  console.log("🌐 AirChainPay - Core Testnet Deployment");
+  console.log("========================================");
   
   try {
     // Get the contract factory
@@ -25,11 +25,11 @@ async function deployToHolesky() {
     const balance = await deployer.provider.getBalance(deployer.address);
     
     console.log(`📝 Deploying with account: ${deployer.address}`);
-    console.log(`💰 Account balance: ${ethers.formatEther(balance)} ${HOLESKY_CONFIG.nativeCurrency}`);
+    console.log(`💰 Account balance: ${ethers.formatEther(balance)} ${CORE_TESTNET_CONFIG.nativeCurrency}`);
     
-    // Check if we have enough balance (at least 0.01 ETH)
+    // Check if we have enough balance (at least 0.01 tCORE2)
     if (balance < ethers.parseEther("0.01")) {
-      throw new Error(`Insufficient balance. Need at least 0.01 ${HOLESKY_CONFIG.nativeCurrency}`);
+      throw new Error(`Insufficient balance. Need at least 0.01 ${CORE_TESTNET_CONFIG.nativeCurrency}`);
     }
     
     // Deploy the contract
@@ -41,7 +41,7 @@ async function deployToHolesky() {
     const contractAddress = await contract.getAddress();
     
     console.log(`✅ AirChainPay deployed to: ${contractAddress}`);
-    console.log(`🔗 Block Explorer: ${HOLESKY_CONFIG.blockExplorer}/address/${contractAddress}`);
+    console.log(`🔗 Block Explorer: ${CORE_TESTNET_CONFIG.blockExplorer}/address/${contractAddress}`);
     
     // Verify contract owner
     const owner = await contract.owner();
@@ -52,17 +52,18 @@ async function deployToHolesky() {
     const receipt = await deploymentTx.wait();
     
     console.log(`📊 Gas used: ${receipt.gasUsed.toString()}`);
-    console.log(`💰 Gas cost: ${ethers.formatEther(receipt.gasUsed * deploymentTx.gasPrice)} ETH`);
+    console.log(`💰 Gas cost: ${ethers.formatEther(receipt.gasUsed * deploymentTx.gasPrice)} tCORE2`);
     
     // Save deployment info
     const deploymentInfo = {
-      network: "holesky",
-      chainName: HOLESKY_CONFIG.name,
-      chainId: HOLESKY_CONFIG.chainId,
+      network: "core_testnet",
+      chainName: CORE_TESTNET_CONFIG.name,
+      chainId: CORE_TESTNET_CONFIG.chainId,
+      contractName: "AirChainPay",
       contractAddress,
       owner,
       deployer: deployer.address,
-      blockExplorer: HOLESKY_CONFIG.blockExplorer,
+      blockExplorer: CORE_TESTNET_CONFIG.blockExplorer,
       deployedAt: new Date().toISOString(),
       txHash: deploymentTx.hash,
       gasUsed: receipt.gasUsed.toString(),
@@ -77,7 +78,7 @@ async function deployToHolesky() {
     }
     
     // Save individual deployment file
-    const deploymentFile = path.join(deploymentsDir, "holesky.json");
+    const deploymentFile = path.join(deploymentsDir, "core_testnet_airchainpay.json");
     fs.writeFileSync(deploymentFile, JSON.stringify(deploymentInfo, null, 2));
     
     console.log(`📄 Deployment info saved to: ${deploymentFile}`);
@@ -95,7 +96,7 @@ async function deployToHolesky() {
     }
     
     // Add this deployment to the master file
-    const existingIndex = masterData.deployments.findIndex(d => d.network === "holesky");
+    const existingIndex = masterData.deployments.findIndex(d => d.network === "core_testnet" && d.contractName === "AirChainPay");
     if (existingIndex >= 0) {
       masterData.deployments[existingIndex] = deploymentInfo;
     } else {
@@ -105,11 +106,11 @@ async function deployToHolesky() {
     fs.writeFileSync(masterFile, JSON.stringify(masterData, null, 2));
     console.log(`📋 Master deployment file updated: ${masterFile}`);
     
-    console.log("\n🎉 Deployment completed successfully!");
+    console.log("\n🎉 AirChainPay deployment completed successfully!");
     console.log("=====================================");
     console.log(`Contract Address: ${contractAddress}`);
     console.log(`Transaction Hash: ${deploymentTx.hash}`);
-    console.log(`Block Explorer: ${HOLESKY_CONFIG.blockExplorer}/tx/${deploymentTx.hash}`);
+    console.log(`Block Explorer: ${CORE_TESTNET_CONFIG.blockExplorer}/tx/${deploymentTx.hash}`);
     
     return deploymentInfo;
     
@@ -120,7 +121,7 @@ async function deployToHolesky() {
 }
 
 // Handle errors
-deployToHolesky()
+deployAirChainPayToCoreTestnet()
   .then(() => process.exit(0))
   .catch((error) => {
     console.error("💥 Deployment script failed:", error);

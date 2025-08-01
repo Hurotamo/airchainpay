@@ -12,7 +12,7 @@ const BASE_SEPOLIA_CONFIG = {
   gasPrice: "1000000000" // 1 gwei
 };
 
-async function deployToBaseSepolia() {
+async function deployAirChainPayToBaseSepolia() {
   console.log("🌐 AirChainPay - Base Sepolia Testnet Deployment");
   console.log("================================================");
   
@@ -59,6 +59,7 @@ async function deployToBaseSepolia() {
       network: "base_sepolia",
       chainName: BASE_SEPOLIA_CONFIG.name,
       chainId: BASE_SEPOLIA_CONFIG.chainId,
+      contractName: "AirChainPay",
       contractAddress,
       owner,
       deployer: deployer.address,
@@ -77,7 +78,7 @@ async function deployToBaseSepolia() {
     }
     
     // Save individual deployment file
-    const deploymentFile = path.join(deploymentsDir, "base_sepolia.json");
+    const deploymentFile = path.join(deploymentsDir, "base_sepolia_airchainpay.json");
     fs.writeFileSync(deploymentFile, JSON.stringify(deploymentInfo, null, 2));
     
     console.log(`📄 Deployment info saved to: ${deploymentFile}`);
@@ -95,7 +96,7 @@ async function deployToBaseSepolia() {
     }
     
     // Add this deployment to the master file
-    const existingIndex = masterData.deployments.findIndex(d => d.network === "base_sepolia");
+    const existingIndex = masterData.deployments.findIndex(d => d.network === "base_sepolia" && d.contractName === "AirChainPay");
     if (existingIndex >= 0) {
       masterData.deployments[existingIndex] = deploymentInfo;
     } else {
@@ -105,7 +106,7 @@ async function deployToBaseSepolia() {
     fs.writeFileSync(masterFile, JSON.stringify(masterData, null, 2));
     console.log(`📋 Master deployment file updated: ${masterFile}`);
     
-    console.log("\n🎉 Deployment completed successfully!");
+    console.log("\n🎉 AirChainPay deployment completed successfully!");
     console.log("=====================================");
     console.log(`Contract Address: ${contractAddress}`);
     console.log(`Transaction Hash: ${deploymentTx.hash}`);
@@ -120,7 +121,7 @@ async function deployToBaseSepolia() {
 }
 
 // Handle errors
-deployToBaseSepolia()
+deployAirChainPayToBaseSepolia()
   .then(() => process.exit(0))
   .catch((error) => {
     console.error("💥 Deployment script failed:", error);

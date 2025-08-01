@@ -4,17 +4,17 @@ const path = require("path");
 
 // Lisk Sepolia Testnet configuration
 const LISK_SEPOLIA_CONFIG = {
-  name: "Lisk Sepolia Testnet",
+  name: "Lisk Sepolia",
   chainId: 4202,
   rpcUrl: "https://rpc.sepolia-api.lisk.com",
   blockExplorer: "https://sepolia.lisk.com",
-  nativeCurrency: "ETH",
+  nativeCurrency: "LSK",
   gasPrice: "1000000000" // 1 gwei
 };
 
-async function deployToLiskSepolia() {
+async function deployAirChainPayToLiskSepolia() {
   console.log("🌐 AirChainPay - Lisk Sepolia Testnet Deployment");
-  console.log("================================================");
+  console.log("===============================================");
   
   try {
     // Get the contract factory
@@ -27,7 +27,7 @@ async function deployToLiskSepolia() {
     console.log(`📝 Deploying with account: ${deployer.address}`);
     console.log(`💰 Account balance: ${ethers.formatEther(balance)} ${LISK_SEPOLIA_CONFIG.nativeCurrency}`);
     
-    // Check if we have enough balance (at least 0.01 ETH)
+    // Check if we have enough balance (at least 0.01 LSK)
     if (balance < ethers.parseEther("0.01")) {
       throw new Error(`Insufficient balance. Need at least 0.01 ${LISK_SEPOLIA_CONFIG.nativeCurrency}`);
     }
@@ -52,13 +52,14 @@ async function deployToLiskSepolia() {
     const receipt = await deploymentTx.wait();
     
     console.log(`📊 Gas used: ${receipt.gasUsed.toString()}`);
-    console.log(`💰 Gas cost: ${ethers.formatEther(receipt.gasUsed * deploymentTx.gasPrice)} ETH`);
+    console.log(`💰 Gas cost: ${ethers.formatEther(receipt.gasUsed * deploymentTx.gasPrice)} LSK`);
     
     // Save deployment info
     const deploymentInfo = {
       network: "lisk_sepolia",
       chainName: LISK_SEPOLIA_CONFIG.name,
       chainId: LISK_SEPOLIA_CONFIG.chainId,
+      contractName: "AirChainPay",
       contractAddress,
       owner,
       deployer: deployer.address,
@@ -77,7 +78,7 @@ async function deployToLiskSepolia() {
     }
     
     // Save individual deployment file
-    const deploymentFile = path.join(deploymentsDir, "lisk_sepolia.json");
+    const deploymentFile = path.join(deploymentsDir, "lisk_sepolia_airchainpay.json");
     fs.writeFileSync(deploymentFile, JSON.stringify(deploymentInfo, null, 2));
     
     console.log(`📄 Deployment info saved to: ${deploymentFile}`);
@@ -95,7 +96,7 @@ async function deployToLiskSepolia() {
     }
     
     // Add this deployment to the master file
-    const existingIndex = masterData.deployments.findIndex(d => d.network === "lisk_sepolia");
+    const existingIndex = masterData.deployments.findIndex(d => d.network === "lisk_sepolia" && d.contractName === "AirChainPay");
     if (existingIndex >= 0) {
       masterData.deployments[existingIndex] = deploymentInfo;
     } else {
@@ -105,7 +106,7 @@ async function deployToLiskSepolia() {
     fs.writeFileSync(masterFile, JSON.stringify(masterData, null, 2));
     console.log(`📋 Master deployment file updated: ${masterFile}`);
     
-    console.log("\n🎉 Deployment completed successfully!");
+    console.log("\n🎉 AirChainPay deployment completed successfully!");
     console.log("=====================================");
     console.log(`Contract Address: ${contractAddress}`);
     console.log(`Transaction Hash: ${deploymentTx.hash}`);
@@ -120,7 +121,7 @@ async function deployToLiskSepolia() {
 }
 
 // Handle errors
-deployToLiskSepolia()
+deployAirChainPayToLiskSepolia()
   .then(() => process.exit(0))
   .catch((error) => {
     console.error("💥 Deployment script failed:", error);

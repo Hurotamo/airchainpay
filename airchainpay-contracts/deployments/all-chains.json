@@ -22,43 +22,43 @@
       "network": "lisk_sepolia",
       "chainName": "Lisk Sepolia Testnet",
       "chainId": 4202,
-      "contractAddress": "0x7B79117445C57eea1CEAb4733020A55e1D503934",
+      "contractAddress": "0xf1446112EBC42A33A0fb3163079046ba086b5bbB",
       "owner": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
       "deployer": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
       "blockExplorer": "https://sepolia.lisk.com",
-      "deployedAt": "2025-07-30T10:06:03.706Z",
-      "txHash": "0xb9ae341499db53e9fa85aa4bba20c49e86877ef7e18eba2aa6d3e293dfc4a724",
+      "deployedAt": "2025-07-31T15:16:15.994Z",
+      "txHash": "0x3378c381a36384b4b51cdce953d9e5481c26d947aeded40231a48bd15e90dc5e",
       "gasUsed": "634924",
       "gasPrice": "1000000000",
-      "blockNumber": 24278484
+      "blockNumber": 24330990
     },
     {
       "network": "holesky",
       "chainName": "Ethereum Holesky",
       "chainId": 17000,
-      "contractAddress": "0xf1446112EBC42A33A0fb3163079046ba086b5bbB",
+      "contractAddress": "0xaBEEEc6e6c1f6bfDE1d05db74B28847Ba5b44EAF",
       "owner": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
       "deployer": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
       "blockExplorer": "https://holesky.etherscan.io",
-      "deployedAt": "2025-07-31T11:34:19.098Z",
-      "txHash": "0x16dde991a5cd6ec8165a3ac0de8c00c266d4bb75a0b42383e519ac8e76e094d1",
+      "deployedAt": "2025-07-31T15:15:16.172Z",
+      "txHash": "0xd2fdeeda0874c5f41d7d6c911f08d24b76624016d62e79c1a0d75eb4102ac537",
       "gasUsed": "634924",
       "gasPrice": "1000000000",
-      "blockNumber": 4257984
+      "blockNumber": 4258846
     },
     {
       "network": "core_testnet",
       "chainName": "Core Blockchain TestNet",
       "chainId": 1114,
-      "contractAddress": "0xDF67EB213caf14500F149Ea42E97D87962B1E596",
+      "contractAddress": "0x8dCcDf8Be8B32492896281413B45e075B1f5EDe5",
       "owner": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
       "deployer": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
       "blockExplorer": "https://scan.test2.btcs.network",
-      "deployedAt": "2025-07-30T23:38:18.006Z",
-      "txHash": "0x1d9e4716f183350e7ae71560ef6fdc683c420e3bc7669fe360491320ca525e9f",
+      "deployedAt": "2025-07-31T15:14:18.444Z",
+      "txHash": "0x8b6733a621df34983136f7a474671c13ae88384cd7c988cdbe862a243061644c",
       "gasUsed": "634924",
       "gasPrice": "10000000000",
-      "blockNumber": 6905270
+      "blockNumber": 6923990
     },
     {
       "network": "core_mainnet",
@@ -73,6 +73,20 @@
       "gasUsed": "634924",
       "gasPrice": "30000000000",
       "blockNumber": 26871141
+    },
+    {
+      "network": "base_sepolia",
+      "chainName": "Base Sepolia",
+      "chainId": 84532,
+      "contractAddress": "0x776621fE8c191591aBc978510bb8AA5cF3204F06",
+      "owner": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
+      "deployer": "0x01FfCfd0AFC24a42014EDCE646d6725cdA93c02e",
+      "blockExplorer": "https://sepolia.basescan.org",
+      "deployedAt": "2025-07-31T15:12:16.506Z",
+      "txHash": "0x639c4e048f9263ff1269710c46b582d20a7ca8700417f72ec93d76eaafd7100f",
+      "gasUsed": "634924",
+      "gasPrice": "1000000000",
+      "blockNumber": 29103223
     }
   ],
   "failures": [],

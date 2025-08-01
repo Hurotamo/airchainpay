@@ -13,7 +13,7 @@ describe("AirChainPay", function () {
 
   it("should allow a user to pay another user", async () => {
     const tx = await contract.connect(user1).pay(await contract.getAddress(), "test-ref", { value: ethers.parseEther("1") });
-    await expect(tx).to.emit(contract, "Payment").withArgs(user1.address, await contract.getAddress(), ethers.parseEther("1"), "test-ref");
+    await expect(tx).to.emit(contract, "Payment").withArgs(user1.address, await contract.getAddress(), ethers.parseEther("1"), "test-ref", false);
   });
 
   it("should allow owner to withdraw", async () => {

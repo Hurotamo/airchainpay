@@ -5,28 +5,45 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 
 /**
  * @title AirChainPayToken
  * @dev Enhanced payment contract supporting both native tokens and ERC-20 stablecoins
  * Supports USDC, USDT, and other ERC-20 tokens alongside native currency
+ * Now includes offline-signed transaction support via meta-transactions
  */
-contract AirChainPayToken is ReentrancyGuard, Ownable {
+contract AirChainPayToken is ReentrancyGuard, Ownable, EIP712 {
     using SafeERC20 for IERC20;
+    using ECDSA for bytes32;
 
     // Supported token types
     enum TokenType { NATIVE, ERC20 }
+
+    // Meta-transaction domain separators
+    bytes32 public constant NATIVE_PAYMENT_TYPEHASH = keccak256(
+        "NativePayment(address from,address to,uint256 amount,string paymentReference,uint256 nonce,uint256 deadline)"
+    );
+    
+    bytes32 public constant TOKEN_PAYMENT_TYPEHASH = keccak256(
+        "TokenPayment(address from,address to,address token,uint256 amount,string paymentReference,uint256 nonce,uint256 deadline)"
+    );
+
+    // Nonce tracking for replay protection
+    mapping(address => uint256) public nonces;
 
     // Payment information
     struct Payment {
         address from;
         address to;
         uint256 amount;
-        address token; // address(0) for native token
+        address token;
         TokenType tokenType;
         string paymentReference;
         uint256 timestamp;
         bytes32 paymentId;
+        bool isRelayed;
     }
 
     // Token configuration
@@ -62,12 +79,21 @@ contract AirChainPayToken is ReentrancyGuard, Ownable {
         uint256 amount,
         address token,
         TokenType tokenType,
+        string paymentReference,
+        bool isRelayed
+    );
+
+    event MetaTransactionExecuted(
+        address indexed from,
+        address indexed to,
+        uint256 amount,
+        address token,
+        TokenType tokenType,
         string paymentReference
     );
 
     event TokenAdded(address indexed token, string symbol, bool isStablecoin);
     event TokenRemoved(address indexed token);
-    event TokenConfigUpdated(address indexed token, uint256 minAmount, uint256 maxAmount);
     event FeeRatesUpdated(uint256 nativeFeeRate, uint256 tokenFeeRate);
     event FeesWithdrawn(address indexed token, uint256 amount);
 
@@ -79,8 +105,10 @@ contract AirChainPayToken is ReentrancyGuard, Ownable {
     error TransferFailed();
     error InvalidFeeRate();
     error InsufficientBalance();
+    error InvalidSignature();
+    error TransactionExpired();
 
-    constructor() Ownable(msg.sender) {
+    constructor() Ownable(msg.sender) EIP712("AirChainPayToken", "1") {
         // Add native token support (ETH/tCORE)
         supportedTokens[address(0)] = TokenConfig({
             isSupported: true,
@@ -148,52 +176,87 @@ contract AirChainPayToken is ReentrancyGuard, Ownable {
         emit TokenRemoved(token);
     }
 
+
+
     /**
-     * @dev Process a native token payment
+     * @dev Execute a native token meta-transaction (offline-signed)
+     * @param from The address that signed the transaction
      * @param to Recipient address
+     * @param amount Payment amount
      * @param paymentReference Payment reference string
+     * @param deadline Transaction deadline
+     * @param signature The signature of the transaction
      */
-    function payNative(
+    function executeNativeMetaTransaction(
+        address from,
         address to,
-        string calldata paymentReference
+        uint256 amount,
+        string calldata paymentReference,
+        uint256 deadline,
+        bytes calldata signature
     ) external payable nonReentrant {
         if (to == address(0)) revert InvalidRecipient();
-        if (msg.value == 0) revert InvalidAmount();
+        if (amount == 0) revert InvalidAmount();
         if (bytes(paymentReference).length == 0) revert InvalidPaymentReference();
+        if (block.timestamp > deadline) revert TransactionExpired();
+        if (from == address(0)) revert InvalidRecipient();
+        if (msg.value != amount) revert InvalidAmount();
 
         TokenConfig memory config = supportedTokens[address(0)];
         if (!config.isSupported) revert TokenNotSupported();
-        if (msg.value < config.minAmount || msg.value > config.maxAmount) revert InvalidAmount();
+        if (amount < config.minAmount || amount > config.maxAmount) revert InvalidAmount();
+
+        // Get current nonce before incrementing
+        uint256 currentNonce = nonces[from];
+
+        // Verify the signature
+        bytes32 structHash = keccak256(abi.encode(
+            NATIVE_PAYMENT_TYPEHASH,
+            from,
+            to,
+            amount,
+            keccak256(bytes(paymentReference)),
+            currentNonce,
+            deadline
+        ));
+
+        bytes32 hash = _hashTypedDataV4(structHash);
+        address signer = hash.recover(signature);
+        if (signer != from) revert InvalidSignature();
+
+        // Increment nonce after verification
+        nonces[from]++;
 
         // Calculate fee
-        uint256 fee = (msg.value * nativeFeeRate) / 10000;
-        uint256 netAmount = msg.value - fee;
+        uint256 fee = (amount * nativeFeeRate) / 10000;
+        uint256 netAmount = amount - fee;
 
         // Create payment record
         bytes32 paymentId = keccak256(abi.encodePacked(
-            msg.sender,
+            from,
             to,
-            msg.value,
+            amount,
             address(0),
             block.timestamp,
             totalPayments
         ));
 
         payments[paymentId] = Payment({
-            from: msg.sender,
+            from: from,
             to: to,
-            amount: msg.value,
+            amount: amount,
             token: address(0),
             tokenType: TokenType.NATIVE,
             paymentReference: paymentReference,
             timestamp: block.timestamp,
-            paymentId: paymentId
+            paymentId: paymentId,
+            isRelayed: true
         });
 
         // Update statistics
         totalPayments++;
-        userPaymentCount[msg.sender]++;
-        totalNativeVolume += msg.value;
+        userPaymentCount[from]++;
+        totalNativeVolume += amount;
 
         // Transfer to recipient
         (bool success, ) = to.call{value: netAmount}("");
@@ -201,41 +264,76 @@ contract AirChainPayToken is ReentrancyGuard, Ownable {
 
         emit PaymentProcessed(
             paymentId,
-            msg.sender,
+            from,
             to,
-            msg.value,
+            amount,
             address(0),
             TokenType.NATIVE,
-            paymentReference
+            paymentReference,
+            true
         );
+
+        emit MetaTransactionExecuted(from, to, amount, address(0), TokenType.NATIVE, paymentReference);
     }
 
+
+
     /**
-     * @dev Process an ERC-20 token payment
-     * @param token Token contract address
+     * @dev Execute an ERC-20 token meta-transaction (offline-signed)
+     * @param from The address that signed the transaction
      * @param to Recipient address
+     * @param token Token contract address
      * @param amount Payment amount
      * @param paymentReference Payment reference string
+     * @param deadline Transaction deadline
+     * @param signature The signature of the transaction
      */
-    function payToken(
-        address token,
+    function executeTokenMetaTransaction(
+        address from,
         address to,
+        address token,
         uint256 amount,
-        string calldata paymentReference
+        string calldata paymentReference,
+        uint256 deadline,
+        bytes calldata signature
     ) external nonReentrant {
         if (to == address(0)) revert InvalidRecipient();
         if (amount == 0) revert InvalidAmount();
         if (bytes(paymentReference).length == 0) revert InvalidPaymentReference();
+        if (block.timestamp > deadline) revert TransactionExpired();
+        if (from == address(0)) revert InvalidRecipient();
 
         TokenConfig memory config = supportedTokens[token];
         if (!config.isSupported) revert TokenNotSupported();
         if (amount < config.minAmount || amount > config.maxAmount) revert InvalidAmount();
 
+        // Get current nonce before incrementing
+        uint256 currentNonce = nonces[from];
+
+        // Verify the signature
+        bytes32 structHash = keccak256(abi.encode(
+            TOKEN_PAYMENT_TYPEHASH,
+            from,
+            to,
+            token,
+            amount,
+            keccak256(bytes(paymentReference)),
+            currentNonce,
+            deadline
+        ));
+
+        bytes32 hash = _hashTypedDataV4(structHash);
+        address signer = hash.recover(signature);
+        if (signer != from) revert InvalidSignature();
+
+        // Increment nonce after verification
+        nonces[from]++;
+
         IERC20 tokenContract = IERC20(token);
         
         // Check user balance and allowance
-        if (tokenContract.balanceOf(msg.sender) < amount) revert InsufficientBalance();
-        if (tokenContract.allowance(msg.sender, address(this)) < amount) revert InsufficientBalance();
+        if (tokenContract.balanceOf(from) < amount) revert InsufficientBalance();
+        if (tokenContract.allowance(from, address(this)) < amount) revert InsufficientBalance();
 
         // Calculate fee
         uint256 fee = (amount * tokenFeeRate) / 10000;
@@ -243,7 +341,7 @@ contract AirChainPayToken is ReentrancyGuard, Ownable {
 
         // Create payment record
         bytes32 paymentId = keccak256(abi.encodePacked(
-            msg.sender,
+            from,
             to,
             amount,
             token,
@@ -252,136 +350,289 @@ contract AirChainPayToken is ReentrancyGuard, Ownable {
         ));
 
         payments[paymentId] = Payment({
-            from: msg.sender,
+            from: from,
             to: to,
             amount: amount,
             token: token,
             tokenType: TokenType.ERC20,
             paymentReference: paymentReference,
             timestamp: block.timestamp,
-            paymentId: paymentId
+            paymentId: paymentId,
+            isRelayed: true
         });
 
         // Update statistics
         totalPayments++;
-        userPaymentCount[msg.sender]++;
+        userPaymentCount[from]++;
         totalTokenVolume[token] += amount;
 
         // Transfer tokens
-        tokenContract.safeTransferFrom(msg.sender, to, netAmount);
+        tokenContract.safeTransferFrom(from, to, netAmount);
         
         // Transfer fee to contract (if any)
         if (fee > 0) {
-            tokenContract.safeTransferFrom(msg.sender, address(this), fee);
+            tokenContract.safeTransferFrom(from, address(this), fee);
         }
 
         emit PaymentProcessed(
             paymentId,
-            msg.sender,
+            from,
             to,
             amount,
             token,
             TokenType.ERC20,
-            paymentReference
+            paymentReference,
+            true
         );
+
+        emit MetaTransactionExecuted(from, to, amount, token, TokenType.ERC20, paymentReference);
     }
 
     /**
-     * @dev Batch payment function for multiple recipients
-     * @param token Token address (address(0) for native)
+     * @dev Get the current nonce for an address
+     * @param user The address to get the nonce for
+     * @return The current nonce
+     */
+    function getNonce(address user) external view returns (uint256) {
+        return nonces[user];
+    }
+
+    /**
+     * @dev Get the domain separator for meta-transactions
+     * @return The domain separator
+     */
+    function getDomainSeparator() external view returns (bytes32) {
+        return _domainSeparatorV4();
+    }
+
+
+
+    /**
+     * @dev Execute a batch of native token meta-transactions
+     * @param from The address that signed the transactions
      * @param recipients Array of recipient addresses
      * @param amounts Array of payment amounts
      * @param paymentReference Single reference for all payments
+     * @param deadline Transaction deadline
+     * @param signature The signature of the batch transaction
      */
-    function batchPay(
+    function executeBatchNativeMetaTransaction(
+        address from,
+        address[] calldata recipients,
+        uint256[] calldata amounts,
+        string calldata paymentReference,
+        uint256 deadline,
+        bytes calldata signature
+    ) external payable nonReentrant {
+        require(recipients.length == amounts.length, "Array length mismatch");
+        require(recipients.length > 0 && recipients.length <= 10, "Invalid batch size");
+        require(block.timestamp <= deadline, "Transaction expired");
+        require(from != address(0), "Invalid from address");
+
+        // Calculate total amount
+        uint256 totalAmount = 0;
+        for (uint i = 0; i < amounts.length; i++) {
+            totalAmount += amounts[i];
+        }
+        require(msg.value == totalAmount, "Incorrect total value");
+
+        // Get current nonce before incrementing
+        uint256 currentNonce = nonces[from];
+
+        // Verify the signature for batch transaction
+        bytes32 batchTypeHash = keccak256("BatchNativePayment(address from,address[] recipients,uint256[] amounts,string paymentReference,uint256 nonce,uint256 deadline)");
+        bytes32 recipientsHash = keccak256(abi.encodePacked(recipients));
+        bytes32 amountsHash = keccak256(abi.encodePacked(amounts));
+        bytes32 referenceHash = keccak256(bytes(paymentReference));
+        
+        bytes32 structHash = keccak256(abi.encode(
+            batchTypeHash,
+            from,
+            recipientsHash,
+            amountsHash,
+            referenceHash,
+            currentNonce,
+            deadline
+        ));
+
+        bytes32 hash = _hashTypedDataV4(structHash);
+        address signer = hash.recover(signature);
+        if (signer != from) revert InvalidSignature();
+
+        // Increment nonce after verification
+        nonces[from]++;
+
+        // Execute all payments
+        for (uint i = 0; i < recipients.length; i++) {
+            require(recipients[i] != address(0), "Invalid recipient");
+            require(amounts[i] > 0, "Invalid amount");
+            
+            TokenConfig memory config = supportedTokens[address(0)];
+            if (!config.isSupported) revert TokenNotSupported();
+            if (amounts[i] < config.minAmount || amounts[i] > config.maxAmount) revert InvalidAmount();
+
+            uint256 fee = (amounts[i] * nativeFeeRate) / 10000;
+            uint256 netAmount = amounts[i] - fee;
+
+            // Create payment record
+            bytes32 paymentId = keccak256(abi.encodePacked(
+                from, recipients[i], amounts[i], address(0), block.timestamp, totalPayments
+            ));
+
+            payments[paymentId] = Payment({
+                from: from,
+                to: recipients[i],
+                amount: amounts[i],
+                token: address(0),
+                tokenType: TokenType.NATIVE,
+                paymentReference: paymentReference,
+                timestamp: block.timestamp,
+                paymentId: paymentId,
+                isRelayed: true
+            });
+
+            // Update statistics
+            totalPayments++;
+            userPaymentCount[from]++;
+            totalNativeVolume += amounts[i];
+
+            emit PaymentProcessed(
+                paymentId,
+                from,
+                recipients[i],
+                amounts[i],
+                address(0),
+                TokenType.NATIVE,
+                paymentReference,
+                true
+            );
+
+            emit MetaTransactionExecuted(from, recipients[i], amounts[i], address(0), TokenType.NATIVE, paymentReference);
+            
+            (bool sent, ) = recipients[i].call{value: netAmount}("");
+            if (!sent) revert TransferFailed();
+        }
+    }
+
+    /**
+     * @dev Execute a batch of ERC-20 token meta-transactions
+     * @param from The address that signed the transactions
+     * @param token Token contract address
+     * @param recipients Array of recipient addresses
+     * @param amounts Array of payment amounts
+     * @param paymentReference Single reference for all payments
+     * @param deadline Transaction deadline
+     * @param signature The signature of the batch transaction
+     */
+    function executeBatchTokenMetaTransaction(
+        address from,
         address token,
         address[] calldata recipients,
         uint256[] calldata amounts,
-        string calldata paymentReference
-    ) external payable nonReentrant {
+        string calldata paymentReference,
+        uint256 deadline,
+        bytes calldata signature
+    ) external nonReentrant {
         require(recipients.length == amounts.length, "Array length mismatch");
-        require(recipients.length > 0 && recipients.length <= 50, "Invalid batch size");
+        require(recipients.length > 0 && recipients.length <= 10, "Invalid batch size");
+        require(block.timestamp <= deadline, "Transaction expired");
+        require(from != address(0), "Invalid from address");
 
-        if (token == address(0)) {
-            // Native token batch payment
-            uint256 totalAmount = 0;
-            for (uint i = 0; i < amounts.length; i++) {
-                totalAmount += amounts[i];
-            }
-            require(msg.value == totalAmount, "Incorrect total amount");
-
-            for (uint i = 0; i < recipients.length; i++) {
-                _processNativePayment(recipients[i], amounts[i], paymentReference);
-            }
-        } else {
-            // ERC-20 token batch payment
-            for (uint i = 0; i < recipients.length; i++) {
-                _processTokenPayment(token, recipients[i], amounts[i], paymentReference);
-            }
-        }
-    }
-
-    /**
-     * @dev Internal function to process native payment
-     */
-    function _processNativePayment(
-        address to,
-        uint256 amount,
-        string memory paymentReference
-    ) internal {
-        TokenConfig memory config = supportedTokens[address(0)];
-        require(config.isSupported && amount >= config.minAmount && amount <= config.maxAmount, "Invalid amount");
-
-        uint256 fee = (amount * nativeFeeRate) / 10000;
-        uint256 netAmount = amount - fee;
-
-        (bool success, ) = to.call{value: netAmount}("");
-        require(success, "Transfer failed");
-
-        // Create payment record and emit event (simplified for batch)
-        bytes32 paymentId = keccak256(abi.encodePacked(
-            msg.sender, to, amount, address(0), block.timestamp, totalPayments
-        ));
-        
-        totalPayments++;
-        userPaymentCount[msg.sender]++;
-        totalNativeVolume += amount;
-
-        emit PaymentProcessed(paymentId, msg.sender, to, amount, address(0), TokenType.NATIVE, paymentReference);
-    }
-
-    /**
-     * @dev Internal function to process token payment
-     */
-    function _processTokenPayment(
-        address token,
-        address to,
-        uint256 amount,
-        string memory paymentReference
-    ) internal {
         TokenConfig memory config = supportedTokens[token];
-        require(config.isSupported && amount >= config.minAmount && amount <= config.maxAmount, "Invalid amount");
+        if (!config.isSupported) revert TokenNotSupported();
+
+        // Get current nonce before incrementing
+        uint256 currentNonce = nonces[from];
+
+        // Verify the signature for batch transaction
+        bytes32 batchTypeHash = keccak256("BatchTokenPayment(address from,address token,address[] recipients,uint256[] amounts,string paymentReference,uint256 nonce,uint256 deadline)");
+        bytes32 recipientsHash = keccak256(abi.encodePacked(recipients));
+        bytes32 amountsHash = keccak256(abi.encodePacked(amounts));
+        bytes32 referenceHash = keccak256(bytes(paymentReference));
+        
+        bytes32 structHash = keccak256(abi.encode(
+            batchTypeHash,
+            from,
+            token,
+            recipientsHash,
+            amountsHash,
+            referenceHash,
+            currentNonce,
+            deadline
+        ));
+
+        bytes32 hash = _hashTypedDataV4(structHash);
+        address signer = hash.recover(signature);
+        if (signer != from) revert InvalidSignature();
+
+        // Increment nonce after verification
+        nonces[from]++;
 
         IERC20 tokenContract = IERC20(token);
-        uint256 fee = (amount * tokenFeeRate) / 10000;
-        uint256 netAmount = amount - fee;
-
-        tokenContract.safeTransferFrom(msg.sender, to, netAmount);
-        if (fee > 0) {
-            tokenContract.safeTransferFrom(msg.sender, address(this), fee);
+        uint256 totalAmount = 0;
+        for (uint i = 0; i < amounts.length; i++) {
+            totalAmount += amounts[i];
         }
 
-        // Create payment record and emit event (simplified for batch)
-        bytes32 paymentId = keccak256(abi.encodePacked(
-            msg.sender, to, amount, token, block.timestamp, totalPayments
-        ));
-        
-        totalPayments++;
-        userPaymentCount[msg.sender]++;
-        totalTokenVolume[token] += amount;
+        // Check user balance and allowance
+        if (tokenContract.balanceOf(from) < totalAmount) revert InsufficientBalance();
+        if (tokenContract.allowance(from, address(this)) < totalAmount) revert InsufficientBalance();
 
-        emit PaymentProcessed(paymentId, msg.sender, to, amount, token, TokenType.ERC20, paymentReference);
+        // Execute all payments
+        for (uint i = 0; i < recipients.length; i++) {
+            require(recipients[i] != address(0), "Invalid recipient");
+            require(amounts[i] > 0, "Invalid amount");
+            if (amounts[i] < config.minAmount || amounts[i] > config.maxAmount) revert InvalidAmount();
+
+            uint256 fee = (amounts[i] * tokenFeeRate) / 10000;
+            uint256 netAmount = amounts[i] - fee;
+
+            // Create payment record
+            bytes32 paymentId = keccak256(abi.encodePacked(
+                from, recipients[i], amounts[i], token, block.timestamp, totalPayments
+            ));
+
+            payments[paymentId] = Payment({
+                from: from,
+                to: recipients[i],
+                amount: amounts[i],
+                token: token,
+                tokenType: TokenType.ERC20,
+                paymentReference: paymentReference,
+                timestamp: block.timestamp,
+                paymentId: paymentId,
+                isRelayed: true
+            });
+
+            // Update statistics
+            totalPayments++;
+            userPaymentCount[from]++;
+            totalTokenVolume[token] += amounts[i];
+
+            // Transfer tokens
+            tokenContract.safeTransferFrom(from, recipients[i], netAmount);
+            
+            // Transfer fee to contract (if any)
+            if (fee > 0) {
+                tokenContract.safeTransferFrom(from, address(this), fee);
+            }
+
+            emit PaymentProcessed(
+                paymentId,
+                from,
+                recipients[i],
+                amounts[i],
+                token,
+                TokenType.ERC20,
+                paymentReference,
+                true
+            );
+
+            emit MetaTransactionExecuted(from, recipients[i], amounts[i], token, TokenType.ERC20, paymentReference);
+        }
     }
+
+
 
     /**
      * @dev Update fee rates (only owner)
@@ -433,22 +684,7 @@ contract AirChainPayToken is ReentrancyGuard, Ownable {
         return supportedTokens[token];
     }
 
-    /**
-     * @dev Get payment details
-     */
-    function getPayment(bytes32 paymentId) external view returns (Payment memory) {
-        return payments[paymentId];
-    }
 
-    /**
-     * @dev Get user payment statistics
-     */
-    function getUserStats(address user) external view returns (
-        uint256 paymentCount,
-        uint256 totalSent
-    ) {
-        return (userPaymentCount[user], totalSent); // Note: totalSent would need additional tracking
-    }
 
     /**
      * @dev Emergency function to recover stuck tokens
