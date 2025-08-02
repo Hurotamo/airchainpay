@@ -525,7 +525,16 @@ export class MultiChainWalletManager {
 
       if (isEthersWallet(wallet)) {
         const connectedWallet = wallet.connect(provider);
-        const balance = ethers.formatEther(await provider.getBalance(wallet.address));
+        
+        // Try to get balance, but handle offline scenario gracefully
+        let balance = '0';
+        try {
+          balance = ethers.formatEther(await provider.getBalance(wallet.address));
+        } catch (balanceError) {
+          logger.warn(`[MultiChain] Failed to get balance for ${chainId}, using offline mode:`, balanceError);
+          // In offline mode, we can't get the balance, so we show 0
+          balance = '0';
+        }
 
         return {
           address: wallet.address,
@@ -541,6 +550,65 @@ export class MultiChainWalletManager {
         logger.error(`[MultiChain] Failed to get wallet info for chain ${chainId}:`, error);
       } else {
         logger.error(`[MultiChain] Failed to get wallet info for chain ${chainId}:`, String(error));
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Get wallet info in offline mode (no internet required)
+   * This method only returns the wallet address without balance
+   */
+  async getWalletInfoOffline(chainId: string): Promise<WalletInfo> {
+    try {
+      const chain = SUPPORTED_CHAINS[chainId];
+      if (!chain) {
+        throw new Error(`Chain ${chainId} not supported`);
+      }
+
+      const wallet = await this.createOrLoadWallet();
+      
+      if (isEthersWallet(wallet)) {
+        return {
+          address: wallet.address,
+          balance: '0', // Offline mode - no balance available
+          type: 'evm',
+          chainId: chain.id,
+        };
+      } else {
+        throw new Error('Unsupported wallet type for getWalletInfoOffline');
+      }
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error(`[MultiChain] Failed to get offline wallet info for chain ${chainId}:`, error);
+      } else {
+        logger.error(`[MultiChain] Failed to get offline wallet info for chain ${chainId}:`, String(error));
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Get wallet address only (no internet required)
+   * This method only returns the wallet address without any network calls
+   */
+  async getWalletAddress(): Promise<string> {
+    try {
+      const wallet = await this.createOrLoadWallet();
+      
+      if (isEthersWallet(wallet)) {
+        return wallet.address;
+      } else if (isHDNodeWallet(wallet)) {
+        return wallet.address;
+      } else {
+        // For MinimalWallet type
+        return wallet.address;
+      }
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[MultiChain] Failed to get wallet address:', error);
+      } else {
+        logger.error('[MultiChain] Failed to get wallet address:', String(error));
       }
       throw error;
     }
@@ -1112,7 +1180,7 @@ export class MultiChainWalletManager {
     return provider;
   }
 
-  // Add logout method to clear all wallet data
+  // Add logout method to clear authentication data only (not wallet data)
   async logout(): Promise<void> {
     try {
       logger.info('[MultiChain] Starting logout process...');
@@ -1121,20 +1189,18 @@ export class MultiChainWalletManager {
       this.wallet = null;
       logger.info('[MultiChain] Wallet instance cleared');
       
-      // Clear all stored data with individual error handling
-      const keysToDelete = [
-        STORAGE_KEYS.PRIVATE_KEY,
-        STORAGE_KEYS.SEED_PHRASE,
-        STORAGE_KEYS.TEMP_SEED_PHRASE,
+      // Only clear authentication data, preserve wallet data (private key, seed phrase)
+      // This allows users to re-authenticate with a new password without losing their wallet
+      const authKeysToDelete = [
         STORAGE_KEYS.WALLET_PASSWORD,
         STORAGE_KEYS.BACKUP_CONFIRMED
       ];
       
       let deletedCount = 0;
-      for (const key of keysToDelete) {
+      for (const key of authKeysToDelete) {
         try {
           await secureStorage.deleteItem(key);
-          logger.info(`[MultiChain] Deleted storage key: ${key}`);
+          logger.info(`[MultiChain] Deleted auth key: ${key}`);
           deletedCount++;
         } catch (deleteError: unknown) {
           if (deleteError instanceof Error) {
@@ -1146,7 +1212,7 @@ export class MultiChainWalletManager {
         }
       }
       
-      logger.info(`[MultiChain] Logout completed. Deleted ${deletedCount} storage keys.`);
+      logger.info(`[MultiChain] Logout completed. Deleted ${deletedCount} authentication keys. Wallet data preserved.`);
     } catch (error: unknown) {
       if (error instanceof Error) {
         const errorMessage = error.message;
@@ -1173,7 +1239,7 @@ export class MultiChainWalletManager {
         logger.warn('[MultiChain] Wallet consistency check failed before clearing:', validation.error);
       }
 
-      await this.logout();
+      await this.clearAllWalletData();
       logger.info('[MultiChain] Wallet cleared successfully');
     } catch (error: unknown) {
       if (error instanceof Error) {
@@ -1216,9 +1282,9 @@ export class MultiChainWalletManager {
       const wasFixed = await WalletCorruptionFix.checkAndFixCorruption();
       
       if (wasFixed) {
-        // Clear the wallet instance since we cleared the storage
-        this.wallet = null;
-        logger.info('[MultiChain] Corrupted wallet data was fixed');
+        logger.info('[MultiChain] Wallet corruption was fixed successfully');
+      } else {
+        logger.info('[MultiChain] No wallet corruption detected');
       }
       
       return wasFixed;
@@ -1235,9 +1301,12 @@ export class MultiChainWalletManager {
   // Add method to clear transaction history
   async clearTransactionHistory(): Promise<void> {
     try {
-      // This would typically clear transaction history from local storage
-      // For now, we'll just log the action
-      logger.info('[MultiChain] Transaction history cleared');
+      logger.info('[MultiChain] Clearing transaction history...');
+      
+      // Clear transaction history from storage
+      await secureStorage.deleteItem('transaction_history');
+      
+      logger.info('[MultiChain] Transaction history cleared successfully');
     } catch (error: unknown) {
       if (error instanceof Error) {
         logger.error('[MultiChain] Failed to clear transaction history:', error);
@@ -1350,24 +1419,23 @@ export class MultiChainWalletManager {
     error?: string;
   }> {
     try {
-      const result = await PasswordMigration.migrateUserPassword(plainTextPassword);
+      logger.info('[MultiChain] Starting password migration...');
       
-      if (result.success) {
-        logger.info('[MultiChain] Password migration completed successfully');
-      } else {
-        logger.error('[MultiChain] Password migration failed:', result.errors);
-      }
+      // Hash the plain text password
+      const hashedPassword = PasswordHasher.hashPassword(plainTextPassword);
       
+      // Store the hashed password
+      await secureStorage.setItem(STORAGE_KEYS.WALLET_PASSWORD, hashedPassword);
+      
+      logger.info('[MultiChain] Password migration completed successfully');
       return {
-        success: result.success,
-        error: result.errors.length > 0 ? result.errors[0] : undefined
+        success: true
       };
     } catch (error: unknown) {
       if (error instanceof Error) {
-        const errorMessage = error.message;
-        logger.error('[MultiChain] Failed to migrate user password:', errorMessage);
+        logger.error('[MultiChain] Failed to migrate password:', error);
       } else {
-        logger.error('[MultiChain] Failed to migrate user password:', String(error));
+        logger.error('[MultiChain] Failed to migrate password:', String(error));
       }
       return {
         success: false,
@@ -1411,6 +1479,66 @@ export class MultiChainWalletManager {
         logger.error('[MultiChain] Failed to export private key:', error);
       } else {
         logger.error('[MultiChain] Failed to export private key:', String(error));
+      }
+      throw error;
+    }
+  }
+
+  // Add method to clear all wallet data (for wallet deletion)
+  async clearAllWalletData(): Promise<void> {
+    try {
+      logger.info('[MultiChain] Starting complete wallet data deletion...');
+      
+      // Clear wallet instance
+      this.wallet = null;
+      logger.info('[MultiChain] Wallet instance cleared');
+      
+      // Clear ALL stored data including wallet data
+      const allKeysToDelete = [
+        STORAGE_KEYS.PRIVATE_KEY,
+        STORAGE_KEYS.SEED_PHRASE,
+        STORAGE_KEYS.TEMP_SEED_PHRASE,
+        STORAGE_KEYS.WALLET_PASSWORD,
+        STORAGE_KEYS.BACKUP_CONFIRMED
+      ];
+      
+      let deletedCount = 0;
+      for (const key of allKeysToDelete) {
+        try {
+          await secureStorage.deleteItem(key);
+          logger.info(`[MultiChain] Deleted all wallet data key: ${key}`);
+          deletedCount++;
+        } catch (deleteError: unknown) {
+          if (deleteError instanceof Error) {
+            logger.warn(`[MultiChain] Failed to delete ${key}:`, deleteError);
+          } else {
+            logger.warn(`[MultiChain] Failed to delete ${key}:`, String(deleteError));
+          }
+          // Continue with other keys even if one fails
+        }
+      }
+      
+      // Also clear backup data when completely deleting wallet
+      try {
+        await secureStorage.clearBackup();
+        logger.info('[MultiChain] Cleared backup data');
+      } catch (backupError: unknown) {
+        logger.warn('[MultiChain] Failed to clear backup data:', backupError);
+      }
+      
+      logger.info(`[MultiChain] Complete wallet deletion completed. Deleted ${deletedCount} storage keys.`);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        const errorMessage = error.message;
+        const errorDetails = {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        };
+        
+        logger.error('[MultiChain] Failed to clear all wallet data:', errorMessage, errorDetails);
+      } else {
+        logger.error('[MultiChain] Failed to clear all wallet data:', String(error));
       }
       throw error;
     }

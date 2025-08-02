@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -40,6 +40,10 @@ export default function WalletSetupScreen({
   const [privateKey, setPrivateKey] = useState('');
   const [showBackupModal, setShowBackupModal] = useState(false);
   const [backupSeedPhrase, setBackupSeedPhrase] = useState('');
+  const [hasWalletButNotAuthenticated, setHasWalletButNotAuthenticated] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   
   // Theme context
   const { colorScheme } = useThemeContext();
@@ -50,6 +54,76 @@ export default function WalletSetupScreen({
   const { selectedChain } = useSelectedChain();
   const chainColor = getChainColor(selectedChain);
   const chainGradient = getChainGradient(selectedChain);
+
+  // Check if user has wallet but needs to re-authenticate
+  useEffect(() => {
+    const checkWalletStatus = async () => {
+      try {
+        const hasWallet = await MultiChainWalletManager.getInstance().hasWallet();
+        const hasPassword = await MultiChainWalletManager.getInstance().hasPassword();
+        const backupConfirmed = await MultiChainWalletManager.getInstance().isBackupConfirmed();
+        
+        // User has wallet but is not authenticated (after logout)
+        if (hasWallet && (!hasPassword || !backupConfirmed)) {
+          setHasWalletButNotAuthenticated(true);
+        }
+      } catch (error) {
+        console.error('[WalletSetup] Error checking wallet status:', error);
+      }
+    };
+    
+    checkWalletStatus();
+  }, []);
+
+  const handleReAuthenticate = async () => {
+    setShowPasswordModal(true);
+  };
+
+  const handlePasswordSubmit = async () => {
+    if (!password.trim()) {
+      Alert.alert('Error', 'Please enter your password');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // For re-authentication, we don't need to verify against a stored password
+      // since the password was cleared during logout. We just set the new password
+      // and confirm the backup to restore authentication state.
+      
+      // Set password and confirm backup
+      await MultiChainWalletManager.getInstance().setWalletPassword(password);
+      await MultiChainWalletManager.getInstance().setBackupConfirmed();
+      
+      Alert.alert(
+        'Success',
+        'You have been successfully authenticated. Welcome back!',
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              onWalletCreated?.();
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      console.error('[WalletSetup] Re-authentication error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      
+      if (errorMessage.includes('Failed to set item')) {
+        Alert.alert('Error', 'Failed to securely store authentication data. Please check device permissions and try again.');
+      } else if (errorMessage.includes('network') || errorMessage.includes('provider')) {
+        Alert.alert('Error', 'Network error during authentication. Please check your connection and try again.');
+      } else {
+        Alert.alert('Error', 'Failed to authenticate. Please try again.');
+      }
+    } finally {
+      setLoading(false);
+      setPassword('');
+      setShowPasswordModal(false);
+    }
+  };
 
   const handleCreateWallet = async () => {
     setLoading(true);
@@ -369,13 +443,16 @@ export default function WalletSetupScreen({
                 <Ionicons name="wallet" size={32} color={chainColor} />
               </View>
               <Text style={[styles.title, { color: colors.text }]}>
-                {title}
+                {hasWalletButNotAuthenticated ? "Welcome Back" : title}
               </Text>
               <Text style={[styles.subtitle, { color: colors.icon }]}>
-                {subtitle}
+                {hasWalletButNotAuthenticated ? "Re-authenticate your wallet" : subtitle}
               </Text>
               <Text style={[styles.welcomeDescription, { color: colors.icon }]}>
-                Experience seamless cross-chain transactions, secure BLE payments, and lightning-fast QR code transfers. Your digital wallet, reimagined for the future of decentralized finance.
+                {hasWalletButNotAuthenticated 
+                  ? "Your existing wallet is ready to use. You can re-authenticate with a new password to restore access to your funds, or create a new wallet if needed."
+                  : "Experience seamless cross-chain transactions, secure BLE payments, and lightning-fast QR code transfers. Your digital wallet, reimagined for the future of decentralized finance."
+                }
               </Text>
               <View style={styles.featureList}>
                 <View style={styles.featureItem}>
@@ -403,7 +480,25 @@ export default function WalletSetupScreen({
           {/* Main Options */}
           {!showImportSeed && !showImportPrivateKey && (
             <>
-              <AnimatedCard delay={100} style={styles.optionCard}>
+              {/* Re-authentication Option */}
+              {hasWalletButNotAuthenticated && (
+                <AnimatedCard delay={100} style={styles.optionCard}>
+                  <AnimatedButton
+                    title="Re-authenticate Wallet"
+                    onPress={handleReAuthenticate}
+                    chainId={selectedChain}
+                    icon="lock-open"
+                    loading={loading}
+                    style={styles.primaryButton}
+                  />
+                  <Text style={[styles.optionDescription, { color: colors.icon }]}>
+                    Restore access to your existing wallet with a new password
+                  </Text>
+                </AnimatedCard>
+              )}
+
+              {/* Create New Wallet Option */}
+              <AnimatedCard delay={hasWalletButNotAuthenticated ? 200 : 100} style={styles.optionCard}>
                 <AnimatedButton
                   title="Create New Wallet"
                   onPress={handleCreateWallet}
@@ -417,7 +512,8 @@ export default function WalletSetupScreen({
                 </Text>
               </AnimatedCard>
 
-              <AnimatedCard delay={200} style={styles.optionCard}>
+              {/* Import Options */}
+              <AnimatedCard delay={hasWalletButNotAuthenticated ? 300 : 200} style={styles.optionCard}>
                 <TouchableOpacity
                   style={[styles.secondaryButton, { borderColor: chainColor }]}
                   onPress={() => setShowImportSeed(true)}
@@ -433,7 +529,7 @@ export default function WalletSetupScreen({
                 </Text>
               </AnimatedCard>
 
-              <AnimatedCard delay={300} style={styles.optionCard}>
+              <AnimatedCard delay={hasWalletButNotAuthenticated ? 400 : 300} style={styles.optionCard}>
                 <TouchableOpacity
                   style={[styles.secondaryButton, { borderColor: chainColor }]}
                   onPress={() => setShowImportPrivateKey(true)}
@@ -557,6 +653,52 @@ export default function WalletSetupScreen({
           onBackupConfirmed={handleBackupConfirmed}
           onCancel={handleBackupCancel}
         />
+      </Modal>
+
+      {/* Re-authentication Modal */}
+      <Modal
+        visible={showPasswordModal}
+        animationType="slide"
+        presentationStyle="fullScreen"
+      >
+        <View style={[styles.modalContent, { backgroundColor: colors.background }]}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => setShowPasswordModal(false)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="arrow-back" size={24} color={colors.icon} />
+            </TouchableOpacity>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>
+              Re-authenticate
+            </Text>
+          </View>
+          <Text style={[styles.modalDescription, { color: colors.icon }]}>
+            Enter a new password to re-authenticate your wallet. This will restore access to your existing wallet data.
+          </Text>
+          <TextInput
+            style={[styles.textInput, { 
+              backgroundColor: colors.card,
+              borderColor: colors.border,
+              color: colors.text
+            }]}
+            placeholder="Enter your password..."
+            placeholderTextColor={colors.icon}
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            textAlignVertical="top"
+          />
+          <AnimatedButton
+            title="Re-authenticate"
+            onPress={handlePasswordSubmit}
+            chainId={selectedChain}
+            icon="lock-open"
+            loading={loading}
+            style={styles.importButton}
+          />
+        </View>
       </Modal>
     </LinearGradient>
   );
@@ -763,5 +905,28 @@ const styles = StyleSheet.create({
   },
   importButton: {
     marginTop: 8,
+  },
+  modalContent: {
+    flex: 1,
+    padding: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+    width: '100%',
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    flex: 1,
+  },
+  modalDescription: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 22,
   },
 }); 

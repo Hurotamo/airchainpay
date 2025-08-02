@@ -172,6 +172,13 @@ export class PaymentService {
           tokenInfo
         );
         
+        logger.info('[PaymentService] Transaction queued successfully for offline processing', {
+          transactionId,
+          to: request.to,
+          amount: request.amount,
+          chainId: request.chainId
+        });
+        
         return {
           status: 'queued',
           transport: 'relay',
@@ -307,6 +314,18 @@ export class PaymentService {
   }
 
   /**
+   * Get queue status for user feedback
+   */
+  async getQueueStatus(): Promise<{
+    total: number;
+    queued: number;
+    pending: number;
+    failed: number;
+  }> {
+    return await TxQueue.getQueueStatus();
+  }
+
+  /**
    * Get pending transactions from queue
    */
   async getPendingTransactions(): Promise<Transaction[]> {
@@ -326,6 +345,9 @@ export class PaymentService {
     }
     
     logger.info('[PaymentService] Processing queued transactions', { count: queued.length });
+    
+    let processedCount = 0;
+    let failedCount = 0;
     
     for (const tx of queued) {
       try {
@@ -351,6 +373,7 @@ export class PaymentService {
           
           // Remove from queue on success
           await TxQueue.removeTransaction(tx.id || '');
+          processedCount++;
           logger.info('[PaymentService] Queued transaction sent successfully via relay', { id: tx.id });
           
         } catch (relayError: unknown) {
@@ -362,6 +385,7 @@ export class PaymentService {
             
             // Remove from queue on success
             await TxQueue.removeTransaction(tx.id || '');
+            processedCount++;
             logger.info('[PaymentService] Queued transaction sent successfully on-chain', { 
               id: tx.id, 
               transactionId: onChainResult?.transactionId 
@@ -374,6 +398,7 @@ export class PaymentService {
               onChainError: onChainError instanceof Error ? onChainError.message : String(onChainError)
             });
             
+            failedCount++;
             // Keep transaction in queue for retry later
             // Could implement retry logic here with exponential backoff
           }
@@ -383,8 +408,16 @@ export class PaymentService {
           id: tx.id,
           error: err instanceof Error ? err.message : String(err)
         });
+        failedCount++;
       }
     }
+    
+    logger.info('[PaymentService] Finished processing queued transactions', {
+      total: queued.length,
+      processed: processedCount,
+      failed: failedCount,
+      remaining: queued.length - processedCount - failedCount
+    });
   }
 
   /**

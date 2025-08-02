@@ -50,6 +50,7 @@ export default function HomeScreen() {
   const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
   const [selectedToken, setSelectedToken] = useState<TokenInfo | null>(null);
   const [walletExists, setWalletExists] = useState<boolean | null>(null);
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
   
   // Import modal states
   const [showSeedPhraseModal, setShowSeedPhraseModal] = useState(false);
@@ -111,14 +112,58 @@ export default function HomeScreen() {
         return;
       }
 
-      // Use multi-chain wallet manager
-      const walletInfo = await MultiChainWalletManager.getInstance().getWalletInfo(selectedChain);
-      
-      setAddress(walletInfo.address);
-      // Format address for display
-      const formattedAddress = `${walletInfo.address.substring(0, 6)}...${walletInfo.address.substring(walletInfo.address.length - 4)}`;
-      setAddress(formattedAddress);
-      setBalance(walletInfo.balance);
+      // Try to get wallet info with balance (online mode)
+      try {
+        const walletInfo = await MultiChainWalletManager.getInstance().getWalletInfo(selectedChain);
+        
+        setAddress(walletInfo.address);
+        // Format address for display
+        const formattedAddress = `${walletInfo.address.substring(0, 6)}...${walletInfo.address.substring(walletInfo.address.length - 4)}`;
+        setAddress(formattedAddress);
+        setBalance(walletInfo.balance);
+        setIsOfflineMode(false);
+      } catch (onlineError) {
+        logger.warn('Failed to get wallet info online, trying offline mode:', onlineError);
+        
+        // Fallback to offline mode - just get the address
+        try {
+          const walletInfo = await MultiChainWalletManager.getInstance().getWalletInfoOffline(selectedChain);
+          
+          setAddress(walletInfo.address);
+          // Format address for display
+          const formattedAddress = `${walletInfo.address.substring(0, 6)}...${walletInfo.address.substring(walletInfo.address.length - 4)}`;
+          setAddress(formattedAddress);
+          setBalance('0'); // Offline mode - no balance available
+          setIsOfflineMode(true);
+          
+          logger.info('Wallet address loaded in offline mode');
+        } catch (offlineError) {
+          logger.error('Failed to get wallet info in offline mode:', offlineError);
+          
+          // Try to handle wallet corruption automatically
+          const wasFixed = await WalletErrorHandler.handleWalletError(offlineError);
+          if (wasFixed) {
+            logger.info('Wallet corruption was fixed, retrying...');
+            // Retry loading wallet data in offline mode
+            try {
+              const walletInfo = await MultiChainWalletManager.getInstance().getWalletInfoOffline(selectedChain);
+              setAddress(walletInfo.address);
+              const formattedAddress = `${walletInfo.address.substring(0, 6)}...${walletInfo.address.substring(walletInfo.address.length - 4)}`;
+              setAddress(formattedAddress);
+              setBalance('0');
+              setIsOfflineMode(true);
+              return;
+            } catch (retryError) {
+              logger.error('Failed to load wallet after fix:', retryError);
+            }
+          }
+          
+          // Reset state on error
+          setAddress(null);
+          setBalance('0');
+          setIsOfflineMode(false);
+        }
+      }
     } catch (error) {
       logger.error('Failed to load wallet:', error);
       
@@ -128,11 +173,11 @@ export default function HomeScreen() {
         logger.info('Wallet corruption was fixed, retrying...');
         // Retry loading wallet data
         try {
-          const walletInfo = await MultiChainWalletManager.getInstance().getWalletInfo(selectedChain);
+          const walletInfo = await MultiChainWalletManager.getInstance().getWalletInfoOffline(selectedChain);
           setAddress(walletInfo.address);
           const formattedAddress = `${walletInfo.address.substring(0, 6)}...${walletInfo.address.substring(walletInfo.address.length - 4)}`;
           setAddress(formattedAddress);
-          setBalance(walletInfo.balance);
+          setBalance('0');
           return;
         } catch (retryError) {
           logger.error('Failed to load wallet after fix:', retryError);
@@ -660,6 +705,11 @@ export default function HomeScreen() {
                   <Text style={[styles.networkInfoSubtitle, { color: colors.icon }]}>
                     Currently on {selectedChainConfig.name}. 
                   </Text>
+                  {isOfflineMode && (
+                    <Text style={[styles.offlineModeText, { color: '#ff9800' }]}>
+                      ⚠️ Offline Mode - Balance not available
+                    </Text>
+                  )}
                   <View style={styles.networkSelectorHint}>
                     <Ionicons name="arrow-up" size={16} color={getChainColor(selectedChain)} />
                     <Text style={[styles.networkSelectorHintText, { color: getChainColor(selectedChain) }]}>
@@ -1447,5 +1497,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginLeft: 6,
+  },
+  offlineIndicator: {
+    fontSize: 12,
+    marginLeft: 4,
+  },
+  offlineModeText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginTop: 8,
+    textAlign: 'center',
   },
 });

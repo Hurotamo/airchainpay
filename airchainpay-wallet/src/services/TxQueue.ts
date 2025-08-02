@@ -96,6 +96,37 @@ export class TxQueue {
       }
     }
   }
+
+  static async getQueueStatus(): Promise<{
+    total: number;
+    queued: number;
+    pending: number;
+    failed: number;
+  }> {
+    try {
+      const queueStr = await AsyncStorage.getItem(TX_QUEUE_KEY);
+      if (!queueStr) return { total: 0, queued: 0, pending: 0, failed: 0 };
+      
+      const queue = JSON.parse(queueStr);
+      const queued = queue.filter((tx: Transaction) => tx.status === 'queued').length;
+      const pending = queue.filter((tx: Transaction) => tx.status === 'pending').length;
+      const failed = queue.filter((tx: Transaction) => tx.status === 'failed').length;
+      
+      return {
+        total: queue.length,
+        queued,
+        pending,
+        failed
+      };
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error('Error getting queue status:', error);
+      } else {
+        console.error('Error getting queue status:', error);
+      }
+      return { total: 0, queued: 0, pending: 0, failed: 0 };
+    }
+  }
 }
 
 export type TxRow = Transaction;

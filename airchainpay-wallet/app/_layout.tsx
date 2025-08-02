@@ -19,6 +19,7 @@ import { ThemeContext } from '../hooks/useThemeContext';
 import WalletSetupScreen from '../src/components/WalletSetupScreen';
 import { useAuthState } from '../src/hooks/useAuthState';
 import { PaymentService } from '../src/services/PaymentService';
+import { secureStorage } from '../src/utils/SecureStorageService';
 
 // Create a fallback storage if AsyncStorage fails
 const safeStorage = {
@@ -126,6 +127,31 @@ export default function RootLayout() {
     }
   }, [loaded]);
 
+  // Check for backup data when app starts (for app removal recovery)
+  useEffect(() => {
+    const checkBackupData = async () => {
+      try {
+        console.log('[App] Checking for backup data...');
+        const wasRestored = await secureStorage.checkAndRestoreBackup();
+        if (wasRestored) {
+          console.log('[App] Backup data restored successfully');
+          // Refresh auth state after restoration
+          setTimeout(() => {
+            refreshAuthState();
+          }, 1000);
+        } else {
+          console.log('[App] No backup data found');
+        }
+      } catch (error) {
+        console.error('[App] Failed to check backup data:', error);
+      }
+    };
+    
+    if (loaded) {
+      checkBackupData();
+    }
+  }, [loaded, refreshAuthState]);
+
   // Network monitoring and queued transaction processing
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(async (state) => {
@@ -158,8 +184,8 @@ export default function RootLayout() {
     return (
       <WalletSetupScreen
         onWalletCreated={refreshAuthState}
-        title={!hasWallet ? "Welcome to AirChainPay" : "Complete Wallet Setup"}
-        subtitle={!hasWallet ? "Your Gateway to Multi-Chain Digital Payments" : "Secure your wallet with a password and confirm backup"}
+        title={!hasWallet ? "Welcome to AirChainPay" : "Welcome Back"}
+        subtitle={!hasWallet ? "Your Gateway to Multi-Chain Digital Payments" : "Re-authenticate your wallet or create a new one"}
       />
     );
   }

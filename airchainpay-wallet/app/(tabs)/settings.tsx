@@ -68,7 +68,7 @@ export default function SettingsScreen() {
 
     Alert.alert(
       'Confirm Logout',
-      'Are you sure you want to log out? This will remove all wallet keys and data from this device. Make sure you have backed up your private keys before proceeding.',
+      'Are you sure you want to log out? You will need to re-enter your password to access your wallet again. Your wallet data will be preserved.',
       [
         {
           text: 'Cancel',
@@ -86,12 +86,11 @@ export default function SettingsScreen() {
               refreshAuthState();
               Alert.alert(
                 'Logged Out',
-                'You have been successfully logged out. All wallet data has been cleared from this device.',
+                'You have been successfully logged out. You can re-authenticate with a new password to restore access to your wallet, or create a new wallet if needed.',
                 [
                   {
                     text: 'OK',
                     onPress: () => {
-                      // The user will need to create or import a wallet again
                       refreshAuthState();
                     }
                   }
@@ -105,7 +104,7 @@ export default function SettingsScreen() {
               refreshAuthState();
               Alert.alert(
                 'Logged Out',
-                'You have been logged out. Some data may not have been cleared completely.',
+                'You have been logged out. You can log back in with your password.',
                 [
                   {
                     text: 'OK',
@@ -115,6 +114,54 @@ export default function SettingsScreen() {
                   }
                 ]
               );
+            } finally {
+              setLoading(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleDeleteWallet = async () => {
+    if (!hasWallet) {
+      Alert.alert('No Wallet', 'No wallet account found to delete.');
+      return;
+    }
+
+    Alert.alert(
+      'Delete Wallet',
+      'Are you sure you want to delete your wallet? This will permanently remove all wallet data from this device. Make sure you have backed up your private keys before proceeding.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete Wallet',
+          style: 'destructive',
+          onPress: async () => {
+            setLoading(true);
+            try {
+              await MultiChainWalletManager.getInstance().clearAllWalletData();
+              // Reset session authentication on logout
+              setIsSessionAuthenticated(false);
+              refreshAuthState();
+              Alert.alert(
+                'Wallet Deleted',
+                'Your wallet has been permanently deleted. You will need to create a new wallet or import an existing one.',
+                [
+                  {
+                    text: 'OK',
+                    onPress: () => {
+                      refreshAuthState();
+                    }
+                  }
+                ]
+              );
+            } catch (error) {
+              logger.error('Failed to delete wallet:', error);
+              Alert.alert('Error', 'Failed to delete wallet. Please try again.');
             } finally {
               setLoading(false);
             }
@@ -410,15 +457,15 @@ export default function SettingsScreen() {
             <SettingItem
               icon="log-out"
               title="Logout"
-              subtitle="Remove all wallet keys and data from this device"
+              subtitle="Log out and require password re-entry. Wallet data preserved."
               onPress={handleLogout}
               destructive={true}
             />
             <SettingItem
-              icon="alert-circle"
-              title="Reset Wallet"
-              subtitle="Completely clear wallet and all related data"
-              onPress={handleLogout}
+              icon="trash"
+              title="Delete Wallet"
+              subtitle="Permanently remove all wallet data from this device"
+              onPress={handleDeleteWallet}
               destructive={true}
             />
           </AnimatedCard>

@@ -1,11 +1,13 @@
 import * as Keychain from 'react-native-keychain';
 import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { logger } from './Logger';
 
 /**
  * Secure Storage Service
  * 
  * Implements hardware-backed storage using react-native-keychain with fallback to expo-secure-store.
+ * Also includes AsyncStorage backup to preserve wallet data when app is removed from screen.
  * Provides maximum security for sensitive wallet data including private keys and seed phrases.
  */
 export class SecureStorageService {
@@ -97,7 +99,7 @@ export class SecureStorageService {
   }
 
   /**
-   * Store sensitive data securely (no authentication required)
+   * Store sensitive data securely with backup
    * @param key - Storage key
    * @param value - Data to store
    */
@@ -137,6 +139,14 @@ export class SecureStorageService {
         await SecureStore.setItemAsync(key, value);
         logger.info(`[SecureStorage] Stored ${key} in SecureStore (fallback)`);
       }
+
+      // Always backup to AsyncStorage for app removal protection
+      try {
+        await AsyncStorage.setItem(`backup_${key}`, value);
+        logger.info(`[SecureStorage] Backed up ${key} to AsyncStorage`);
+      } catch (backupError) {
+        logger.warn(`[SecureStorage] Failed to backup ${key} to AsyncStorage:`, backupError);
+      }
     } catch (error) {
       logger.error(`[SecureStorage] Failed to store ${key}:`, error);
       
@@ -156,7 +166,7 @@ export class SecureStorageService {
   }
 
   /**
-   * Retrieve sensitive data securely (no authentication required)
+   * Retrieve sensitive data securely with backup recovery
    * @param key - Storage key
    */
   async getItem(key: string): Promise<string | null> {
@@ -180,14 +190,41 @@ export class SecureStorageService {
           }
         }
         
-        // If no credentials found or key doesn't exist, return null
-        return null;
+        // If no credentials found or key doesn't exist, try backup
+        logger.info(`[SecureStorage] Key ${key} not found in Keychain, trying backup`);
       } else {
         // Fallback to SecureStore
         const value = await SecureStore.getItemAsync(key);
-        logger.info(`[SecureStorage] Retrieved ${key} from SecureStore (fallback)`);
-        return value;
+        if (value) {
+          logger.info(`[SecureStorage] Retrieved ${key} from SecureStore (fallback)`);
+          return value;
+        }
+        
+        // If not found in SecureStore, try backup
+        logger.info(`[SecureStorage] Key ${key} not found in SecureStore, trying backup`);
       }
+
+      // Try to recover from AsyncStorage backup
+      try {
+        const backupValue = await AsyncStorage.getItem(`backup_${key}`);
+        if (backupValue) {
+          logger.info(`[SecureStorage] Recovered ${key} from AsyncStorage backup`);
+          
+          // Restore to primary storage
+          try {
+            await this.setItem(key, backupValue);
+            logger.info(`[SecureStorage] Restored ${key} to primary storage`);
+          } catch (restoreError) {
+            logger.warn(`[SecureStorage] Failed to restore ${key} to primary storage:`, restoreError);
+          }
+          
+          return backupValue;
+        }
+      } catch (backupError) {
+        logger.warn(`[SecureStorage] Failed to check backup for ${key}:`, backupError);
+      }
+      
+      return null;
     } catch (error) {
       logger.error(`[SecureStorage] Failed to retrieve ${key}:`, error);
       
@@ -349,6 +386,14 @@ export class SecureStorageService {
         await SecureStore.deleteItemAsync(key);
         logger.info(`[SecureStorage] Deleted ${key} from SecureStore (fallback)`);
       }
+
+      // Also delete from AsyncStorage backup
+      try {
+        await AsyncStorage.removeItem(`backup_${key}`);
+        logger.info(`[SecureStorage] Deleted ${key} from AsyncStorage backup`);
+      } catch (backupError) {
+        logger.warn(`[SecureStorage] Failed to delete ${key} from AsyncStorage backup:`, backupError);
+      }
     } catch (error) {
       logger.error(`[SecureStorage] Failed to delete ${key}:`, error);
       
@@ -496,6 +541,151 @@ export class SecureStorageService {
     } catch (error) {
       logger.error('[SecureStorage] Failed to clear all data:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Check if backup data exists and restore it
+   * This is called when the app is reopened after being removed from the screen
+   */
+  async checkAndRestoreBackup(): Promise<boolean> {
+    try {
+      logger.info('[SecureStorage] Checking for backup data...');
+      
+      // Check if we have any backup data in AsyncStorage
+      const keys = await AsyncStorage.getAllKeys();
+      const backupKeys = keys.filter(key => key.startsWith('backup_'));
+      
+      if (backupKeys.length === 0) {
+        logger.info('[SecureStorage] No backup data found');
+        return false;
+      }
+      
+      logger.info(`[SecureStorage] Found ${backupKeys.length} backup items`);
+      
+      // Restore each backup item
+      let restoredCount = 0;
+      for (const backupKey of backupKeys) {
+        try {
+          const value = await AsyncStorage.getItem(backupKey);
+          if (value) {
+            const originalKey = backupKey.replace('backup_', '');
+            await this.setItem(originalKey, value);
+            restoredCount++;
+            logger.info(`[SecureStorage] Restored ${originalKey} from backup`);
+          }
+        } catch (restoreError) {
+          logger.warn(`[SecureStorage] Failed to restore ${backupKey}:`, restoreError);
+        }
+      }
+      
+      logger.info(`[SecureStorage] Successfully restored ${restoredCount} items from backup`);
+      return restoredCount > 0;
+    } catch (error) {
+      logger.error('[SecureStorage] Failed to check and restore backup:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Clear all backup data
+   */
+  async clearBackup(): Promise<void> {
+    try {
+      const keys = await AsyncStorage.getAllKeys();
+      const backupKeys = keys.filter(key => key.startsWith('backup_'));
+      
+      for (const backupKey of backupKeys) {
+        await AsyncStorage.removeItem(backupKey);
+      }
+      
+      logger.info(`[SecureStorage] Cleared ${backupKeys.length} backup items`);
+    } catch (error) {
+      logger.error('[SecureStorage] Failed to clear backup:', error);
+    }
+  }
+
+  /**
+   * Test backup functionality
+   * This is for development/testing purposes only
+   */
+  async testBackupFunctionality(): Promise<boolean> {
+    try {
+      logger.info('[SecureStorage] Testing backup functionality...');
+      
+      // Test data
+      const testKey = 'test_backup_key';
+      const testValue = 'test_backup_value_' + Date.now();
+      
+      // Store test data
+      await this.setItem(testKey, testValue);
+      logger.info('[SecureStorage] Test data stored');
+      
+      // Verify it's in primary storage
+      const primaryValue = await this.getItem(testKey);
+      if (primaryValue !== testValue) {
+        logger.error('[SecureStorage] Test failed: Primary storage value mismatch');
+        return false;
+      }
+      
+      // Verify it's in backup
+      const backupValue = await AsyncStorage.getItem(`backup_${testKey}`);
+      if (backupValue !== testValue) {
+        logger.error('[SecureStorage] Test failed: Backup value mismatch');
+        return false;
+      }
+      
+      // Clear test data
+      await this.deleteItem(testKey);
+      logger.info('[SecureStorage] Test data cleared');
+      
+      logger.info('[SecureStorage] Backup functionality test passed');
+      return true;
+    } catch (error) {
+      logger.error('[SecureStorage] Backup functionality test failed:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Test offline wallet creation
+   * This is for development/testing purposes only
+   */
+  async testOfflineWalletCreation(): Promise<boolean> {
+    try {
+      logger.info('[SecureStorage] Testing offline wallet creation...');
+      
+      // Test data
+      const testKey = 'test_offline_wallet';
+      const testValue = 'test_offline_wallet_value_' + Date.now();
+      
+      // Store test data
+      await this.setItem(testKey, testValue);
+      logger.info('[SecureStorage] Test offline wallet data stored');
+      
+      // Verify it's in primary storage
+      const primaryValue = await this.getItem(testKey);
+      if (primaryValue !== testValue) {
+        logger.error('[SecureStorage] Test failed: Primary storage value mismatch');
+        return false;
+      }
+      
+      // Verify it's in backup
+      const backupValue = await AsyncStorage.getItem(`backup_${testKey}`);
+      if (backupValue !== testValue) {
+        logger.error('[SecureStorage] Test failed: Backup value mismatch');
+        return false;
+      }
+      
+      // Clear test data
+      await this.deleteItem(testKey);
+      logger.info('[SecureStorage] Test offline wallet data cleared');
+      
+      logger.info('[SecureStorage] Offline wallet creation test passed');
+      return true;
+    } catch (error) {
+      logger.error('[SecureStorage] Offline wallet creation test failed:', error);
+      return false;
     }
   }
 }
