@@ -8,7 +8,7 @@ AirChainPay is a next-generation multi-chain payment platform for seamless, secu
 
 ## Project Structure
 
-- **airchainpay-contracts/** — Core smart contracts (Solidity) for Base Sepolia and Core Testnet
+- **airchainpay-contracts/** — Core smart contracts (Solidity) for Base Sepolia ,Core Testnet , Lisk Sepolia ,Morph Holesky
 - **airchainpay-relay-rust/** — High-performance Rust relay server for Bluetooth and blockchain transaction processing
 - **airchainpay-wallet-core/** — Secure Rust wallet core handling all cryptographic operations, sensitive data management, and hardware-backed secure storage
 - **airchainpay-wallet/** — React Native mobile wallet app (Expo)
@@ -24,7 +24,7 @@ AirChainPay is a next-generation multi-chain payment platform for seamless, secu
 - Payment verification, fee collection, batch processing
 
 ### Relay Server (Rust)
-- Multi-chain support (Core Testnet, Base Sepolia,Lisk Sepolia, Morhp Holesky)
+- Multi-chain support (Core Testnet, Base Sepolia,Lisk Sepolia, Morph Holesky)
 - Secure transaction validation and blockchain broadcasting
 - Structured logging, metrics, health checks
 - Rate limiting, JWT authentication, CORS
