@@ -31,6 +31,7 @@ import { useSelectedChain } from '../components/ChainSelector';
 import { PaymentService } from '../services/PaymentService';
 import * as Clipboard from 'expo-clipboard';
 import { SUPPORTED_CHAINS } from '../constants/AppConfig';
+import { openAppSettings } from '../utils/PermissionsHelper';
 
 const { width } = Dimensions.get('window');
 
@@ -118,8 +119,18 @@ export default function BLEPaymentScreen() {
         const advertisingSupported = blePaymentService.isAdvertisingSupported();
         setAdvertisingSupported(advertisingSupported);
 
-        // Request permissions
-        await blePaymentService.requestPermissions();
+        // Request permissions with better error handling
+        try {
+          const permissionsGranted = await blePaymentService.requestPermissions();
+          if (!permissionsGranted) {
+            setErrorBanner('Bluetooth permissions are required. Please grant permissions and restart the app.');
+            return;
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          setErrorBanner(`Permission request failed: ${errorMessage}`);
+          return;
+        }
 
         // Get BLE status
         const status = await blePaymentService.getBleStatus();
@@ -188,8 +199,18 @@ export default function BLEPaymentScreen() {
     }
 
     try {
-      setAdvertisingStatus('Starting advertising...');
+      setAdvertisingStatus('Checking permissions...');
       setAdvertisingError(null);
+      
+      // Check critical permissions before advertising
+      const criticalPermissions = await blePaymentService.checkCriticalPermissions();
+      if (!criticalPermissions.granted) {
+        setAdvertisingError(`Critical Bluetooth permissions missing: ${criticalPermissions.missing.join(', ')}. Please grant permissions in Settings.`);
+        setAdvertisingStatus('Permission denied');
+        return;
+      }
+
+      setAdvertisingStatus('Starting advertising...');
       
       const result = await blePaymentService.startAdvertising(
         paymentForm.walletAddress,
@@ -485,12 +506,82 @@ export default function BLEPaymentScreen() {
           </Text>
         </TouchableOpacity>
         
+        <TouchableOpacity
+          style={[styles.diagnosticButton]}
+          onPress={async () => {
+            try {
+              setAdvertisingStatus('Checking permissions...');
+              const granted = await blePaymentService.requestPermissions();
+              if (granted) {
+                setAdvertisingStatus('✅ Permissions granted');
+                setAdvertisingError(null);
+              } else {
+                setAdvertisingStatus('❌ Permissions denied');
+                setAdvertisingError('Please grant Bluetooth permissions in Settings');
+              }
+            } catch (error) {
+              setAdvertisingStatus('❌ Permission check failed');
+              setAdvertisingError('Failed to check permissions');
+            }
+          }}
+        >
+          <Ionicons 
+            name="shield-checkmark" 
+            size={16} 
+            color="#666" 
+          />
+          <Text style={styles.diagnosticButtonText}>
+            Check Permissions
+          </Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity
+          style={[styles.diagnosticButton]}
+          onPress={async () => {
+            try {
+              setAdvertisingStatus('Running debug...');
+              const debugInfo = await blePaymentService.debugPermissions();
+              setAdvertisingStatus('Debug info logged');
+              setAdvertisingError(`Debug completed. Check console for details.\nPlatform: ${debugInfo.platform}\nBLE Available: ${debugInfo.bleAvailable}`);
+              console.log('[BLE Payment] Debug info:', debugInfo);
+            } catch (error) {
+              setAdvertisingStatus('❌ Debug failed');
+              setAdvertisingError('Failed to run debug');
+            }
+          }}
+        >
+          <Ionicons 
+            name="bug-outline" 
+            size={16} 
+            color="#666" 
+          />
+          <Text style={styles.diagnosticButtonText}>
+            Debug Permissions
+          </Text>
+        </TouchableOpacity>
+        
         <Text style={[styles.advertisingStatus, { color: theme === 'dark' ? '#ccc' : '#666' }]}>
           {advertisingStatus}
         </Text>
         
         {advertisingError && (
           <Text style={styles.errorText}>{advertisingError}</Text>
+        )}
+        
+        {advertisingError && advertisingError.includes('permissions') && (
+          <TouchableOpacity
+            style={[styles.settingsButton]}
+            onPress={openAppSettings}
+          >
+            <Ionicons 
+              name="settings" 
+              size={16} 
+              color="#fff" 
+            />
+            <Text style={styles.settingsButtonText}>
+              Open Settings
+            </Text>
+          </TouchableOpacity>
         )}
       </View>
     </View>
@@ -894,5 +985,20 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  settingsButton: {
+    backgroundColor: '#007AFF',
+    padding: 10,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+  },
+  settingsButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginLeft: 8,
   },
 }); 

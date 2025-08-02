@@ -4,6 +4,7 @@ import { logger } from '../utils/Logger';
 import { secureStorage } from '../utils/SecureStorageService';
 import { PasswordHasher } from '../utils/crypto/PasswordHasher';
 import { PasswordMigration } from '../utils/crypto/PasswordMigration';
+import { WalletCorruptionFix } from '../utils/WalletCorruptionFix';
 import { ERC20_ABI, AIRCHAINPAY_TOKEN_ABI } from '../constants/abi';
 
 // Storage keys - hardcoded to avoid import issues
@@ -79,7 +80,36 @@ export class MultiChainWalletManager {
       }
       
       const privateKey = await secureStorage.getItem(STORAGE_KEYS.PRIVATE_KEY);
-      const hasWallet = !!privateKey;
+      if (!privateKey) {
+        logger.info('[MultiChain] No private key found');
+        return false;
+      }
+
+      // Check if private key is corrupted (boolean values or invalid format)
+      if (privateKey === 'true' || privateKey === 'false' || 
+          privateKey === '0xtrue' || privateKey === '0xfalse' ||
+          privateKey === 'null' || privateKey === 'undefined' ||
+          privateKey === 'NaN' || privateKey === '0xNaN') {
+        logger.warn('[MultiChain] Corrupted private key detected:', privateKey);
+        return false;
+      }
+
+      // Check if private key format is valid
+      if (!privateKey.startsWith('0x') || privateKey.length !== 66) {
+        logger.warn('[MultiChain] Invalid private key format detected:', privateKey);
+        return false;
+      }
+
+      // Additional validation: try to create a wallet with the private key
+      try {
+        new ethers.Wallet(privateKey);
+        logger.info('[MultiChain] Private key validation successful');
+      } catch (validationError) {
+        logger.warn('[MultiChain] Private key validation failed:', validationError);
+        return false;
+      }
+
+      const hasWallet = true;
       logger.info(`[MultiChain] hasWallet check: ${hasWallet}`);
       return hasWallet;
     } catch (error: unknown) {
@@ -434,12 +464,34 @@ export class MultiChainWalletManager {
     }
 
     try {
+      // Check for corrupted wallet data first
+      const wasCorrupted = await this.checkAndFixCorruptedWallet();
+      if (wasCorrupted) {
+        logger.info('[MultiChain] Corrupted wallet data was fixed, creating new wallet');
+        const wallet = ethers.Wallet.createRandom();
+        await secureStorage.setItem(STORAGE_KEYS.PRIVATE_KEY, wallet.privateKey);
+        this.wallet = wallet;
+        logger.info(`[MultiChain] Created new wallet after fixing corruption: ${wallet.address}`);
+        return wallet;
+      }
+
       const privateKey = await secureStorage.getItem(STORAGE_KEYS.PRIVATE_KEY);
       if (privateKey) {
-        const wallet = new ethers.Wallet(privateKey);
-        this.wallet = wallet;
-        logger.info(`[MultiChain] Loaded existing wallet: ${wallet.address}`);
-        return wallet;
+        try {
+          const wallet = new ethers.Wallet(privateKey);
+          this.wallet = wallet;
+          logger.info(`[MultiChain] Loaded existing wallet: ${wallet.address}`);
+          return wallet;
+        } catch (walletError) {
+          logger.warn('[MultiChain] Failed to create wallet from stored private key, creating new wallet:', walletError);
+          // Clear the corrupted private key
+          await secureStorage.deleteItem(STORAGE_KEYS.PRIVATE_KEY);
+          const newWallet = ethers.Wallet.createRandom();
+          await secureStorage.setItem(STORAGE_KEYS.PRIVATE_KEY, newWallet.privateKey);
+          this.wallet = newWallet;
+          logger.info(`[MultiChain] Created new wallet after private key error: ${newWallet.address}`);
+          return newWallet;
+        }
       }
 
       const wallet = ethers.Wallet.createRandom();
@@ -1140,6 +1192,46 @@ export class MultiChainWalletManager {
     }
   }
 
+  // Add method to reset corrupted wallet data
+  async resetCorruptedWallet(): Promise<void> {
+    try {
+      logger.warn('[MultiChain] Resetting corrupted wallet data');
+      this.wallet = null;
+      await WalletCorruptionFix.clearAllWalletData();
+      logger.info('[MultiChain] Corrupted wallet data cleared successfully');
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[MultiChain] Failed to reset corrupted wallet:', error);
+      } else {
+        logger.error('[MultiChain] Failed to reset corrupted wallet:', String(error));
+      }
+      throw error;
+    }
+  }
+
+  // Add method to check and fix corrupted wallet data
+  async checkAndFixCorruptedWallet(): Promise<boolean> {
+    try {
+      // Use the dedicated corruption fix utility
+      const wasFixed = await WalletCorruptionFix.checkAndFixCorruption();
+      
+      if (wasFixed) {
+        // Clear the wallet instance since we cleared the storage
+        this.wallet = null;
+        logger.info('[MultiChain] Corrupted wallet data was fixed');
+      }
+      
+      return wasFixed;
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('[MultiChain] Failed to check and fix corrupted wallet:', error);
+      } else {
+        logger.error('[MultiChain] Failed to check and fix corrupted wallet:', String(error));
+      }
+      return false;
+    }
+  }
+
   // Add method to clear transaction history
   async clearTransactionHistory(): Promise<void> {
     try {
@@ -1284,10 +1376,12 @@ export class MultiChainWalletManager {
     }
   }
 
-  // Add method to get seed phrase
+  // Add method to get seed phrase (requires authentication)
   async getSeedPhrase(): Promise<string> {
     try {
-      const seedPhrase = await secureStorage.getItem(STORAGE_KEYS.SEED_PHRASE);
+      const seedPhrase = await secureStorage.getSensitiveItem(STORAGE_KEYS.SEED_PHRASE, {
+        promptMessage: 'Authenticate to view seed phrase'
+      });
       if (!seedPhrase) {
         throw new Error('No seed phrase found. This wallet may have been imported with a private key only.');
       }
@@ -1302,10 +1396,12 @@ export class MultiChainWalletManager {
     }
   }
 
-  // Add method to export private key
+  // Add method to export private key (requires authentication)
   async exportPrivateKey(): Promise<string> {
     try {
-      const privateKey = await secureStorage.getItem(STORAGE_KEYS.PRIVATE_KEY);
+      const privateKey = await secureStorage.getSensitiveItem(STORAGE_KEYS.PRIVATE_KEY, {
+        promptMessage: 'Authenticate to view private key'
+      });
       if (!privateKey) {
         throw new Error('No private key found');
       }

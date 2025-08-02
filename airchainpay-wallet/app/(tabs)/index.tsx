@@ -37,6 +37,7 @@ import { CrossWalletSecurityWarning } from '../../src/components/CrossWalletSecu
 import { SecurityWarning } from '../../src/services/CrossWalletSecurityService';
 import { OfflineTransactionExpiryWarning } from '../../src/components/OfflineTransactionExpiryWarning';
 import { ExpiryWarning } from '../../src/services/OfflineTransactionExpiryService';
+import { WalletErrorHandler } from '../../src/utils/WalletErrorHandler';
 
 // Initialize the transaction queue
 // initTxQueue();
@@ -78,6 +79,21 @@ export default function HomeScreen() {
       return hasWallet;
     } catch (error) {
       logger.error('Failed to check wallet status:', error);
+      
+      // Try to handle wallet corruption automatically
+      const wasFixed = await WalletErrorHandler.handleWalletError(error);
+      if (wasFixed) {
+        logger.info('Wallet corruption was fixed during status check');
+        // Recheck wallet status after fix
+        try {
+          const hasWallet = await MultiChainWalletManager.getInstance().hasWallet();
+          setWalletExists(hasWallet);
+          return hasWallet;
+        } catch (retryError) {
+          logger.error('Failed to check wallet status after fix:', retryError);
+        }
+      }
+      
       setWalletExists(false);
       return false;
     }
@@ -105,6 +121,24 @@ export default function HomeScreen() {
       setBalance(walletInfo.balance);
     } catch (error) {
       logger.error('Failed to load wallet:', error);
+      
+      // Try to handle wallet corruption automatically
+      const wasFixed = await WalletErrorHandler.handleWalletError(error);
+      if (wasFixed) {
+        logger.info('Wallet corruption was fixed, retrying...');
+        // Retry loading wallet data
+        try {
+          const walletInfo = await MultiChainWalletManager.getInstance().getWalletInfo(selectedChain);
+          setAddress(walletInfo.address);
+          const formattedAddress = `${walletInfo.address.substring(0, 6)}...${walletInfo.address.substring(walletInfo.address.length - 4)}`;
+          setAddress(formattedAddress);
+          setBalance(walletInfo.balance);
+          return;
+        } catch (retryError) {
+          logger.error('Failed to load wallet after fix:', retryError);
+        }
+      }
+      
       // Reset state on error
       setAddress(null);
       setBalance('0');
@@ -150,7 +184,22 @@ export default function HomeScreen() {
       setShowBackupScreen(true);
     } catch (error) {
       logger.error('Failed to create wallet:', error);
-      Alert.alert('Create Wallet Error', String(error));
+      
+      // Try to handle wallet corruption automatically
+      const wasFixed = await WalletErrorHandler.handleWalletError(error);
+      if (wasFixed) {
+        logger.info('Wallet corruption was fixed, retrying wallet creation...');
+        try {
+          const seedPhrase = await MultiChainWalletManager.getInstance().generateSeedPhrase();
+          setGeneratedSeedPhrase(seedPhrase);
+          setShowBackupScreen(true);
+          return;
+        } catch (retryError) {
+          logger.error('Failed to create wallet after fix:', retryError);
+        }
+      }
+      
+      Alert.alert('Create Wallet Error', WalletErrorHandler.getErrorMessage(error));
     } finally {
       setLoading(false);
     }

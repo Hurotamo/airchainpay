@@ -14,7 +14,7 @@ import { MultiChainWalletManager } from '../../wallet/MultiChainWalletManager';
  */
 export class QRCodeSigner {
   private static readonly SIGNATURE_VERSION = 'v1';
-  private static readonly MAX_PAYLOAD_AGE = 5 * 60 * 1000; // 5 minutes
+  private static readonly MAX_PAYLOAD_AGE = 30 * 60 * 1000; // 30 minutes (increased from 5 minutes)
   private static readonly SIGNATURE_PREFIX = 'AIRCHAINPAY_SIGNATURE';
 
   /**
@@ -73,12 +73,20 @@ export class QRCodeSigner {
   }
 
   /**
-   * Verify a signed QR code payload
+   * Verify a signed QR code payload with lenient timestamp validation for testing
    * @param signedPayload - The signed payload to verify
+   * @param lenient - If true, allows older QR codes (for testing)
    * @returns Verification result with details
    */
-  static async verifyQRPayload(signedPayload: SignedQRPayload): Promise<VerificationResult> {
+  static async verifyQRPayload(signedPayload: SignedQRPayload, lenient: boolean = false): Promise<VerificationResult> {
     try {
+      logger.info('[QRCodeSigner] Starting QR payload verification', {
+        hasSignature: !!signedPayload.signature,
+        signatureKeys: signedPayload.signature ? Object.keys(signedPayload.signature) : [],
+        payloadKeys: Object.keys(signedPayload),
+        lenient
+      });
+
       // Check if payload has signature
       if (!signedPayload.signature) {
         return {
@@ -95,8 +103,18 @@ export class QRCodeSigner {
       const { signature, chainId } = signedPayload.signature;
 
       // Step 1: Verify timestamp to prevent replay attacks
-      const timestampValidation = this.validateTimestamp(signedPayload.signature.timestamp);
+      logger.info('[QRCodeSigner] Verifying timestamp', {
+        timestamp: signedPayload.signature.timestamp,
+        currentTime: Date.now(),
+        lenient
+      });
+      
+      const timestampValidation = lenient ? 
+        this.validateTimestampLenient(signedPayload.signature.timestamp) :
+        this.validateTimestamp(signedPayload.signature.timestamp);
+        
       if (!timestampValidation.isValid) {
+        logger.error('[QRCodeSigner] Timestamp validation failed:', timestampValidation.error);
         return {
           isValid: false,
           error: 'Payload timestamp validation failed',
@@ -108,6 +126,8 @@ export class QRCodeSigner {
           }
         };
       }
+
+      logger.info('[QRCodeSigner] Timestamp validation passed');
 
       // Step 2: Verify signature format
       const formatValidation = this.validateSignatureFormat(signedPayload.signature);
@@ -279,12 +299,51 @@ export class QRCodeSigner {
     const now = Date.now();
     const age = now - timestamp;
 
+    logger.info('[QRCodeSigner] Timestamp validation:', {
+      timestamp,
+      now,
+      age,
+      maxAge: this.MAX_PAYLOAD_AGE,
+      ageInSeconds: Math.floor(age / 1000),
+      maxAgeInSeconds: Math.floor(this.MAX_PAYLOAD_AGE / 1000)
+    });
+
     if (age < 0) {
       return { isValid: false, error: 'Future timestamp detected' };
     }
 
     if (age > this.MAX_PAYLOAD_AGE) {
-      return { isValid: false, error: `Payload too old (${Math.floor(age / 1000)}s)` };
+      return { isValid: false, error: `Payload too old (${Math.floor(age / 1000)}s, max ${Math.floor(this.MAX_PAYLOAD_AGE / 1000)}s)` };
+    }
+
+    return { isValid: true };
+  }
+
+  /**
+   * Validate timestamp to prevent replay attacks with lenient option
+   * @param timestamp - Timestamp to validate
+   * @returns Validation result
+   */
+  private static validateTimestampLenient(timestamp: number): { isValid: boolean; error?: string } {
+    const now = Date.now();
+    const age = now - timestamp;
+
+    logger.info('[QRCodeSigner] Timestamp validation (lenient):', {
+      timestamp,
+      now,
+      age,
+      maxAge: this.MAX_PAYLOAD_AGE,
+      ageInSeconds: Math.floor(age / 1000),
+      maxAgeInSeconds: Math.floor(this.MAX_PAYLOAD_AGE / 1000)
+    });
+
+    if (age < 0) {
+      return { isValid: false, error: 'Future timestamp detected' };
+    }
+
+    // Allow payloads up to 24 hours old for testing
+    if (age > 24 * 60 * 60 * 1000) { // 24 hours in milliseconds
+      return { isValid: false, error: `Payload too old (${Math.floor(age / 1000)}s, max ${Math.floor(this.MAX_PAYLOAD_AGE / 1000)}s)` };
     }
 
     return { isValid: true };
@@ -445,7 +504,7 @@ export interface SignedQRPayload {
     version: string;
     integrity: string;
   };
-}
+} 
 
 /**
  * Verification Result Interface

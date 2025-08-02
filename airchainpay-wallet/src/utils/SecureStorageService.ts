@@ -1,6 +1,5 @@
 import * as Keychain from 'react-native-keychain';
 import * as SecureStore from 'expo-secure-store';
-import { Platform } from 'react-native';
 import { logger } from './Logger';
 
 /**
@@ -100,35 +99,41 @@ export class SecureStorageService {
   }
 
   /**
-   * Store sensitive data securely
+   * Store sensitive data securely (no authentication required)
    * @param key - Storage key
    * @param value - Data to store
-   * @param options - Storage options
    */
-  async setItem(
-    key: string, 
-    value: string, 
-    options: {
-      useBiometrics?: boolean;
-      accessControl?: Keychain.ACCESS_CONTROL;
-      accessible?: Keychain.ACCESSIBLE;
-    } = {}
-  ): Promise<void> {
-    const { useBiometrics = false, accessControl, accessible } = options;
-
+  async setItem(key: string, value: string): Promise<void> {
     // Wait for initialization to complete
     await this.waitForInitialization();
 
     try {
       if (this.keychainAvailable && Keychain) {
-        // Use hardware-backed keychain storage
+        // Use hardware-backed keychain storage without authentication
         const keychainOptions = {
-          accessControl: accessControl || (useBiometrics ? Keychain.ACCESS_CONTROL.BIOMETRY_ANY : Keychain.ACCESS_CONTROL.DEVICE_PASSCODE),
-          accessible: accessible || Keychain.ACCESSIBLE.WHEN_UNLOCKED,
+          accessControl: Keychain.ACCESS_CONTROL.DEVICE_PASSCODE,
+          accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED,
           securityLevel: Keychain.SECURITY_LEVEL.SECURE_HARDWARE,
         };
 
-        await Keychain.setGenericPassword(key, value, keychainOptions);
+        // For Keychain, we store all data in a single credential with JSON structure
+        // First, get existing data
+        let existingData = {};
+        try {
+          const credentials = await Keychain.getGenericPassword(keychainOptions);
+          if (credentials && credentials.password) {
+            existingData = JSON.parse(credentials.password);
+          }
+        } catch (parseError) {
+          // If existing data is not JSON, start fresh
+          logger.warn('[SecureStorage] Existing keychain data is not JSON, starting fresh');
+        }
+
+        // Update with new key-value pair
+        existingData[key] = value;
+        
+        // Store the updated JSON
+        await Keychain.setGenericPassword('wallet_data', JSON.stringify(existingData), keychainOptions);
         logger.info(`[SecureStorage] Stored ${key} in Keychain`);
       } else {
         // Fallback to SecureStore
@@ -154,36 +159,35 @@ export class SecureStorageService {
   }
 
   /**
-   * Retrieve sensitive data securely
+   * Retrieve sensitive data securely (no authentication required)
    * @param key - Storage key
-   * @param options - Retrieval options
    */
-  async getItem(
-    key: string,
-    options: {
-      useBiometrics?: boolean;
-      promptMessage?: string;
-    } = {}
-  ): Promise<string | null> {
-    const { useBiometrics = false, promptMessage = 'Authenticate to access wallet' } = options;
-
+  async getItem(key: string): Promise<string | null> {
     // Wait for initialization to complete
     await this.waitForInitialization();
 
     try {
       if (this.keychainAvailable && Keychain) {
-        // Use hardware-backed keychain storage
+        // Use hardware-backed keychain storage without authentication
         const keychainOptions = {
-          accessControl: useBiometrics 
-            ? Keychain.ACCESS_CONTROL.BIOMETRY_ANY 
-            : Keychain.ACCESS_CONTROL.DEVICE_PASSCODE,
+          accessControl: Keychain.ACCESS_CONTROL.DEVICE_PASSCODE,
         };
 
+        // For Keychain, we retrieve the JSON data and extract the specific key
         const credentials = await Keychain.getGenericPassword(keychainOptions);
-        if (credentials) {
-          logger.info(`[SecureStorage] Retrieved ${key} from Keychain`);
-          return credentials.password;
+        if (credentials && credentials.password) {
+          try {
+            const data = JSON.parse(credentials.password);
+            if (data[key]) {
+              logger.info(`[SecureStorage] Retrieved ${key} from Keychain`);
+              return data[key];
+            }
+          } catch (parseError) {
+            logger.warn('[SecureStorage] Failed to parse keychain data:', parseError);
+          }
         }
+        
+        // If no credentials found or key doesn't exist, return null
         return null;
       } else {
         // Fallback to SecureStore
@@ -211,6 +215,73 @@ export class SecureStorageService {
   }
 
   /**
+   * Retrieve sensitive data with authentication (for private keys and seed phrases)
+   * @param key - Storage key
+   * @param options - Retrieval options
+   */
+  async getSensitiveItem(
+    key: string,
+    options: {
+      useBiometrics?: boolean;
+      promptMessage?: string;
+    } = {}
+  ): Promise<string | null> {
+    const { useBiometrics = false, promptMessage = 'Authenticate to access secret' } = options;
+
+    // Wait for initialization to complete
+    await this.waitForInitialization();
+
+    try {
+      if (this.keychainAvailable && Keychain) {
+        // Use hardware-backed keychain storage with authentication
+        const keychainOptions = {
+          accessControl: useBiometrics 
+            ? Keychain.ACCESS_CONTROL.BIOMETRY_ANY 
+            : Keychain.ACCESS_CONTROL.DEVICE_PASSCODE,
+        };
+
+        // For Keychain, we retrieve the JSON data and extract the specific key
+        const credentials = await Keychain.getGenericPassword(keychainOptions);
+        if (credentials && credentials.password) {
+          try {
+            const data = JSON.parse(credentials.password);
+            if (data[key]) {
+              logger.info(`[SecureStorage] Retrieved sensitive ${key} from Keychain`);
+              return data[key];
+            }
+          } catch (parseError) {
+            logger.warn('[SecureStorage] Failed to parse keychain data:', parseError);
+          }
+        }
+        
+        // If no credentials found or key doesn't exist, return null
+        return null;
+      } else {
+        // Fallback to SecureStore
+        const value = await SecureStore.getItemAsync(key);
+        logger.info(`[SecureStorage] Retrieved sensitive ${key} from SecureStore (fallback)`);
+        return value;
+      }
+    } catch (error) {
+      logger.error(`[SecureStorage] Failed to retrieve sensitive ${key}:`, error);
+      
+      // If keychain fails, try SecureStore as final fallback
+      if (this.keychainAvailable) {
+        try {
+          const value = await SecureStore.getItemAsync(key);
+          logger.info(`[SecureStorage] Retrieved sensitive ${key} from SecureStore after Keychain failure`);
+          return value;
+        } catch (fallbackError) {
+          logger.error(`[SecureStorage] Failed to retrieve sensitive ${key} from SecureStore fallback:`, fallbackError);
+          return null;
+        }
+      } else {
+        return null;
+      }
+    }
+  }
+
+  /**
    * Delete sensitive data
    * @param key - Storage key
    */
@@ -220,9 +291,37 @@ export class SecureStorageService {
 
     try {
       if (this.keychainAvailable && Keychain) {
-        // Try to delete from keychain using the correct method
-        await Keychain.resetGenericPassword();
-        logger.info(`[SecureStorage] Deleted ${key} from Keychain`);
+        // For Keychain, we need to delete from the JSON data
+        const keychainOptions = {
+          accessControl: Keychain.ACCESS_CONTROL.DEVICE_PASSCODE,
+        };
+        
+        const credentials = await Keychain.getGenericPassword(keychainOptions);
+        if (credentials && credentials.password) {
+          try {
+            const data = JSON.parse(credentials.password);
+            if (data[key]) {
+              // Remove the key from the data
+              delete data[key];
+              
+              // If no data left, remove the entire credential
+              if (Object.keys(data).length === 0) {
+                await Keychain.resetGenericPassword();
+                logger.info(`[SecureStorage] Deleted all data from Keychain`);
+              } else {
+                // Store the updated data
+                await Keychain.setGenericPassword('wallet_data', JSON.stringify(data), keychainOptions);
+                logger.info(`[SecureStorage] Deleted ${key} from Keychain`);
+              }
+            } else {
+              logger.info(`[SecureStorage] No item found with key ${key} in Keychain`);
+            }
+          } catch (parseError) {
+            logger.warn('[SecureStorage] Failed to parse keychain data for deletion:', parseError);
+          }
+        } else {
+          logger.info(`[SecureStorage] No keychain data found`);
+        }
       } else {
         // Fallback to SecureStore
         await SecureStore.deleteItemAsync(key);

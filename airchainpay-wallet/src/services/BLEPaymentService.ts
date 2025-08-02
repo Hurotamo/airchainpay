@@ -52,7 +52,50 @@ export class BLEPaymentService {
    * Request permissions
    */
   async requestPermissions(): Promise<boolean> {
-    return this.bleManager.requestAllPermissions();
+    try {
+      logger.info('[BLE Payment] Requesting Bluetooth permissions...');
+      const result = await this.bleManager.requestAllPermissions();
+      
+      if (result) {
+        logger.info('[BLE Payment] ✅ All Bluetooth permissions granted');
+      } else {
+        logger.warn('[BLE Payment] ❌ Some Bluetooth permissions were denied');
+      }
+      
+      return result;
+    } catch (error) {
+      logger.error('[BLE Payment] Error requesting permissions:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Check critical permissions with more lenient logic
+   */
+  async checkCriticalPermissions(): Promise<{
+    granted: boolean;
+    missing: string[];
+    details: string;
+  }> {
+    try {
+      logger.info('[BLE Payment] Checking critical permissions...');
+      const result = await this.bleManager.hasCriticalPermissions();
+      
+      if (result.granted) {
+        logger.info('[BLE Payment] ✅ Critical permissions granted');
+      } else {
+        logger.warn('[BLE Payment] ❌ Critical permissions missing:', result.missing);
+      }
+      
+      return result;
+    } catch (error) {
+      logger.error('[BLE Payment] Error checking critical permissions:', error);
+      return {
+        granted: false,
+        missing: ['unknown'],
+        details: error instanceof Error ? error.message : String(error)
+      };
+    }
   }
 
   /**
@@ -218,6 +261,13 @@ export class BLEPaymentService {
    */
   isCurrentlyScanning(): boolean {
     return this.isScanning;
+  }
+
+  /**
+   * Debug permissions and BLE status
+   */
+  async debugPermissions() {
+    return this.bleManager.debugPermissions();
   }
 
   /**

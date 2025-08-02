@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { MultiChainWalletManager } from '../wallet/MultiChainWalletManager';
+import { WalletErrorHandler } from '../utils/WalletErrorHandler';
 
 export interface AuthState {
   hasWallet: boolean;
@@ -44,6 +45,31 @@ export const useAuthState = () => {
       });
     } catch (error) {
       console.error('[useAuthState] Error checking auth state:', error);
+      
+      // Try to handle wallet corruption automatically
+      const wasFixed = await WalletErrorHandler.handleWalletError(error);
+      if (wasFixed) {
+        console.log('[useAuthState] Wallet corruption was fixed, rechecking...');
+        // Recheck auth state after fix
+        try {
+          const hasWallet = await MultiChainWalletManager.getInstance().hasWallet();
+          if (hasWallet) {
+            const hasPassword = await MultiChainWalletManager.getInstance().hasPassword();
+            const backupConfirmed = await MultiChainWalletManager.getInstance().isBackupConfirmed();
+            const isAuthenticated = hasPassword && backupConfirmed;
+            
+            setAuthState({
+              hasWallet,
+              isAuthenticated,
+              isLoading: false,
+            });
+            return;
+          }
+        } catch (retryError) {
+          console.error('[useAuthState] Failed to recheck auth state after fix:', retryError);
+        }
+      }
+      
       setAuthState({
         hasWallet: false,
         isAuthenticated: false,

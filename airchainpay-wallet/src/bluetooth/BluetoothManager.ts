@@ -268,7 +268,7 @@ export class BluetoothManager {
   }
 
   /**
-   * Request permissions with enhanced error handling
+   * Request permissions with improved logic for already-granted permissions
    */
   async requestPermissionsEnhanced(): Promise<{
     success: boolean;
@@ -294,30 +294,61 @@ export class BluetoothManager {
     const grantedPermissions: string[] = [];
     const deniedPermissions: string[] = [];
 
+    console.log('[BLE] Starting enhanced permission request...');
+
     try {
+      // First, check which permissions are already granted
       for (const permission of requiredPermissions) {
         try {
-          const result = await PermissionsAndroid.request(permission);
-          if (result === PermissionsAndroid.RESULTS.GRANTED) {
+          const alreadyGranted = await PermissionsAndroid.check(permission);
+          if (alreadyGranted) {
             grantedPermissions.push(permission);
-          } else {
-            deniedPermissions.push(permission);
+            console.log(`[BLE] ✅ Permission already granted: ${permission}`);
           }
         } catch (error) {
-          deniedPermissions.push(permission);
+          console.log(`[BLE] Error checking ${permission}:`, error);
+        }
+      }
+
+      // Request only the permissions that aren't already granted
+      for (const permission of requiredPermissions) {
+        if (!grantedPermissions.includes(permission)) {
+          try {
+            console.log(`[BLE] Requesting permission: ${permission}`);
+            const result = await PermissionsAndroid.request(permission);
+            
+            if (result === PermissionsAndroid.RESULTS.GRANTED) {
+              grantedPermissions.push(permission);
+              console.log(`[BLE] ✅ Permission granted: ${permission}`);
+            } else {
+              deniedPermissions.push(permission);
+              console.log(`[BLE] ❌ Permission denied: ${permission} (result: ${result})`);
+            }
+          } catch (error) {
+            deniedPermissions.push(permission);
+            console.log(`[BLE] ❌ Error requesting ${permission}:`, error);
+          }
         }
       }
 
       const hasNeverAskAgain = BluetoothManager.hasNeverAskAgain(deniedPermissions);
+      const success = deniedPermissions.length === 0;
+      
+      console.log(`[BLE] Permission request completed:`);
+      console.log(`  - Granted: ${grantedPermissions.length}/${requiredPermissions.length}`);
+      console.log(`  - Denied: ${deniedPermissions.length}/${requiredPermissions.length}`);
+      console.log(`  - Success: ${success}`);
+      console.log(`  - Needs settings: ${hasNeverAskAgain}`);
       
       return {
-        success: deniedPermissions.length === 0,
+        success,
         grantedPermissions,
         deniedPermissions,
         needsSettingsRedirect: hasNeverAskAgain
       };
 
     } catch (error) {
+      console.error('[BLE] Error in permission request:', error);
       return {
         success: false,
         grantedPermissions,
@@ -331,12 +362,28 @@ export class BluetoothManager {
    * Request all permissions
    */
   async requestAllPermissions(): Promise<boolean> {
-    const result = await this.requestPermissionsEnhanced();
-    return result.success;
+    try {
+      console.log('[BLE] Requesting all Bluetooth permissions...');
+      const result = await this.requestPermissionsEnhanced();
+      
+      if (result.success) {
+        console.log('[BLE] ✅ All Bluetooth permissions granted');
+      } else {
+        console.warn('[BLE] ❌ Some Bluetooth permissions were denied:', result.deniedPermissions);
+        if (result.needsSettingsRedirect) {
+          console.warn('[BLE] User needs to go to Settings to grant permissions');
+        }
+      }
+      
+      return result.success;
+    } catch (error) {
+      console.error('[BLE] Error requesting permissions:', error);
+      return false;
+    }
   }
 
   /**
-   * Check permissions
+   * Check permissions with better handling of already-granted permissions
    */
   async checkPermissions(): Promise<{
     granted: boolean;
@@ -356,21 +403,31 @@ export class BluetoothManager {
     const details: { [key: string]: string } = {};
     const missing: string[] = [];
 
+    console.log('[BLE] Checking current permission status...');
+
     for (const permission of requiredPermissions) {
       try {
         const result = await PermissionsAndroid.check(permission);
         details[permission] = result ? 'granted' : 'denied';
+        
         if (!result) {
           missing.push(permission);
+          console.log(`[BLE] ❌ Permission denied: ${permission}`);
+        } else {
+          console.log(`[BLE] ✅ Permission granted: ${permission}`);
         }
-      } catch {
+      } catch (error) {
         details[permission] = 'error';
         missing.push(permission);
+        console.log(`[BLE] ❌ Error checking permission ${permission}:`, error);
       }
     }
 
+    const granted = missing.length === 0;
+    console.log(`[BLE] Permission check result: ${granted ? '✅ All granted' : '❌ Missing permissions'}`);
+    
     return {
-      granted: missing.length === 0,
+      granted,
       missing,
       details
     };
@@ -382,6 +439,74 @@ export class BluetoothManager {
   async hasAllPermissions(): Promise<boolean> {
     const status = await this.checkPermissions();
     return status.granted;
+  }
+
+  /**
+   * Check critical permissions with more lenient logic
+   */
+  async hasCriticalPermissions(): Promise<{
+    granted: boolean;
+    missing: string[];
+    details: string;
+  }> {
+    if (Platform.OS !== 'android') {
+      return { granted: true, missing: [], details: 'Not Android' };
+    }
+
+    // For advertising, we primarily need BLUETOOTH_CONNECT
+    // BLUETOOTH_SCAN and BLUETOOTH_ADVERTISE are secondary
+    const criticalPermissions = [
+      PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+    ];
+
+    const secondaryPermissions = [
+      PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+      PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE,
+    ];
+
+    const missing: string[] = [];
+    let details = '';
+
+    console.log('[BLE] Checking critical permissions...');
+
+    // Check critical permissions
+    for (const permission of criticalPermissions) {
+      try {
+        const granted = await PermissionsAndroid.check(permission);
+        if (!granted) {
+          missing.push(permission);
+          details += `Critical permission missing: ${permission}\n`;
+        } else {
+          console.log(`[BLE] ✅ Critical permission granted: ${permission}`);
+        }
+      } catch (error) {
+        missing.push(permission);
+        details += `Error checking critical permission ${permission}: ${error}\n`;
+      }
+    }
+
+    // Check secondary permissions (for debugging)
+    for (const permission of secondaryPermissions) {
+      try {
+        const granted = await PermissionsAndroid.check(permission);
+        if (!granted) {
+          details += `Secondary permission missing: ${permission}\n`;
+        } else {
+          console.log(`[BLE] ✅ Secondary permission granted: ${permission}`);
+        }
+      } catch (error) {
+        details += `Error checking secondary permission ${permission}: ${error}\n`;
+      }
+    }
+
+    const granted = missing.length === 0;
+    console.log(`[BLE] Critical permissions: ${granted ? '✅ Granted' : '❌ Missing'}`);
+    
+    return {
+      granted,
+      missing,
+      details: details.trim()
+    };
   }
 
   /**
@@ -576,9 +701,9 @@ export class BluetoothManager {
       }
 
       // Check permissions with detailed feedback
-      const permissionStatus = await this.checkPermissions();
-      if (!permissionStatus.granted) {
-        const missingPermissions = permissionStatus.missing.map(perm => {
+      const criticalPermissionStatus = await this.hasCriticalPermissions();
+      if (!criticalPermissionStatus.granted) {
+        const missingPermissions = criticalPermissionStatus.missing.map(perm => {
           switch (perm) {
             case PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN:
               return 'Bluetooth Scan';
@@ -591,9 +716,16 @@ export class BluetoothManager {
           }
         });
         
+        const needsSettings = criticalPermissionStatus.missing.some(perm => 
+          [PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN, 
+           PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT, 
+           PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE].includes(perm as any)
+        );
+        
         return {
           success: false,
-          message: `Missing Bluetooth permissions: ${missingPermissions.join(', ')}. Please grant permissions in Settings.`
+          message: `Missing critical Bluetooth permissions: ${missingPermissions.join(', ')}. Please grant permissions in Settings.`,
+          needsSettingsRedirect: needsSettings
         };
       }
 
@@ -1077,5 +1209,70 @@ export class BluetoothManager {
     BluetoothManager.instance = null;
     
     logger.info('[BLE] BluetoothManager destroyed');
+  }
+
+  /**
+   * Debug method to get detailed permission information
+   */
+  async debugPermissions(): Promise<{
+    platform: string;
+    androidVersion: string;
+    permissions: {
+      [key: string]: {
+        granted: boolean;
+        requested: boolean;
+        neverAskAgain: boolean;
+      };
+    };
+    bluetoothState: string;
+    bleAvailable: boolean;
+    advertiserAvailable: boolean;
+  }> {
+    const result = {
+      platform: Platform.OS,
+      androidVersion: Platform.Version?.toString() || 'unknown',
+      permissions: {} as { [key: string]: { granted: boolean; requested: boolean; neverAskAgain: boolean } },
+      bluetoothState: 'unknown',
+      bleAvailable: this.isBleAvailable(),
+      advertiserAvailable: this.isAdvertisingSupported()
+    };
+
+    if (Platform.OS === 'android') {
+      const requiredPermissions = [
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE,
+      ];
+
+      for (const permission of requiredPermissions) {
+        try {
+          const granted = await PermissionsAndroid.check(permission);
+          result.permissions[permission] = {
+            granted,
+            requested: false, // We can't easily check this
+            neverAskAgain: false // We can't easily check this
+          };
+        } catch (error) {
+          result.permissions[permission] = {
+            granted: false,
+            requested: false,
+            neverAskAgain: false
+          };
+        }
+      }
+
+      // Try to get Bluetooth state
+      try {
+        if (this.manager) {
+          const state = await this.manager.state();
+          result.bluetoothState = state;
+        }
+      } catch (error) {
+        result.bluetoothState = 'error';
+      }
+    }
+
+    console.log('[BLE] Debug permissions:', JSON.stringify(result, null, 2));
+    return result;
   }
 } 

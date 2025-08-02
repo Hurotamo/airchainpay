@@ -15,6 +15,7 @@ import SecureCredentialsViewer from '../components/SecureCredentialsViewer';
 import { WalletEncryption } from '../utils/crypto/WalletEncryption';
 import { MultiChainWalletManager } from '../wallet/MultiChainWalletManager';
 import { logger } from '../utils/Logger';
+import { WalletErrorHandler } from '../utils/WalletErrorHandler';
 
 export default function SettingsScreen() {
   const [showCredentialsModal, setShowCredentialsModal] = useState(false);
@@ -86,6 +87,55 @@ export default function SettingsScreen() {
     );
   };
 
+  const handleFixCorruptedWallet = async () => {
+    Alert.alert(
+      'Fix Corrupted Wallet',
+      'This will clear any corrupted wallet data and create a new wallet. Are you sure you want to continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Fix Wallet',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              logger.info('[Settings] Starting wallet corruption fix...');
+              
+              // Check and fix corrupted wallet data
+              const wasFixed = await WalletErrorHandler.checkAndFixWallet();
+              
+              if (wasFixed) {
+                logger.info('[Settings] Wallet corruption fixed successfully');
+                Alert.alert(
+                  'Wallet Fixed',
+                  'Corrupted wallet data has been cleared. A new wallet will be created when you restart the app.',
+                  [
+                    {
+                      text: 'OK',
+                      onPress: () => {
+                        router.replace('/');
+                      }
+                    }
+                  ]
+                );
+              } else {
+                logger.info('[Settings] No wallet corruption detected');
+                Alert.alert(
+                  'No Issues Found',
+                  'No corrupted wallet data was detected. Your wallet appears to be working correctly.',
+                  [{ text: 'OK' }]
+                );
+              }
+            } catch (error) {
+              const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+              logger.error('[Settings] Failed to fix corrupted wallet:', errorMessage);
+              Alert.alert('Fix Error', 'Failed to fix wallet. Please try again.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
   return (
     <ThemedView style={styles.container}>
       <ScrollView style={styles.scrollView}>
@@ -129,6 +179,17 @@ export default function SettingsScreen() {
         <View style={styles.section}>
           <ThemedText style={styles.sectionTitle}>Account</ThemedText>
           
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={handleFixCorruptedWallet}
+          >
+            <View style={styles.menuItemContent}>
+              <Ionicons name="construct-outline" size={24} color="#FF9500" />
+              <ThemedText style={[styles.menuItemText, { color: '#FF9500' }]}>Fix Corrupted Wallet</ThemedText>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#666" />
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={styles.menuItem}
             onPress={handleLogout}

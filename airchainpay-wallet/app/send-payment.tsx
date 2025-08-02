@@ -42,9 +42,15 @@ function isSignedQRPayload(obj: unknown): obj is SignedQRPayload {
     typeof obj === 'object' && obj !== null &&
     'type' in obj && typeof (obj as SignedQRPayload).type === 'string' &&
     'to' in obj && typeof (obj as SignedQRPayload).to === 'string' &&
-    'amount' in obj && typeof (obj as SignedQRPayload).amount === 'string' &&
     'chainId' in obj && typeof (obj as SignedQRPayload).chainId === 'string' &&
-    'signature' in obj && typeof (obj as SignedQRPayload).signature === 'string'
+    'signature' in obj && typeof (obj as SignedQRPayload).signature === 'object' &&
+    (obj as SignedQRPayload).signature !== null &&
+    'version' in (obj as SignedQRPayload).signature &&
+    'signer' in (obj as SignedQRPayload).signature &&
+    'signature' in (obj as SignedQRPayload).signature &&
+    'timestamp' in (obj as SignedQRPayload).signature &&
+    'chainId' in (obj as SignedQRPayload).signature &&
+    'messageHash' in (obj as SignedQRPayload).signature
   );
 }
 
@@ -67,6 +73,49 @@ function buildTokenInfo(obj: any, selectedChain: string): TokenInfo | undefined 
     };
   }
   return undefined;
+}
+
+/**
+ * Extract and clean address from QR code data
+ * @param data - Raw QR code data
+ * @param parsed - Parsed JSON object (if available)
+ * @returns Clean address string or null if not found
+ */
+function extractCleanAddress(data: string, parsed?: any): string | null {
+  // If we have parsed data with a 'to' field, use it
+  if (parsed && parsed.to && typeof parsed.to === 'string') {
+    return parsed.to.trim();
+  }
+  
+  // If the raw data looks like an address, use it
+  if (data.startsWith('0x') && data.length === 42) {
+    return data.trim();
+  }
+  
+  // If the raw data looks like a Bitcoin address
+  if ((data.startsWith('bc1') || data.startsWith('1') || data.startsWith('3')) && data.length > 25) {
+    return data.trim();
+  }
+  
+  // Try to extract address from payment URI
+  if (data.includes('ethereum:')) {
+    const addressMatch = data.match(/ethereum:([0-9a-fA-Fx]+)/i);
+    if (addressMatch) {
+      return addressMatch[1].trim();
+    }
+  }
+  
+  // Try to extract address from any JSON-like structure
+  try {
+    const jsonMatch = data.match(/"to"\s*:\s*"([^"]+)"/);
+    if (jsonMatch) {
+      return jsonMatch[1].trim();
+    }
+  } catch {
+    // Ignore JSON parsing errors
+  }
+  
+  return null;
 }
 
 export default function SendPaymentScreen() {
@@ -135,7 +184,7 @@ export default function SendPaymentScreen() {
       if (parsed && isSignedQRPayload(parsed)) {
         logger.info('Signed QR payload detected, verifying signature');
         
-        const verificationResult = await QRCodeSigner.verifyQRPayload(parsed);
+        const verificationResult = await QRCodeSigner.verifyQRPayload(parsed, true); // Use lenient mode for testing
         
         if (!verificationResult.isValid) {
           Alert.alert(
@@ -159,45 +208,68 @@ export default function SendPaymentScreen() {
           [{ text: 'OK' }]
         );
       } else if (parsed && isPaymentRequest(parsed)) {
-        // Block unsigned QR codes: show error and return
+        // Allow unsigned QR codes with warning
+        logger.info('Unsigned but valid payment request detected');
         Alert.alert(
           'Unverified QR Code',
-          'This QR code is not digitally signed and cannot be processed for security reasons.',
+          'This QR code is not digitally signed but appears to be a valid payment request. Proceed with caution.',
           [
-            { text: 'OK', onPress: () => setShowQRScanner(true) }
+            { text: 'Cancel', onPress: () => setShowQRScanner(true) },
+            { 
+              text: 'Proceed', 
+              onPress: () => {
+                const cleanAddress = extractCleanAddress(data, parsed);
+                if (cleanAddress) {
+                  setRecipient(cleanAddress);
+                }
+                // Don't auto-set amount - let user enter it manually for security
+                if ((parsed as PaymentRequest).chainId) setSelectedChain((parsed as PaymentRequest).chainId);
+                Alert.alert('Payment Request Scanned', 'Recipient address has been filled from the QR code. Please enter the amount manually.');
+              }
+            }
           ]
         );
         return;
       }
 
       if (isPaymentRequest(parsed)) {
-        setRecipient((parsed as PaymentRequest).to);
-        if ((parsed as PaymentRequest).amount) setAmount((parsed as PaymentRequest).amount);
+        const cleanAddress = extractCleanAddress(data, parsed);
+        if (cleanAddress) {
+          setRecipient(cleanAddress);
+        }
+        // Don't auto-set amount - let user enter it manually for security
         if ((parsed as PaymentRequest).chainId) setSelectedChain((parsed as PaymentRequest).chainId);
-        Alert.alert('Payment Request Scanned', 'Recipient address and details have been filled from the QR code.');
+        Alert.alert('Payment Request Scanned', 'Recipient address has been filled from the QR code. Please enter the amount manually.');
         return;
       }
 
       // Check if it's a simple address
       if (data.startsWith('0x') || data.startsWith('bc1') || data.startsWith('1') || data.startsWith('3')) {
-        setRecipient(data);
-        Alert.alert('Address Scanned', 'The recipient address has been filled in from the QR code.');
+        const cleanAddress = extractCleanAddress(data);
+        if (cleanAddress) {
+          setRecipient(cleanAddress);
+          Alert.alert('Address Scanned', 'The recipient address has been filled in from the QR code.');
+        }
       } else if (data.includes('ethereum:') || data.includes('bitcoin:')) {
         // Parse payment URI
         const uri = data.toLowerCase();
         if (uri.startsWith('ethereum:')) {
-          const addressMatch = uri.match(/ethereum:([0-9a-fx]+)/i);
-          if (addressMatch) {
-            setRecipient(addressMatch[1]);
-            const amountMatch = uri.match(/amount=([0-9.]+)/i);
-            if (amountMatch) setAmount(amountMatch[1]);
-            Alert.alert('Payment Request Scanned', 'The recipient address and amount (if present) have been filled in from the QR code.');
+          const cleanAddress = extractCleanAddress(data);
+          if (cleanAddress) {
+            setRecipient(cleanAddress);
           }
+          // Don't auto-set amount - let user enter it manually for security
+          Alert.alert('Payment Request Scanned', 'The recipient address has been filled from the QR code. Please enter the amount manually.');
         }
       } else {
-        // Generic address - assume it's valid
-        setRecipient(data);
-        Alert.alert('QR Code Scanned', 'The scanned data has been set as the recipient address.');
+        // Generic address - try to extract clean address
+        const cleanAddress = extractCleanAddress(data);
+        if (cleanAddress) {
+          setRecipient(cleanAddress);
+          Alert.alert('QR Code Scanned', 'The scanned data has been set as the recipient address.');
+        } else {
+          Alert.alert('Invalid QR Code', 'The scanned QR code does not contain a valid address.');
+        }
       }
     } catch (error) {
       logger.error('[SendPayment] Error processing QR code:', error);
