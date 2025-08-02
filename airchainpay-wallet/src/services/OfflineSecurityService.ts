@@ -37,7 +37,7 @@ export class OfflineSecurityService {
   }
 
   /**
-   * Validate balance before allowing offline transaction
+   * Enhanced balance validation with force sync before offline transactions
    */
   async validateOfflineBalance(
     chainId: string, 
@@ -45,14 +45,37 @@ export class OfflineSecurityService {
     tokenInfo: TokenInfo
   ): Promise<void> {
     try {
+      // Force sync balance before allowing offline transaction
+      const syncResult = await this.walletManager.forceBalanceSync(chainId);
+      
+      if (!syncResult.success) {
+        throw new TransactionError(`Cannot proceed with offline transaction: ${syncResult.error}. Please check your internet connection and try again.`);
+      }
+
       const walletInfo = await this.walletManager.getWalletInfo(chainId);
       if (!walletInfo) {
         throw new WalletError('No wallet found for chain');
       }
 
-      // Get current balance
-      const TokenWalletManager = (await import('../wallet/TokenWalletManager')).default;
-      const balance = await TokenWalletManager.getTokenBalance(walletInfo.address, tokenInfo);
+      // Use synced balance for validation
+      const syncedBalance = await this.walletManager.getStoredSyncedBalance(chainId);
+      let currentBalance: string;
+      
+      if (syncedBalance && (Date.now() - syncedBalance.timestamp) < 300000) { // 5 minutes
+        // Use synced balance if it's recent
+        currentBalance = syncedBalance.balance;
+        logger.info('[OfflineSecurity] Using recent synced balance', {
+          balance: currentBalance,
+          timestamp: syncedBalance.timestamp,
+          ageMinutes: (Date.now() - syncedBalance.timestamp) / 60000
+        });
+      } else {
+        // Get current balance from wallet info
+        const TokenWalletManager = (await import('../wallet/TokenWalletManager')).default;
+        const balance = await TokenWalletManager.getTokenBalance(walletInfo.address, tokenInfo);
+        currentBalance = balance.balance;
+      }
+
       const requiredAmount = tokenInfo.isNative 
         ? ethers.parseEther(amount)
         : ethers.parseUnits(amount, tokenInfo.decimals || 18);
@@ -61,27 +84,28 @@ export class OfflineSecurityService {
       const pendingAmount = await this.getPendingTransactionsTotal(chainId, tokenInfo);
       
       // Calculate available balance (current balance - pending transactions)
-      const availableBalance = BigInt(balance.balance) - BigInt(pendingAmount);
+      const availableBalance = BigInt(currentBalance) - BigInt(pendingAmount);
       
-      logger.info('[OfflineSecurity] Balance validation', {
-        currentBalance: balance.balance,
+      logger.info('[OfflineSecurity] Enhanced balance validation', {
+        currentBalance,
         pendingAmount: pendingAmount.toString(),
         availableBalance: availableBalance.toString(),
         requiredAmount: requiredAmount.toString(),
         walletAddress: walletInfo.address,
-        chainId
+        chainId,
+        syncedBalanceUsed: !!syncedBalance
       });
 
       if (availableBalance < BigInt(requiredAmount)) {
         throw new TransactionError(`Insufficient available balance. Required: ${ethers.formatEther(requiredAmount)}, Available: ${ethers.formatEther(availableBalance)}`);
       }
 
-      logger.info('[OfflineSecurity] Balance validation passed');
+      logger.info('[OfflineSecurity] Enhanced balance validation passed');
     } catch (error: unknown) {
       if (error instanceof Error) {
-        logger.error('[OfflineSecurity] Balance validation failed:', error);
+        logger.error('[OfflineSecurity] Enhanced balance validation failed:', error);
       } else {
-        logger.error('[OfflineSecurity] Balance validation failed with unknown error:', error);
+        logger.error('[OfflineSecurity] Enhanced balance validation failed with unknown error:', error);
       }
       throw error;
     }
@@ -139,7 +163,7 @@ export class OfflineSecurityService {
   }
 
   /**
-   * Validate nonce for offline transaction
+   * Enhanced nonce validation with conflict detection and resolution
    */
   async validateOfflineNonce(chainId: string): Promise<void> {
     try {
@@ -147,11 +171,44 @@ export class OfflineSecurityService {
       const currentNonce = await this.getCurrentNonce(chainId);
       const offlineNonce = await this.getOfflineNonce(chainId);
       
-      logger.info('[OfflineSecurity] Nonce validation', {
+      logger.info('[OfflineSecurity] Enhanced nonce validation', {
         currentNonce,
         offlineNonce,
         chainId
       });
+
+      // Check for nonce conflicts
+      const nonceConflict = await this.detectNonceConflict(chainId, currentNonce, offlineNonce);
+      
+      if (nonceConflict.hasConflict) {
+        logger.warn('[OfflineSecurity] Nonce conflict detected', {
+          chainId,
+          currentNonce,
+          offlineNonce,
+          conflictType: nonceConflict.conflictType,
+          suggestedAction: nonceConflict.suggestedAction
+        });
+
+        // Handle different types of conflicts
+        switch (nonceConflict.conflictType) {
+          case 'offline_ahead':
+            // Offline nonce is ahead of current - this is dangerous
+            throw new TransactionError('Offline nonce is ahead of blockchain nonce. Please sync with network first.');
+            
+          case 'blockchain_ahead':
+            // Blockchain nonce is ahead - need to update offline nonce
+            await this.updateOfflineNonce(chainId, currentNonce);
+            logger.info('[OfflineSecurity] Updated offline nonce to match blockchain', { chainId, newNonce: currentNonce });
+            break;
+            
+          case 'large_gap':
+            // Large gap between nonces - suspicious
+            throw new TransactionError('Large gap detected between offline and blockchain nonces. Please sync with network.');
+            
+          default:
+            throw new TransactionError('Nonce conflict detected. Please sync with network first.');
+        }
+      }
 
       // Ensure offline nonce is not ahead of current nonce
       if (offlineNonce >= currentNonce) {
@@ -161,14 +218,95 @@ export class OfflineSecurityService {
       // Update offline nonce
       await this.updateOfflineNonce(chainId, offlineNonce + 1);
       
-      logger.info('[OfflineSecurity] Nonce validation passed');
+      logger.info('[OfflineSecurity] Enhanced nonce validation passed');
     } catch (error: unknown) {
       if (error instanceof Error) {
-        logger.error('[OfflineSecurity] Nonce validation failed:', error);
+        logger.error('[OfflineSecurity] Enhanced nonce validation failed:', error);
       } else {
-        logger.error('[OfflineSecurity] Nonce validation failed with unknown error:', error);
+        logger.error('[OfflineSecurity] Enhanced nonce validation failed with unknown error:', error);
       }
       throw error;
+    }
+  }
+
+  /**
+   * Detect nonce conflicts and suggest resolution
+   */
+  private async detectNonceConflict(
+    chainId: string, 
+    currentNonce: number, 
+    offlineNonce: number
+  ): Promise<{
+    hasConflict: boolean;
+    conflictType?: 'offline_ahead' | 'blockchain_ahead' | 'large_gap';
+    suggestedAction?: string;
+  }> {
+    try {
+      const gap = Math.abs(currentNonce - offlineNonce);
+      const LARGE_GAP_THRESHOLD = 10; // Consider gaps > 10 as suspicious
+      const MAX_NONCE_GAP = 100; // Maximum reasonable gap
+
+      // Validate nonce values
+      if (currentNonce < 0 || offlineNonce < 0) {
+        logger.warn('[OfflineSecurity] Invalid nonce values detected', {
+          currentNonce,
+          offlineNonce,
+          chainId
+        });
+        return {
+          hasConflict: true,
+          conflictType: 'large_gap',
+          suggestedAction: 'Invalid nonce values detected. Please sync with network.'
+        };
+      }
+
+      // Check for unreasonably large gaps
+      if (gap > MAX_NONCE_GAP) {
+        logger.warn('[OfflineSecurity] Unreasonably large nonce gap detected', {
+          currentNonce,
+          offlineNonce,
+          gap,
+          chainId
+        });
+        return {
+          hasConflict: true,
+          conflictType: 'large_gap',
+          suggestedAction: 'Unreasonably large nonce gap detected. Please sync with network.'
+        };
+      }
+
+      if (offlineNonce > currentNonce) {
+        return {
+          hasConflict: true,
+          conflictType: 'offline_ahead',
+          suggestedAction: 'Sync with network to update offline nonce'
+        };
+      }
+
+      if (currentNonce > offlineNonce + 1) {
+        return {
+          hasConflict: true,
+          conflictType: 'blockchain_ahead',
+          suggestedAction: 'Update offline nonce to match blockchain'
+        };
+      }
+
+      if (gap > LARGE_GAP_THRESHOLD) {
+        return {
+          hasConflict: true,
+          conflictType: 'large_gap',
+          suggestedAction: 'Manual verification required - large nonce gap detected'
+        };
+      }
+
+      return { hasConflict: false };
+    } catch (error: unknown) {
+      logger.error('[OfflineSecurity] Error detecting nonce conflict:', error);
+      return {
+        hasConflict: true,
+        conflictType: 'large_gap',
+        suggestedAction: 'Error detecting nonce conflict. Please sync with network.'
+      };
     }
   }
 

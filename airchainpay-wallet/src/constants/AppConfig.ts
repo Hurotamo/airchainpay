@@ -9,7 +9,6 @@ function getRpcUrl(chainId: string): string {
   const extra = Constants.expoConfig?.extra || {};
   
   console.log(`[AppConfig] Getting RPC URL for chainId: ${chainId}`);
-  // Remove sensitive logging - don't log the entire extra object
   console.log(`[AppConfig] Configuration loaded for chain: ${chainId}`);
   
   let rpcUrl = '';
@@ -27,7 +26,6 @@ function getRpcUrl(chainId: string): string {
       rpcUrl = '';
   }
   
-  // Remove sensitive logging - don't log the actual RPC URL
   console.log(`[AppConfig] RPC URL resolved for ${chainId}: [REDACTED]`);
   return rpcUrl;
 }
@@ -39,6 +37,7 @@ export interface ChainConfig {
   name: string;
   chainId: number;
   rpcUrl: string;
+  backupRpcUrls?: string[]; // Backup RPC endpoints for redundancy
   nativeCurrency: {
     name: string;
     symbol: string;
@@ -55,6 +54,11 @@ export const SUPPORTED_CHAINS: { [key: string]: ChainConfig } = {
     name: 'Base Sepolia',
     chainId: 84532,
     rpcUrl: getRpcUrl('base_sepolia'),
+    backupRpcUrls: [
+      'https://sepolia.base.org',
+      'https://base-sepolia.publicnode.com',
+      'https://base-sepolia.drpc.org'
+    ],
     nativeCurrency: {
       name: 'Ethereum',
       symbol: 'ETH',
@@ -69,6 +73,11 @@ export const SUPPORTED_CHAINS: { [key: string]: ChainConfig } = {
     name: 'Core Testnet',
     chainId: 1114,
     rpcUrl: getRpcUrl('core_testnet'),
+    backupRpcUrls: [
+      'https://rpc.test2.btcs.network',
+      'https://core-testnet.publicnode.com',
+      'https://core-testnet.drpc.org'
+    ],
     nativeCurrency: {
       name: 'TCORE2',
       symbol: 'TCORE2',
@@ -83,6 +92,10 @@ export const SUPPORTED_CHAINS: { [key: string]: ChainConfig } = {
     name: 'Morph Holesky Testnet',
     chainId: 17000,
     rpcUrl: 'https://holesky.drpc.org',
+    backupRpcUrls: [
+      'https://holesky.drpc.org',
+      'https://holesky.publicnode.com'
+    ],
     nativeCurrency: {
       name: 'Ethereum',
       symbol: 'ETH',
@@ -97,6 +110,10 @@ export const SUPPORTED_CHAINS: { [key: string]: ChainConfig } = {
     name: 'Lisk Sepolia Testnet',
     chainId: 4202,
     rpcUrl: 'https://rpc.sepolia-api.lisk.com',
+    backupRpcUrls: [
+      'https://rpc.sepolia-api.lisk.com',
+      'https://lisk-sepolia.publicnode.com'
+    ],
     nativeCurrency: {
       name: 'Ethereum',
       symbol: 'ETH',

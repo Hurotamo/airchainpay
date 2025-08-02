@@ -67,26 +67,26 @@ export default function SettingsScreen() {
     }
 
     Alert.alert(
-      'Confirm Logout',
-      'Are you sure you want to log out? You will need to re-enter your password to access your wallet again. Your wallet data will be preserved.',
+      'Logout Options',
+      'Choose how you want to logout:',
       [
         {
           text: 'Cancel',
           style: 'cancel',
         },
         {
-          text: 'Logout',
-          style: 'destructive',
+          text: 'Logout & Keep Wallet',
+          style: 'default',
           onPress: async () => {
             setLoading(true);
             try {
-              await MultiChainWalletManager.getInstance().logout();
+              await MultiChainWalletManager.getInstance().logout(false); // Preserve wallet data
               // Reset session authentication on logout
               setIsSessionAuthenticated(false);
               refreshAuthState();
               Alert.alert(
                 'Logged Out',
-                'You have been successfully logged out. You can re-authenticate with a new password to restore access to your wallet, or create a new wallet if needed.',
+                'You have been logged out. You can re-authenticate with a new password to restore access to your wallet.',
                 [
                   {
                     text: 'OK',
@@ -97,9 +97,7 @@ export default function SettingsScreen() {
                 ]
               );
             } catch (error) {
-              // Log the error but don't show alert since logout method handles errors internally
               logger.error('Logout process completed with warnings:', error);
-              // Still mark as logged out since the logout method doesn't throw errors anymore
               setIsSessionAuthenticated(false);
               refreshAuthState();
               Alert.alert(
@@ -117,6 +115,52 @@ export default function SettingsScreen() {
             } finally {
               setLoading(false);
             }
+          },
+        },
+        {
+          text: 'Logout & Clear Wallet',
+          style: 'destructive',
+          onPress: async () => {
+            Alert.alert(
+              'Confirm Wallet Deletion',
+              'This will permanently delete your wallet and all associated data. You will need to create a new wallet or import an existing one. Are you sure?',
+              [
+                {
+                  text: 'Cancel',
+                  style: 'cancel',
+                },
+                {
+                  text: 'Delete & Logout',
+                  style: 'destructive',
+                  onPress: async () => {
+                    setLoading(true);
+                    try {
+                      await MultiChainWalletManager.getInstance().logout(true); // Clear all wallet data
+                      // Reset session authentication on logout
+                      setIsSessionAuthenticated(false);
+                      refreshAuthState();
+                      Alert.alert(
+                        'Wallet Deleted & Logged Out',
+                        'Your wallet has been permanently deleted and you have been logged out. You will need to create a new wallet or import an existing one.',
+                        [
+                          {
+                            text: 'OK',
+                            onPress: () => {
+                              refreshAuthState();
+                            }
+                          }
+                        ]
+                      );
+                    } catch (error) {
+                      logger.error('Failed to logout and clear wallet:', error);
+                      Alert.alert('Error', 'Failed to logout and clear wallet. Please try again.');
+                    } finally {
+                      setLoading(false);
+                    }
+                  },
+                },
+              ]
+            );
           },
         },
       ]

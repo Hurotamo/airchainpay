@@ -6,6 +6,7 @@ import { PasswordHasher } from '../utils/crypto/PasswordHasher';
 import { PasswordMigration } from '../utils/crypto/PasswordMigration';
 import { WalletCorruptionFix } from '../utils/WalletCorruptionFix';
 import { ERC20_ABI, AIRCHAINPAY_TOKEN_ABI } from '../constants/abi';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Storage keys - hardcoded to avoid import issues
 const STORAGE_KEYS = {
@@ -660,20 +661,55 @@ export class MultiChainWalletManager {
     }
   }
 
+  /**
+   * Enhanced network status check with multiple endpoints, timeouts, and fallbacks
+   */
   async checkNetworkStatus(chainId: string): Promise<boolean> {
     try {
-      const provider = this.providers[chainId];
-      if (!provider) {
-        throw new Error(`Provider not initialized for chain ${chainId}`);
+      const chain = SUPPORTED_CHAINS[chainId];
+      if (!chain) {
+        logger.error(`[MultiChain] Unsupported chain: ${chainId}`);
+        return false;
       }
 
-      const blockNumber = await provider.getBlockNumber();
-      return blockNumber > 0;
+      // Multiple endpoints to try
+      const endpoints = [
+        chain.rpcUrl,
+        ...(chain.backupRpcUrls || [])
+      ];
+
+      // Try each endpoint with timeout
+      for (const endpoint of endpoints) {
+        try {
+          const provider = new ethers.JsonRpcProvider(endpoint);
+          
+          // Set timeout for the request
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('Network timeout')), 5000); // 5 second timeout
+          });
+
+          const blockNumberPromise = provider.getBlockNumber();
+          
+          const blockNumber = await Promise.race([blockNumberPromise, timeoutPromise]);
+          
+          if (blockNumber > 0) {
+            logger.info(`[MultiChain] Network status check passed for chain ${chainId} via ${endpoint}`);
+            return true;
+          }
+        } catch (endpointError) {
+          logger.warn(`[MultiChain] Endpoint ${endpoint} failed for chain ${chainId}:`, endpointError);
+          continue; // Try next endpoint
+        }
+      }
+
+      // All endpoints failed
+      logger.error(`[MultiChain] All endpoints failed for chain ${chainId}`);
+      return false;
     } catch (error: unknown) {
       if (error instanceof Error) {
-        logger.error(`[MultiChain] Failed to check network status for chain ${chainId}:`, error);
+        logger.error(`[MultiChain] Network status check failed for chain ${chainId}:`, error);
       } else {
-        logger.error(`[MultiChain] Failed to check network status for chain ${chainId}:`, String(error));
+        logger.error(`[MultiChain] Network status check failed for chain ${chainId}:`, String(error));
       }
       return false;
     }
@@ -1181,7 +1217,7 @@ export class MultiChainWalletManager {
   }
 
   // Add logout method to clear authentication data only (not wallet data)
-  async logout(): Promise<void> {
+  async logout(clearWalletData: boolean = false): Promise<void> {
     try {
       logger.info('[MultiChain] Starting logout process...');
       
@@ -1189,30 +1225,68 @@ export class MultiChainWalletManager {
       this.wallet = null;
       logger.info('[MultiChain] Wallet instance cleared');
       
-      // Only clear authentication data, preserve wallet data (private key, seed phrase)
-      // This allows users to re-authenticate with a new password without losing their wallet
-      const authKeysToDelete = [
-        STORAGE_KEYS.WALLET_PASSWORD,
-        STORAGE_KEYS.BACKUP_CONFIRMED
-      ];
-      
-      let deletedCount = 0;
-      for (const key of authKeysToDelete) {
-        try {
-          await secureStorage.deleteItem(key);
-          logger.info(`[MultiChain] Deleted auth key: ${key}`);
-          deletedCount++;
-        } catch (deleteError: unknown) {
-          if (deleteError instanceof Error) {
-            logger.warn(`[MultiChain] Failed to delete ${key}:`, deleteError);
-          } else {
-            logger.warn(`[MultiChain] Failed to delete ${key}:`, String(deleteError));
+      if (clearWalletData) {
+        // Clear ALL wallet data including private key and seed phrase
+        logger.info('[MultiChain] Clearing all wallet data as requested');
+        const allKeysToDelete = [
+          STORAGE_KEYS.PRIVATE_KEY,
+          STORAGE_KEYS.SEED_PHRASE,
+          STORAGE_KEYS.TEMP_SEED_PHRASE,
+          STORAGE_KEYS.WALLET_PASSWORD,
+          STORAGE_KEYS.BACKUP_CONFIRMED
+        ];
+        
+        let deletedCount = 0;
+        for (const key of allKeysToDelete) {
+          try {
+            await secureStorage.deleteItem(key);
+            logger.info(`[MultiChain] Deleted wallet data key: ${key}`);
+            deletedCount++;
+          } catch (deleteError: unknown) {
+            if (deleteError instanceof Error) {
+              logger.warn(`[MultiChain] Failed to delete ${key}:`, deleteError);
+            } else {
+              logger.warn(`[MultiChain] Failed to delete ${key}:`, String(deleteError));
+            }
+            // Continue with other keys even if one fails
           }
-          // Continue with other keys even if one fails
         }
+        
+        // Also clear backup data
+        try {
+          await secureStorage.clearBackup();
+          logger.info('[MultiChain] Cleared backup data');
+        } catch (backupError: unknown) {
+          logger.warn('[MultiChain] Failed to clear backup data:', backupError);
+        }
+        
+        logger.info(`[MultiChain] Logout with wallet deletion completed. Deleted ${deletedCount} storage keys.`);
+      } else {
+        // Only clear authentication data, preserve wallet data (private key, seed phrase)
+        // This allows users to re-authenticate with a new password without losing their wallet
+        const authKeysToDelete = [
+          STORAGE_KEYS.WALLET_PASSWORD,
+          STORAGE_KEYS.BACKUP_CONFIRMED
+        ];
+        
+        let deletedCount = 0;
+        for (const key of authKeysToDelete) {
+          try {
+            await secureStorage.deleteItem(key);
+            logger.info(`[MultiChain] Deleted auth key: ${key}`);
+            deletedCount++;
+          } catch (deleteError: unknown) {
+            if (deleteError instanceof Error) {
+              logger.warn(`[MultiChain] Failed to delete ${key}:`, deleteError);
+            } else {
+              logger.warn(`[MultiChain] Failed to delete ${key}:`, String(deleteError));
+            }
+            // Continue with other keys even if one fails
+          }
+        }
+        
+        logger.info(`[MultiChain] Logout completed. Deleted ${deletedCount} authentication keys. Wallet data preserved.`);
       }
-      
-      logger.info(`[MultiChain] Logout completed. Deleted ${deletedCount} authentication keys. Wallet data preserved.`);
     } catch (error: unknown) {
       if (error instanceof Error) {
         const errorMessage = error.message;
@@ -1541,6 +1615,136 @@ export class MultiChainWalletManager {
         logger.error('[MultiChain] Failed to clear all wallet data:', String(error));
       }
       throw error;
+    }
+  }
+
+  /**
+   * Force sync balance from blockchain before allowing offline transactions
+   */
+  async forceBalanceSync(chainId: string): Promise<{ success: boolean; balance?: string; error?: string }> {
+    try {
+      logger.info(`[MultiChain] Force syncing balance for chain ${chainId}`);
+      
+      // Check if we can connect to the network
+      const isOnline = await this.checkNetworkStatus(chainId);
+      if (!isOnline) {
+        return {
+          success: false,
+          error: 'Cannot sync balance: network is offline'
+        };
+      }
+
+      const wallet = await this.createOrLoadWallet();
+      const provider = this.providers[chainId];
+      
+      if (!provider) {
+        return {
+          success: false,
+          error: `Provider not initialized for chain ${chainId}`
+        };
+      }
+
+      if (isEthersWallet(wallet)) {
+        const connectedWallet = wallet.connect(provider);
+        
+        // Add timeout for balance fetch
+        const balancePromise = provider.getBalance(connectedWallet.address);
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Balance fetch timeout')), 10000); // 10 second timeout
+        });
+        
+        const balance = await Promise.race([balancePromise, timeoutPromise]);
+        
+        // Validate balance is reasonable
+        if (balance < 0) {
+          return {
+            success: false,
+            error: 'Invalid balance received from network'
+          };
+        }
+        
+        // Store the synced balance for offline use
+        await this.storeSyncedBalance(chainId, balance.toString());
+        
+        logger.info(`[MultiChain] Balance synced successfully for chain ${chainId}`, {
+          address: connectedWallet.address,
+          balance: balance.toString()
+        });
+        
+        return {
+          success: true,
+          balance: balance.toString()
+        };
+      } else {
+        return {
+          success: false,
+          error: 'Unsupported wallet type for balance sync'
+        };
+      }
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(`[MultiChain] Force balance sync failed for chain ${chainId}:`, errorMessage);
+      
+      // Provide more specific error messages
+      if (errorMessage.includes('timeout')) {
+        return {
+          success: false,
+          error: 'Balance sync timed out. Please check your internet connection.'
+        };
+      } else if (errorMessage.includes('network')) {
+        return {
+          success: false,
+          error: 'Network error during balance sync. Please try again.'
+        };
+      } else if (errorMessage.includes('provider')) {
+        return {
+          success: false,
+          error: 'Blockchain provider error. Please try again later.'
+        };
+      } else {
+        return {
+          success: false,
+          error: `Balance sync failed: ${errorMessage}`
+        };
+      }
+    }
+  }
+
+  /**
+   * Store synced balance for offline use
+   */
+  private async storeSyncedBalance(chainId: string, balance: string): Promise<void> {
+    try {
+      const key = `synced_balance_${chainId}`;
+      const balanceData = {
+        balance,
+        timestamp: Date.now(),
+        chainId
+      };
+      await AsyncStorage.setItem(key, JSON.stringify(balanceData));
+      logger.info(`[MultiChain] Stored synced balance for chain ${chainId}`, balanceData);
+    } catch (error: unknown) {
+      logger.error(`[MultiChain] Failed to store synced balance for chain ${chainId}:`, error);
+    }
+  }
+
+  /**
+   * Get stored synced balance
+   */
+  async getStoredSyncedBalance(chainId: string): Promise<{ balance: string; timestamp: number } | null> {
+    try {
+      const key = `synced_balance_${chainId}`;
+      const stored = await AsyncStorage.getItem(key);
+      if (!stored) return null;
+      
+      const balanceData = JSON.parse(stored);
+      return {
+        balance: balanceData.balance,
+        timestamp: balanceData.timestamp
+      };
+    } catch (error: unknown) {
+      logger.error(`[MultiChain] Failed to get stored synced balance for chain ${chainId}:`, error);
+      return null;
     }
   }
 }

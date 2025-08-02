@@ -20,13 +20,20 @@ export class TransactionBuilder {
   static build({ to, amount, chainId, token, paymentReference, metadata }: TransactionPayload): Transaction {
     // Standardize the transaction object
     return {
+      id: Date.now().toString(),
       to,
       amount,
       chainId,
-      token,
+      status: 'pending',
+      timestamp: Date.now(),
+      token: token ? {
+        address: token.address,
+        symbol: token.symbol,
+        decimals: token.decimals,
+        isNative: token.isNative ?? false
+      } : undefined,
       paymentReference,
       metadata,
-      timestamp: Date.now(),
     };
   }
 
@@ -59,11 +66,19 @@ export class TransactionBuilder {
         return result.data;
       } else {
         logger.warn('[TransactionBuilder] Decompression failed, trying JSON fallback');
-        return this.deserialize(compressedData.toString());
+        const deserialized = this.deserialize(compressedData.toString());
+        if (!deserialized) {
+          throw new Error('Failed to deserialize transaction');
+        }
+        return deserialized;
       }
     } catch (error) {
       logger.warn('[TransactionBuilder] Decompression failed, trying JSON fallback', error);
-      return this.deserialize(compressedData.toString());
+      const deserialized = this.deserialize(compressedData.toString());
+      if (!deserialized) {
+        throw new Error('Failed to deserialize transaction');
+      }
+      return deserialized;
     }
   }
 
@@ -78,7 +93,7 @@ export class TransactionBuilder {
   /**
    * Legacy JSON deserialization (fallback)
    */
-  static deserialize(txString: string): Transaction {
+  static deserialize(txString: string): Transaction | null {
     // Parse transaction string back to object
     try {
       return JSON.parse(txString);
@@ -116,11 +131,11 @@ export class TransactionBuilder {
         return result.data;
       } else {
         logger.warn('[TransactionBuilder] BLE decompression failed, trying JSON fallback');
-        return this.deserialize(compressedData.toString());
+        return this.deserialize(compressedData.toString()) as PaymentRequest;
       }
     } catch (error) {
       logger.warn('[TransactionBuilder] BLE decompression failed, trying JSON fallback', error);
-      return this.deserialize(compressedData.toString());
+      return this.deserialize(compressedData.toString()) as PaymentRequest;
     }
   }
 
@@ -153,11 +168,19 @@ export class TransactionBuilder {
         return result.data;
       } else {
         logger.warn('[TransactionBuilder] QR decompression failed, trying JSON fallback');
-        return this.deserialize(compressedData.toString());
+        const deserialized = this.deserialize(compressedData.toString());
+        if (!deserialized) {
+          throw new Error('Failed to deserialize QR payment');
+        }
+        return deserialized as PaymentRequest;
       }
     } catch (error) {
       logger.warn('[TransactionBuilder] QR decompression failed, trying JSON fallback', error);
-      return this.deserialize(compressedData.toString());
+      const deserialized = this.deserialize(compressedData.toString());
+      if (!deserialized) {
+        throw new Error('Failed to deserialize QR payment');
+      }
+      return deserialized as PaymentRequest;
     }
   }
 } 

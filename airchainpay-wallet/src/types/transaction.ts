@@ -7,6 +7,7 @@ export interface Transaction {
   timestamp: number;
   signedTx?: string;
   transport?: string;
+  error?: string;
   token?: {
     address: string;
     symbol: string;

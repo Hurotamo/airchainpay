@@ -1,139 +1,81 @@
-import { IPaymentTransport } from './BLETransport';
 import { logger } from '../../utils/Logger';
-import { getRelayConfig } from '../../constants/config';
-import { WalletError, TransactionError } from '../../utils/ErrorClasses';
 import { PaymentRequest, PaymentResult } from '../PaymentService';
 
-export class RelayTransport implements IPaymentTransport {
-  private getRelayUrl(): string {
-    const config = getRelayConfig();
-    // Use the first endpoint as primary
-    return `${config.relayEndpoints[0]}${config.transactionEndpoint}`;
+export interface IPaymentTransport<RequestType, ResultType> {
+  send(txData: RequestType): Promise<ResultType>;
+}
+
+export interface PaymentRequestWithSignedTx extends PaymentRequest {
+  signedTx?: string;
+}
+
+export class RelayTransport implements IPaymentTransport<PaymentRequestWithSignedTx, PaymentResult> {
+  private static instance: RelayTransport;
+  private relayUrl: string;
+
+  private constructor() {
+    this.relayUrl = 'https://relay.airchainpay.com'; 
   }
 
-  private async checkRelayHealth(): Promise<boolean> {
-    const config = getRelayConfig();
-    
-    for (const endpoint of config.relayEndpoints) {
-      try {
-        const healthUrl = `${endpoint}${config.healthEndpoint}`;
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2000); // Reduced timeout
-        
-        logger.info('[RelayTransport] Testing relay health at', { url: healthUrl });
-        
-        const response = await fetch(healthUrl, { 
-          signal: controller.signal,
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-            'User-Agent': 'AirChainPay-Wallet/1.0'
-          }
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (response.ok) {
-          logger.info('[RelayTransport] Relay health check passed', { url: healthUrl });
-          return true;
-        } else {
-          logger.warn('[RelayTransport] Relay health check failed', { 
-            url: healthUrl, 
-            status: response.status 
-          });
-        }
-              } catch (error: unknown) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          logger.warn('[RelayTransport] Relay health check error', { 
-            url: endpoint, 
-            error: errorMessage 
-          });
-        }
+  public static getInstance(): RelayTransport {
+    if (!RelayTransport.instance) {
+      RelayTransport.instance = new RelayTransport();
     }
-    
-    logger.error('[RelayTransport] All relay health checks failed');
-    return false;
+    return RelayTransport.instance;
   }
 
-  async send(txData: PaymentRequest): Promise<PaymentResult> {
-    // First check if relay is available
-    const isRelayHealthy = await this.checkRelayHealth();
-    if (!isRelayHealthy) {
-      throw new WalletError('Relay server is not available');
-    }
-
-    const relayUrl = this.getRelayUrl();
-    
+  async send(txData: PaymentRequestWithSignedTx): Promise<PaymentResult> {
     try {
-      logger.info('[RelayTransport] Sending transaction to relay', {
-        url: relayUrl,
-        data: {
-          to: txData.to,
-          amount: txData.amount,
-          chainId: txData.chainId,
-          hasSignedTx: !!txData.signedTx
-        }
+      logger.info('[RelayTransport] Sending transaction via relay', {
+        to: txData.to,
+        amount: txData.amount,
+        chainId: txData.chainId,
+        hasSignedTx: !!txData.signedTx
       });
 
-      // Format the request according to what the relay expects
-      const requestData = {
+      // Prepare relay request
+      const relayRequest = {
+        to: txData.to,
+        amount: txData.amount,
+        chainId: txData.chainId,
+        token: txData.token,
+        paymentReference: txData.paymentReference,
+        metadata: txData.metadata,
         signed_tx: txData.signedTx || '',
-        rpc_url: this.getRpcUrl(txData.chainId),
-        chain_id: parseInt(txData.chainId) || 1114
+        timestamp: Date.now()
       };
 
-      logger.info('[RelayTransport] Request data', requestData);
-
-      // Add timeout to prevent hanging requests
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-
-      const response = await fetch(relayUrl, {
+      // Send to relay (simulated for now)
+      const response = await fetch(`${this.relayUrl}/submit`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json'
         },
-        body: JSON.stringify(requestData),
-        signal: controller.signal
+        body: JSON.stringify(relayRequest)
       });
 
-      clearTimeout(timeoutId);
-
       if (!response.ok) {
-        const errorText = await response.text();
-        logger.error('[RelayTransport] Relay responded with error', {
-          status: response.status,
-          statusText: response.statusText,
-          error: errorText
-        });
-        throw new TransactionError(`Relay responded with status ${response.status}: ${errorText}`);
+        throw new Error(`Relay request failed: ${response.statusText}`);
       }
 
       const result = await response.json();
-      logger.info('[RelayTransport] Transaction sent successfully', result);
-      return result;
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : undefined;
-      
-      logger.error('[RelayTransport] Failed to send transaction to relay', {
-        error: errorMessage,
-        url: relayUrl,
-        stack: errorStack
-      });
-      throw new TransactionError('Failed to send transaction to relay: ' + errorMessage);
-    }
-  }
 
-  private getRpcUrl(chainId: string): string {
-    // Map chain IDs to RPC URLs
-    const rpcUrls: { [key: string]: string } = {
-      '1114': 'https://rpc.test2.btcs.network', // Core Testnet 2
-      '84532': 'https://base-sepolia.drpc.org', // Base Sepolia
-      '1116': 'https://rpc.coredao.org', // Core Mainnet
-    };
-    
-    return rpcUrls[chainId] || 'https://rpc.test2.btcs.network';
+      logger.info('[RelayTransport] Transaction sent successfully via relay', {
+        transactionId: result.transactionId,
+        hash: result.hash
+      });
+
+      return {
+        status: 'sent',
+        transport: 'relay',
+        transactionId: result.transactionId,
+        message: 'Transaction sent successfully via relay',
+        timestamp: Date.now()
+      };
+
+    } catch (error: unknown) {
+      logger.error('[RelayTransport] Failed to send transaction via relay:', error);
+      throw new Error(`Relay transport failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 } 

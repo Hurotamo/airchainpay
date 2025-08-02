@@ -131,6 +131,58 @@ export default function WalletSetupScreen({
       console.log('[WalletSetup] Creating wallet for chain:', selectedChain);
       logger.info('Attempting to create wallet. Selected chain:', selectedChain);
       
+      // Check if wallet already exists
+      const hasExistingWallet = await MultiChainWalletManager.getInstance().hasWallet();
+      if (hasExistingWallet) {
+        // Check if user has authentication data (to determine if they just logged out)
+        const hasPassword = await MultiChainWalletManager.getInstance().hasPassword();
+        const backupConfirmed = await MultiChainWalletManager.getInstance().isBackupConfirmed();
+        
+        const isLoggedOut = hasExistingWallet && (!hasPassword || !backupConfirmed);
+        
+        const message = isLoggedOut 
+          ? 'You have an existing wallet but are not authenticated. You can either re-authenticate with your password or create a completely new wallet. Creating a new wallet will permanently delete your existing wallet and any funds in it.'
+          : 'You already have a wallet. Creating a new wallet will replace your existing wallet and you will lose access to any funds in the current wallet. Are you sure you want to continue?';
+        
+        Alert.alert(
+          'Wallet Already Exists',
+          message,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            ...(isLoggedOut ? [
+              {
+                text: 'Re-authenticate',
+                style: 'default' as const,
+                onPress: () => {
+                  setHasWalletButNotAuthenticated(true);
+                }
+              }
+            ] : []),
+            {
+              text: 'Create New Wallet',
+              style: 'destructive' as const,
+              onPress: async () => {
+                try {
+                  // Clear existing wallet first
+                  await MultiChainWalletManager.getInstance().clearWallet();
+                  
+                  // Generate seed phrase for new wallet
+                  const seedPhrase = await MultiChainWalletManager.getInstance().generateSeedPhrase();
+                  console.log('[WalletSetup] Seed phrase generated, showing backup modal');
+                  setBackupSeedPhrase(seedPhrase);
+                  setShowBackupModal(true);
+                } catch (error) {
+                  let errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+                  Alert.alert('Create Wallet Error', errorMessage);
+                }
+              }
+            }
+          ]
+        );
+        setLoading(false);
+        return;
+      }
+      
       // Generate seed phrase first
       const seedPhrase = await MultiChainWalletManager.getInstance().generateSeedPhrase();
       console.log('[WalletSetup] Seed phrase generated, showing backup modal');

@@ -270,13 +270,9 @@ export class TokenWalletManager {
         txOptions.value = ethers.parseEther(amount);
       }
 
-      // Add gas price if provided
+      // Set gas price if provided
       if (gasPrice) {
-        txOptions.gasPrice = BigInt(gasPrice);
-        logger.info('[TokenWallet] Using custom gas price', {
-          gasPrice: gasPrice,
-          gasPriceGwei: Number(ethers.formatUnits(BigInt(gasPrice), 'gwei'))
-        });
+        txOptions.gasPrice = gasPrice.toString();
       }
 
       if (tokenInfo.isNative) {
@@ -318,7 +314,7 @@ export class TokenWalletManager {
         // Prepare transaction options
         const txOptions: TxOptions = {};
         if (gasPrice) {
-          txOptions.gasPrice = BigInt(gasPrice);
+          txOptions.gasPrice = gasPrice.toString();
         }
         
         const tx = await tokenContract.transfer(
