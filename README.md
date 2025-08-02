@@ -1,4 +1,4 @@
-![AirChainPay Logo](https://rose-imaginative-lion-87.mypinata.cloud/ipfs/bafybeiaer2oyqh5qpkmtuewgqcbaxjjvrleblkisor37nkib3nhesgency)
+![AirChainPay Logo](https://rose-imaginative-lion-87.mypinata.cloud/ipfs/bafybeiby6qp7p7kkey3lrrp5jhbgqg7rw6agpfcnitjepyinke2xhejboa)
 
 # AirChainPay
 
