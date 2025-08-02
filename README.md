@@ -24,7 +24,7 @@ AirChainPay is a next-generation multi-chain payment platform for seamless, secu
 - Payment verification, fee collection, batch processing
 
 ### Relay Server (Rust)
-- Multi-chain support (Core Testnet, Base Sepolia)
+- Multi-chain support (Core Testnet, Base Sepolia,Lisk Sepolia, Morhp Holesky)
 - Secure transaction validation and blockchain broadcasting
 - Structured logging, metrics, health checks
 - Rate limiting, JWT authentication, CORS
