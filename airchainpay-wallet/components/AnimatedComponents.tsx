@@ -484,16 +484,16 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
 const styles = StyleSheet.create({
   animatedCard: {
     padding: 16,
-    borderRadius: 16,
-    marginVertical: 8,
-    marginHorizontal: 16,
+    borderRadius: 0,
+    marginVertical: 0,
+    marginHorizontal: 0,
     shadowOffset: {
       width: 0,
-      height: 4,
+      height: 0,
     },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
     borderWidth: 1,
   },
   gradientCard: {

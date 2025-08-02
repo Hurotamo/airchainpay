@@ -360,6 +360,7 @@ export default function WalletSetupScreen({
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
+          bounces={false}
         >
           {/* Header */}
           <AnimatedCard delay={0} style={styles.headerCard}>
@@ -395,12 +396,6 @@ export default function WalletSetupScreen({
                     QR Code Transfers
                   </Text>
                 </View>
-                <View style={styles.featureItem}>
-                  <Ionicons name="shield-checkmark" size={16} color={chainColor} />
-                  <Text style={[styles.featureText, { color: colors.icon }]}>
-                    Enterprise Security
-                  </Text>
-                </View>
               </View>
             </View>
           </AnimatedCard>
@@ -428,7 +423,7 @@ export default function WalletSetupScreen({
                   onPress={() => setShowImportSeed(true)}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="key" size={22} color={chainColor} />
+                  <Ionicons name="shield" size={22} color={chainColor} />
                   <Text style={[styles.secondaryButtonText, { color: chainColor }]}>
                     Import Seed Phrase
                   </Text>
@@ -444,7 +439,7 @@ export default function WalletSetupScreen({
                   onPress={() => setShowImportPrivateKey(true)}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="shield" size={22} color={chainColor} />
+                  <Ionicons name="key" size={22} color={chainColor} />
                   <Text style={[styles.secondaryButtonText, { color: chainColor }]}>
                     Import Private Key
                   </Text>
@@ -578,22 +573,22 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    padding: 20,
-    paddingBottom: 100,
+    padding: 0,
+    paddingBottom: 0,
   },
   headerCard: {
-    marginBottom: 32,
+    marginBottom: 0,
     padding: 28,
-    borderRadius: 20,
+    borderRadius: 0,
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 4,
+      height: 0,
     },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 8,
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
   },
   headerContent: {
     alignItems: 'center',
@@ -669,19 +664,19 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   optionCard: {
-    marginBottom: 20,
-    borderRadius: 16,
+    marginBottom: 0,
+    borderRadius: 0,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 2,
+      height: 0,
     },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 4,
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
   },
   primaryButton: {
-    marginBottom: 12,
+    marginBottom: 0,
   },
   secondaryButton: {
     flexDirection: 'row',
@@ -689,17 +684,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 16,
     paddingHorizontal: 24,
-    borderRadius: 12,
+    borderRadius: 0,
     borderWidth: 2,
     backgroundColor: 'rgba(255,255,255,0.05)',
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 2,
+      height: 0,
     },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
   },
   secondaryButtonText: {
     fontSize: 16,
@@ -711,21 +706,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     lineHeight: 20,
-    marginTop: 12,
+    marginTop: 0,
     opacity: 0.7,
     paddingHorizontal: 8,
   },
   importCard: {
     padding: 24,
-    borderRadius: 16,
+    borderRadius: 0,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 2,
+      height: 0,
     },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 4,
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
   },
   importHeader: {
     flexDirection: 'row',
@@ -751,7 +746,7 @@ const styles = StyleSheet.create({
   },
   textInput: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 0,
     padding: 16,
     fontSize: 16,
     marginBottom: 20,

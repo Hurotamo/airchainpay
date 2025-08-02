@@ -158,7 +158,7 @@ export default function RootLayout() {
     return (
       <WalletSetupScreen
         onWalletCreated={refreshAuthState}
-        title={!hasWallet ? "🚀 Welcome to AirChainPay" : "🔧 Complete Wallet Setup"}
+        title={!hasWallet ? "Welcome to AirChainPay" : "Complete Wallet Setup"}
         subtitle={!hasWallet ? "Your Gateway to Multi-Chain Digital Payments" : "Secure your wallet with a password and confirm backup"}
       />
     );
