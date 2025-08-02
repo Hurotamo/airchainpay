@@ -40,7 +40,7 @@ function BLEPaymentTab() {
     return (
       <WalletSetupScreen
         onWalletCreated={handleWalletCreated}
-        title="Payment"
+        title="Bluetooth Payments"
         subtitle="Create or import a wallet to use Bluetooth payments"
       />
     );

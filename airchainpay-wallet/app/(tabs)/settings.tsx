@@ -36,7 +36,8 @@ export default function SettingsScreen() {
   const [pendingAction, setPendingAction] = useState<'seedPhrase' | 'privateKey' | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   
-
+  // Session authentication state - only ask once per session
+  const [isSessionAuthenticated, setIsSessionAuthenticated] = useState(false);
   
   // Theme context
   const { colorScheme, toggleTheme } = useThemeContext();
@@ -80,6 +81,8 @@ export default function SettingsScreen() {
             setLoading(true);
             try {
               await MultiChainWalletManager.getInstance().logout();
+              // Reset session authentication on logout
+              setIsSessionAuthenticated(false);
               refreshAuthState();
               Alert.alert(
                 'Logged Out',
@@ -98,6 +101,7 @@ export default function SettingsScreen() {
               // Log the error but don't show alert since logout method handles errors internally
               logger.error('Logout process completed with warnings:', error);
               // Still mark as logged out since the logout method doesn't throw errors anymore
+              setIsSessionAuthenticated(false);
               refreshAuthState();
               Alert.alert(
                 'Logged Out',
@@ -150,6 +154,17 @@ export default function SettingsScreen() {
   };
 
   const handleSecurityAccess = (action: 'seedPhrase' | 'privateKey') => {
+    // If already authenticated this session, proceed directly
+    if (isSessionAuthenticated) {
+      if (action === 'seedPhrase') {
+        showSeedPhrase();
+      } else if (action === 'privateKey') {
+        showPrivateKey();
+      }
+      return;
+    }
+
+    // Otherwise, show password modal
     setPendingAction(action);
     setPassword('');
     setShowPasswordModal(true);
@@ -170,7 +185,8 @@ export default function SettingsScreen() {
         return;
       }
 
-      // Password is correct, proceed with the action
+      // Password is correct, mark session as authenticated and proceed with the action
+      setIsSessionAuthenticated(true);
       setShowPasswordModal(false);
       setPassword('');
 

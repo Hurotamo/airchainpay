@@ -58,20 +58,18 @@ export class SecureStorageService {
         const biometryType = await Keychain.getSupportedBiometryType();
         
         // Additional check: try to set a test value to verify keychain is working
+        // Use a simpler test that doesn't require authentication
         const testKey = '__test_keychain_access__';
         const testValue = 'test_value_' + Date.now();
         
         try {
           await Keychain.setGenericPassword(testKey, testValue, {
-            accessControl: Keychain.ACCESS_CONTROL.DEVICE_PASSCODE,
             accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED,
             securityLevel: Keychain.SECURITY_LEVEL.SECURE_HARDWARE,
           });
           
-          // Try to retrieve the test value
-          const credentials = await Keychain.getGenericPassword({
-            accessControl: Keychain.ACCESS_CONTROL.DEVICE_PASSCODE,
-          });
+          // Try to retrieve the test value without authentication
+          const credentials = await Keychain.getGenericPassword();
           
           // Clean up test value
           await Keychain.resetGenericPassword();
@@ -111,18 +109,17 @@ export class SecureStorageService {
       if (this.keychainAvailable && Keychain) {
         // Use hardware-backed keychain storage without authentication
         const keychainOptions = {
-          accessControl: Keychain.ACCESS_CONTROL.DEVICE_PASSCODE,
           accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED,
           securityLevel: Keychain.SECURITY_LEVEL.SECURE_HARDWARE,
         };
 
         // For Keychain, we store all data in a single credential with JSON structure
         // First, get existing data
-        let existingData = {};
+        let existingData: Record<string, string> = {};
         try {
-          const credentials = await Keychain.getGenericPassword(keychainOptions);
+          const credentials = await Keychain.getGenericPassword();
           if (credentials && credentials.password) {
-            existingData = JSON.parse(credentials.password);
+            existingData = JSON.parse(credentials.password) as Record<string, string>;
           }
         } catch (parseError) {
           // If existing data is not JSON, start fresh
@@ -169,15 +166,11 @@ export class SecureStorageService {
     try {
       if (this.keychainAvailable && Keychain) {
         // Use hardware-backed keychain storage without authentication
-        const keychainOptions = {
-          accessControl: Keychain.ACCESS_CONTROL.DEVICE_PASSCODE,
-        };
-
         // For Keychain, we retrieve the JSON data and extract the specific key
-        const credentials = await Keychain.getGenericPassword(keychainOptions);
+        const credentials = await Keychain.getGenericPassword();
         if (credentials && credentials.password) {
           try {
-            const data = JSON.parse(credentials.password);
+            const data = JSON.parse(credentials.password) as Record<string, string>;
             if (data[key]) {
               logger.info(`[SecureStorage] Retrieved ${key} from Keychain`);
               return data[key];
@@ -198,7 +191,24 @@ export class SecureStorageService {
     } catch (error) {
       logger.error(`[SecureStorage] Failed to retrieve ${key}:`, error);
       
-      // If keychain fails, try SecureStore as final fallback
+      // Check if it's an authentication error and handle gracefully
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('Authentication canceled') || 
+          errorMessage.includes('code: 10') ||
+          errorMessage.includes('User canceled')) {
+        logger.info('[SecureStorage] Authentication canceled, trying SecureStore fallback');
+        
+        try {
+          const value = await SecureStore.getItemAsync(key);
+          logger.info(`[SecureStorage] Retrieved ${key} from SecureStore after authentication cancellation`);
+          return value;
+        } catch (fallbackError) {
+          logger.error(`[SecureStorage] Failed to retrieve ${key} from SecureStore fallback:`, fallbackError);
+          return null;
+        }
+      }
+      
+      // If keychain fails for other reasons, try SecureStore as final fallback
       if (this.keychainAvailable) {
         try {
           const value = await SecureStore.getItemAsync(key);
@@ -233,18 +243,12 @@ export class SecureStorageService {
 
     try {
       if (this.keychainAvailable && Keychain) {
-        // Use hardware-backed keychain storage with authentication
-        const keychainOptions = {
-          accessControl: useBiometrics 
-            ? Keychain.ACCESS_CONTROL.BIOMETRY_ANY 
-            : Keychain.ACCESS_CONTROL.DEVICE_PASSCODE,
-        };
-
+        // Use hardware-backed keychain storage without authentication for now
         // For Keychain, we retrieve the JSON data and extract the specific key
-        const credentials = await Keychain.getGenericPassword(keychainOptions);
+        const credentials = await Keychain.getGenericPassword();
         if (credentials && credentials.password) {
           try {
-            const data = JSON.parse(credentials.password);
+            const data = JSON.parse(credentials.password) as Record<string, string>;
             if (data[key]) {
               logger.info(`[SecureStorage] Retrieved sensitive ${key} from Keychain`);
               return data[key];
@@ -265,7 +269,24 @@ export class SecureStorageService {
     } catch (error) {
       logger.error(`[SecureStorage] Failed to retrieve sensitive ${key}:`, error);
       
-      // If keychain fails, try SecureStore as final fallback
+      // Check if it's an authentication error and handle gracefully
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('Authentication canceled') || 
+          errorMessage.includes('code: 10') ||
+          errorMessage.includes('User canceled')) {
+        logger.info('[SecureStorage] Authentication canceled for sensitive item, trying SecureStore fallback');
+        
+        try {
+          const value = await SecureStore.getItemAsync(key);
+          logger.info(`[SecureStorage] Retrieved sensitive ${key} from SecureStore after authentication cancellation`);
+          return value;
+        } catch (fallbackError) {
+          logger.error(`[SecureStorage] Failed to retrieve sensitive ${key} from SecureStore fallback:`, fallbackError);
+          return null;
+        }
+      }
+      
+      // If keychain fails for other reasons, try SecureStore as final fallback
       if (this.keychainAvailable) {
         try {
           const value = await SecureStore.getItemAsync(key);
@@ -293,13 +314,14 @@ export class SecureStorageService {
       if (this.keychainAvailable && Keychain) {
         // For Keychain, we need to delete from the JSON data
         const keychainOptions = {
-          accessControl: Keychain.ACCESS_CONTROL.DEVICE_PASSCODE,
+          accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED,
+          securityLevel: Keychain.SECURITY_LEVEL.SECURE_HARDWARE,
         };
         
-        const credentials = await Keychain.getGenericPassword(keychainOptions);
+        const credentials = await Keychain.getGenericPassword();
         if (credentials && credentials.password) {
           try {
-            const data = JSON.parse(credentials.password);
+            const data = JSON.parse(credentials.password) as Record<string, string>;
             if (data[key]) {
               // Remove the key from the data
               delete data[key];

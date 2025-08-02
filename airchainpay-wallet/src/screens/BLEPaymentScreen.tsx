@@ -1,26 +1,19 @@
 import * as React from 'react';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { 
   View, 
   Text, 
-  ScrollView, 
   StyleSheet, 
-  Alert, 
   TouchableOpacity, 
   ActivityIndicator, 
   Platform,
-  RefreshControl,
   Dimensions,
-  Modal,
   FlatList,
-  Linking,
-  Share,
-  TextInput
+  TextInput,
+  Alert
 } from 'react-native';
 import { logger } from '../utils/Logger';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { Device } from 'react-native-ble-plx';
 import { useThemeContext } from '../../hooks/useThemeContext';
 import { Colors } from '../../constants/Colors';
 import { BLEPaymentService } from '../services/BLEPaymentService';
@@ -29,54 +22,25 @@ import { Transaction } from '../types/transaction';
 import { getChainColor } from '../constants/Colors';
 import { useSelectedChain } from '../components/ChainSelector';
 import { PaymentService } from '../services/PaymentService';
-import * as Clipboard from 'expo-clipboard';
-import { SUPPORTED_CHAINS } from '../constants/AppConfig';
-import { openAppSettings } from '../utils/PermissionsHelper';
+import { Device } from 'react-native-ble-plx';
 
 const { width } = Dimensions.get('window');
-
-const BLE_ERROR_SUGGESTIONS: { [key: string]: string } = {
-  'BLE_NOT_AVAILABLE': 'Bluetooth is not available or not supported on this device.',
-  'BLE_NOT_POWERED_ON': 'Please turn on Bluetooth in your device settings.',
-  'PERMISSION_DENIED': 'Bluetooth permissions are required. Please grant permissions in settings.',
-  'SCAN_ERROR': 'Failed to scan for devices. Try restarting Bluetooth or the app.',
-  'CONNECTION_ERROR': 'Failed to connect. Move closer to the device and try again.',
-  'ADVERTISING_FAILED': 'Failed to start advertising. Try restarting Bluetooth.',
-  'DEVICE_NOT_CONNECTED': 'Device is not connected. Please reconnect.',
-  'SERVICE_NOT_FOUND': 'Required BLE service not found on device.',
-  'CHARACTERISTIC_NOT_FOUND': 'Required BLE characteristic not found on device.'
-};
-
-function getStatusDotColor(status: string) {
-  switch (status.toLowerCase()) {
-    case 'connected': return '#48dbfb';
-    case 'connecting': return '#feca57';
-    case 'error': return '#ff6b6b';
-    case 'not connected': return '#ccc';
-    default: return '#ccc';
-  }
-}
 
 export default function BLEPaymentScreen() {
   const [scanning, setScanning] = useState(false);
   const [devices, setDevices] = useState<Array<{ device: Device; paymentData?: BLEPaymentData }>>([]);
   const [selectedDevice, setSelectedDevice] = useState<{ device: Device; paymentData?: BLEPaymentData } | null>(null);
   const [connectionStatus, setConnectionStatus] = useState('Not connected');
-  const [pendingTxs, setPendingTxs] = useState<Transaction[]>([]);
   const [bleAvailable, setBleAvailable] = useState(false);
   const [bluetoothEnabled, setBluetoothEnabled] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'scan' | 'advertise' | 'devices'>('scan');
-  const [errorBanner, setErrorBanner] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'scan' | 'advertise'>('scan');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showConfirmSend, setShowConfirmSend] = useState(false);
-  const [showConfirmation, setShowConfirmation] = useState(false);
-
 
   // Advertising states
   const [isAdvertising, setIsAdvertising] = useState(false);
   const [advertisingStatus, setAdvertisingStatus] = useState('Not advertising');
   const [advertisingSupported, setAdvertisingSupported] = useState(false);
-  const [advertisingError, setAdvertisingError] = useState<string | null>(null);
 
   // Payment form states
   const [paymentForm, setPaymentForm] = useState({
@@ -86,7 +50,7 @@ export default function BLEPaymentScreen() {
     chainId: 'base_sepolia'
   });
 
-  const [currentStep, setCurrentStep] = useState(0); // 0: Scan, 1: Connect, 2: Send, 3: Receipt
+  const [currentStep, setCurrentStep] = useState(0); // 0: Main, 1: Confirm, 2: Receipt
   const [lastReceipt, setLastReceipt] = useState<{
     hash: string;
     device: Device | null;
@@ -96,7 +60,6 @@ export default function BLEPaymentScreen() {
   } | null>(null);
 
   const blePaymentService = BLEPaymentService.getInstance();
-  const router = useRouter();
   const { colorScheme } = useThemeContext();
   const theme = colorScheme || 'light';
   const { selectedChain } = useSelectedChain();
@@ -106,33 +69,23 @@ export default function BLEPaymentScreen() {
   useEffect(() => {
     const initializeBLE = async () => {
       try {
-        // Check BLE availability
         const bleAvailable = blePaymentService.isBleAvailable();
         setBleAvailable(bleAvailable);
 
         if (!bleAvailable) {
-          setErrorBanner('Bluetooth is not available on this device');
+          setErrorMessage('Bluetooth is not available on this device');
           return;
         }
 
-        // Check advertising support
         const advertisingSupported = blePaymentService.isAdvertisingSupported();
         setAdvertisingSupported(advertisingSupported);
 
-        // Request permissions with better error handling
-        try {
-          const permissionsGranted = await blePaymentService.requestPermissions();
-          if (!permissionsGranted) {
-            setErrorBanner('Bluetooth permissions are required. Please grant permissions and restart the app.');
-            return;
-          }
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          setErrorBanner(`Permission request failed: ${errorMessage}`);
+        const permissionsGranted = await blePaymentService.requestPermissions();
+        if (!permissionsGranted) {
+          setErrorMessage('Bluetooth permissions are required. Please grant permissions and restart the app.');
           return;
         }
 
-        // Get BLE status
         const status = await blePaymentService.getBleStatus();
         setBluetoothEnabled(status.available);
 
@@ -140,7 +93,7 @@ export default function BLEPaymentScreen() {
 
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        setErrorBanner(`Failed to initialize BLE: ${errorMessage}`);
+        setErrorMessage(`Failed to initialize BLE: ${errorMessage}`);
         logger.error('[BLE Payment] BLE initialization failed:', error);
       }
     };
@@ -156,20 +109,20 @@ export default function BLEPaymentScreen() {
   // Start scanning
   const handleStartScan = async () => {
     if (!bleAvailable) {
-      setErrorBanner('Bluetooth is not available');
+      setErrorMessage('Bluetooth is not available');
       return;
     }
 
     try {
       setScanning(true);
-      setErrorBanner(null);
+      setErrorMessage(null);
       
       blePaymentService.startScanning(handleDevicesFound);
       
       logger.info('[BLE Payment] Started scanning for devices');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      setErrorBanner(`Failed to start scanning: ${errorMessage}`);
+      setErrorMessage(`Failed to start scanning: ${errorMessage}`);
       setScanning(false);
       logger.error('[BLE Payment] Scan failed:', error);
     }
@@ -189,28 +142,18 @@ export default function BLEPaymentScreen() {
   // Start advertising
   const handleStartAdvertising = async () => {
     if (!blePaymentService.isAdvertisingSupported()) {
-      setAdvertisingError('BLE advertising is not supported on this device');
+      setErrorMessage('BLE advertising is not supported on this device');
       return;
     }
 
     if (!paymentForm.walletAddress || !paymentForm.amount) {
-      setAdvertisingError('Please enter wallet address and amount');
+      setErrorMessage('Please enter wallet address and amount');
       return;
     }
 
     try {
-      setAdvertisingStatus('Checking permissions...');
-      setAdvertisingError(null);
-      
-      // Check critical permissions before advertising
-      const criticalPermissions = await blePaymentService.checkCriticalPermissions();
-      if (!criticalPermissions.granted) {
-        setAdvertisingError(`Critical Bluetooth permissions missing: ${criticalPermissions.missing.join(', ')}. Please grant permissions in Settings.`);
-        setAdvertisingStatus('Permission denied');
-        return;
-      }
-
       setAdvertisingStatus('Starting advertising...');
+      setErrorMessage(null);
       
       const result = await blePaymentService.startAdvertising(
         paymentForm.walletAddress,
@@ -224,39 +167,14 @@ export default function BLEPaymentScreen() {
         setAdvertisingStatus('Advertising payment availability');
         logger.info('[BLE Payment] Started advertising successfully');
       } else {
-        setAdvertisingError(result.message || 'Failed to start advertising');
+        setErrorMessage(result.message || 'Failed to start advertising');
         setAdvertisingStatus('Advertising failed');
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      setAdvertisingError(errorMessage);
+      setErrorMessage(errorMessage);
       setAdvertisingStatus('Advertising failed');
       logger.error('[BLE Payment] Advertising error:', error);
-    }
-  };
-
-  // Run diagnostics
-  const handleRunDiagnostics = async () => {
-    try {
-      setAdvertisingStatus('Running diagnostics...');
-      setAdvertisingError(null);
-      
-      const diagnostics = await blePaymentService.runAdvertisingDiagnostics();
-      
-      if (diagnostics.supported) {
-        setAdvertisingStatus('✅ All systems ready for advertising');
-        setAdvertisingError(null);
-      } else {
-        setAdvertisingStatus('❌ Issues detected');
-        setAdvertisingError(`Issues found:\n${diagnostics.issues.join('\n')}\n\nRecommendations:\n${diagnostics.recommendations.join('\n')}`);
-      }
-      
-      logger.info('[BLE Payment] Diagnostics completed:', diagnostics);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      setAdvertisingError(`Diagnostics failed: ${errorMessage}`);
-      setAdvertisingStatus('Diagnostics failed');
-      logger.error('[BLE Payment] Diagnostics error:', error);
     }
   };
 
@@ -266,11 +184,11 @@ export default function BLEPaymentScreen() {
       await blePaymentService.stopAdvertising();
       setIsAdvertising(false);
       setAdvertisingStatus('Not advertising');
-      setAdvertisingError(null);
+      setErrorMessage(null);
       logger.info('[BLE Payment] Stopped advertising');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      setAdvertisingError(errorMessage);
+      setErrorMessage(errorMessage);
       logger.error('[BLE Payment] Stop advertising error:', error);
     }
   };
@@ -286,13 +204,12 @@ export default function BLEPaymentScreen() {
       setConnectionStatus('Connected');
       logger.info('[BLE Payment] Connected to device successfully');
       
-      // Move to next step
-      setCurrentStep(2);
+      setCurrentStep(1);
       
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       setConnectionStatus('Connection failed');
-      setErrorBanner(`Failed to connect: ${errorMessage}`);
+      setErrorMessage(`Failed to connect: ${errorMessage}`);
       logger.error('[BLE Payment] Connection error:', error);
     }
   };
@@ -300,14 +217,13 @@ export default function BLEPaymentScreen() {
   // Send payment
   const handleSendPayment = async () => {
     if (!selectedDevice) {
-      setErrorBanner('No device selected');
+      setErrorMessage('No device selected');
       return;
     }
 
     try {
       setShowConfirmSend(false);
       
-      // Create payment data
       const paymentData: BLEPaymentData = {
         walletAddress: selectedDevice.paymentData?.walletAddress || '',
         amount: selectedDevice.paymentData?.amount || '',
@@ -316,10 +232,8 @@ export default function BLEPaymentScreen() {
         timestamp: Date.now()
       };
 
-      // Send payment data to device
       await blePaymentService.sendPaymentData(selectedDevice.device.id, paymentData);
       
-      // Simulate transaction (in real app, this would be an actual blockchain transaction)
       const mockTransaction = {
         hash: `0x${Math.random().toString(16).substring(2, 66)}`,
         amount: paymentData.amount,
@@ -335,20 +249,14 @@ export default function BLEPaymentScreen() {
         timestamp: mockTransaction.timestamp
       });
 
-      setCurrentStep(3);
+      setCurrentStep(2);
       logger.info('[BLE Payment] Payment sent successfully');
       
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      setErrorBanner(`Failed to send payment: ${errorMessage}`);
+      setErrorMessage(`Failed to send payment: ${errorMessage}`);
       logger.error('[BLE Payment] Payment error:', error);
     }
-  };
-
-  // Handle error
-  const handleError = (msg: string, error?: any) => {
-    setErrorBanner(msg);
-    logger.error('[BLE Payment] Error:', error);
   };
 
   // Render device item
@@ -388,7 +296,7 @@ export default function BLEPaymentScreen() {
       
       <View style={styles.scanControls}>
         <TouchableOpacity
-          style={[styles.scanButton, scanning ? styles.scanButtonActive : null]}
+          style={[styles.primaryButton, scanning ? styles.stopButton : null]}
           onPress={scanning ? handleStopScan : handleStartScan}
           disabled={!bleAvailable}
         >
@@ -397,12 +305,12 @@ export default function BLEPaymentScreen() {
             size={20} 
             color="#fff" 
           />
-          <Text style={styles.scanButtonText}>
+          <Text style={styles.primaryButtonText}>
             {scanning ? 'Stop Scan' : 'Start Scan'}
           </Text>
         </TouchableOpacity>
         
-        <Text style={[styles.scanStatus, { color: theme === 'dark' ? '#ccc' : '#666' }]}>
+        <Text style={[styles.statusText, { color: theme === 'dark' ? '#ccc' : '#666' }]}>
           {scanning ? 'Scanning for devices...' : 'Ready to scan'}
         </Text>
       </View>
@@ -478,7 +386,7 @@ export default function BLEPaymentScreen() {
 
       <View style={styles.advertisingControls}>
         <TouchableOpacity
-          style={[styles.advertiseButton, isAdvertising ? styles.advertiseButtonActive : null]}
+          style={[styles.primaryButton, isAdvertising ? styles.stopButton : null]}
           onPress={isAdvertising ? handleStopAdvertising : handleStartAdvertising}
           disabled={!advertisingSupported}
         >
@@ -487,102 +395,14 @@ export default function BLEPaymentScreen() {
             size={20} 
             color="#fff" 
           />
-          <Text style={styles.advertiseButtonText}>
+          <Text style={styles.primaryButtonText}>
             {isAdvertising ? 'Stop Advertising' : 'Start Advertising'}
           </Text>
         </TouchableOpacity>
         
-        <TouchableOpacity
-          style={[styles.diagnosticButton]}
-          onPress={handleRunDiagnostics}
-        >
-          <Ionicons 
-            name="bug" 
-            size={16} 
-            color="#666" 
-          />
-          <Text style={styles.diagnosticButtonText}>
-            Run Diagnostics
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.diagnosticButton]}
-          onPress={async () => {
-            try {
-              setAdvertisingStatus('Checking permissions...');
-              const granted = await blePaymentService.requestPermissions();
-              if (granted) {
-                setAdvertisingStatus('✅ Permissions granted');
-                setAdvertisingError(null);
-              } else {
-                setAdvertisingStatus('❌ Permissions denied');
-                setAdvertisingError('Please grant Bluetooth permissions in Settings');
-              }
-            } catch (error) {
-              setAdvertisingStatus('❌ Permission check failed');
-              setAdvertisingError('Failed to check permissions');
-            }
-          }}
-        >
-          <Ionicons 
-            name="shield-checkmark" 
-            size={16} 
-            color="#666" 
-          />
-          <Text style={styles.diagnosticButtonText}>
-            Check Permissions
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.diagnosticButton]}
-          onPress={async () => {
-            try {
-              setAdvertisingStatus('Running debug...');
-              const debugInfo = await blePaymentService.debugPermissions();
-              setAdvertisingStatus('Debug info logged');
-              setAdvertisingError(`Debug completed. Check console for details.\nPlatform: ${debugInfo.platform}\nBLE Available: ${debugInfo.bleAvailable}`);
-              console.log('[BLE Payment] Debug info:', debugInfo);
-            } catch (error) {
-              setAdvertisingStatus('❌ Debug failed');
-              setAdvertisingError('Failed to run debug');
-            }
-          }}
-        >
-          <Ionicons 
-            name="bug-outline" 
-            size={16} 
-            color="#666" 
-          />
-          <Text style={styles.diagnosticButtonText}>
-            Debug Permissions
-          </Text>
-        </TouchableOpacity>
-        
-        <Text style={[styles.advertisingStatus, { color: theme === 'dark' ? '#ccc' : '#666' }]}>
+        <Text style={[styles.statusText, { color: theme === 'dark' ? '#ccc' : '#666' }]}>
           {advertisingStatus}
         </Text>
-        
-        {advertisingError && (
-          <Text style={styles.errorText}>{advertisingError}</Text>
-        )}
-        
-        {advertisingError && advertisingError.includes('permissions') && (
-          <TouchableOpacity
-            style={[styles.settingsButton]}
-            onPress={openAppSettings}
-          >
-            <Ionicons 
-              name="settings" 
-              size={16} 
-              color="#fff" 
-            />
-            <Text style={styles.settingsButtonText}>
-              Open Settings
-            </Text>
-          </TouchableOpacity>
-        )}
       </View>
     </View>
   );
@@ -671,10 +491,10 @@ export default function BLEPaymentScreen() {
         </View>
         
         <TouchableOpacity
-          style={styles.newPaymentButton}
+          style={styles.primaryButton}
           onPress={() => setCurrentStep(0)}
         >
-          <Text style={styles.newPaymentButtonText}>New Payment</Text>
+          <Text style={styles.primaryButtonText}>New Payment</Text>
         </TouchableOpacity>
       </View>
     );
@@ -711,8 +531,6 @@ export default function BLEPaymentScreen() {
       case 1:
         return renderPaymentConfirmation();
       case 2:
-        return renderPaymentConfirmation();
-      case 3:
         return renderReceipt();
       default:
         return renderScanSection();
@@ -721,10 +539,10 @@ export default function BLEPaymentScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme === 'dark' ? '#000' : '#fff' }]}>
-      {errorBanner && (
+      {errorMessage && (
         <View style={styles.errorBanner}>
-          <Text style={styles.errorBannerText}>{errorBanner}</Text>
-          <TouchableOpacity onPress={() => setErrorBanner(null)}>
+          <Text style={styles.errorBannerText}>{errorMessage}</Text>
+          <TouchableOpacity onPress={() => setErrorMessage(null)}>
             <Ionicons name="close" size={20} color="#fff" />
           </TouchableOpacity>
         </View>
@@ -789,7 +607,7 @@ const styles = StyleSheet.create({
   scanControls: {
     marginBottom: 20,
   },
-  scanButton: {
+  primaryButton: {
     backgroundColor: '#007AFF',
     padding: 15,
     borderRadius: 8,
@@ -798,16 +616,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 10,
   },
-  scanButtonActive: {
+  stopButton: {
     backgroundColor: '#ff6b6b',
   },
-  scanButtonText: {
+  primaryButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
     marginLeft: 10,
   },
-  scanStatus: {
+  statusText: {
     textAlign: 'center',
     fontSize: 14,
   },
@@ -889,47 +707,6 @@ const styles = StyleSheet.create({
   advertisingControls: {
     marginTop: 20,
   },
-  advertiseButton: {
-    backgroundColor: '#007AFF',
-    padding: 15,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-  advertiseButtonActive: {
-    backgroundColor: '#ff6b6b',
-  },
-  advertiseButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginLeft: 10,
-  },
-  diagnosticButton: {
-    backgroundColor: '#f0f0f0',
-    padding: 10,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-  diagnosticButtonText: {
-    color: '#666',
-    fontSize: 14,
-    marginLeft: 8,
-  },
-  advertisingStatus: {
-    textAlign: 'center',
-    fontSize: 14,
-  },
-  errorText: {
-    color: '#ff6b6b',
-    textAlign: 'center',
-    marginTop: 10,
-  },
   paymentDetails: {
     marginBottom: 20,
   },
@@ -974,31 +751,5 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     marginBottom: 15,
-  },
-  newPaymentButton: {
-    backgroundColor: '#007AFF',
-    padding: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  newPaymentButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  settingsButton: {
-    backgroundColor: '#007AFF',
-    padding: 10,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 10,
-  },
-  settingsButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
-    marginLeft: 8,
   },
 }); 
