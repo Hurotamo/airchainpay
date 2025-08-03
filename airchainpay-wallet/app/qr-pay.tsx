@@ -377,18 +377,47 @@ export default function QRPayScreen() {
       Alert.alert('Error', 'Please select a token and enter payment details');
       return;
     }
-    if (!isAmountValid || !amount || parseFloat(amount.trim()) <= 0) {
-      Alert.alert('Invalid Amount', 'Please enter a valid amount to pay');
+    
+    // Enhanced amount validation
+    if (!amount || typeof amount !== 'string') {
+      Alert.alert('Error', 'Amount is required');
       return;
     }
+    
+    const amountString = amount.trim();
+    if (amountString === '') {
+      Alert.alert('Error', 'Amount cannot be empty');
+      return;
+    }
+    
+    // Validate amount is a valid number
+    const amountNum = parseFloat(amountString);
+    if (isNaN(amountNum) || amountNum <= 0) {
+      Alert.alert('Error', `Invalid amount: ${amountString}. Please enter a valid positive number.`);
+      return;
+    }
+    
+    // Additional validation for reasonable limits
+    if (amountNum > 1000000) {
+      Alert.alert('Error', 'Amount cannot exceed 1,000,000');
+      return;
+    }
+    
+    logger.info('[QRPay] Validating payment request', {
+      to: paymentSetup.to,
+      amount: amountString,
+      amountNum,
+      selectedToken: selectedToken.symbol,
+      chainId: selectedChain
+    });
 
     try {
       setIsProcessing(true);
       
-      // Build transaction using TransactionBuilder
+      // Build transaction using TransactionBuilder with validated amount
       const transaction = TransactionBuilder.build({
         to: paymentSetup.to,
-        amount: amount,
+        amount: amountString,
         chainId: selectedChain,
         token: selectedToken,
         paymentReference: paymentReference || undefined,
@@ -401,11 +430,11 @@ export default function QRPayScreen() {
       
       logger.info('Transaction built', { transaction });
       
-      // Send payment using PaymentService
+      // Send payment using PaymentService with validated amount
       const paymentService = PaymentService.getInstance();
       const result = await paymentService.sendPayment({
         to: transaction.to,
-        amount: transaction.amount,
+        amount: amountString, // Use validated amount
         chainId: transaction.chainId,
         transport: 'onchain',
         token: transaction.token,
@@ -413,6 +442,13 @@ export default function QRPayScreen() {
         extraData: {
           metadata: transaction.metadata
         }
+      });
+      
+      logger.info('[QRPay] Payment request sent', {
+        to: transaction.to,
+        amount: amountString,
+        chainId: transaction.chainId,
+        tokenSymbol: selectedToken.symbol
       });
       
       logger.info('Payment processed', { result });

@@ -19,6 +19,28 @@ use serde_json::json;
 use crate::domain::auth;
 use crate::domain::error::{RelayError, BlockchainError};
 
+// Helper function to get block explorer URL for a given chain ID
+fn get_block_explorer_url(chain_id: u64, tx_hash: &str) -> String {
+    match chain_id {
+        1114 => format!("https://scan.test2.btcs.network/tx/{}", tx_hash), // Core Testnet
+        84532 => format!("https://sepolia.basescan.org/tx/{}", tx_hash), // Base Sepolia
+        17000 => format!("https://holesky.etherscan.io/tx/{}", tx_hash), // Morph Holesky
+        4202 => format!("https://sepolia.scroll.io/tx/{}", tx_hash), // Lisk Sepolia
+        _ => format!("https://explorer.unknown.com/tx/{}", tx_hash), // Fallback
+    }
+}
+
+// Helper function to get chain name for a given chain ID
+fn get_chain_name(chain_id: u64) -> &'static str {
+    match chain_id {
+        1114 => "Core Testnet",
+        84532 => "Base Sepolia",
+        17000 => "Morph Holesky",
+        4202 => "Lisk Sepolia",
+        _ => "Unknown Chain",
+    }
+}
+
 #[get("/health")]
 async fn health() -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({
@@ -56,12 +78,12 @@ async fn handle_transaction_submission(
     };
     
     if !is_healthy {
-        return ErrorResponseBuilder::service_unavailable("Blockchain network is currently unavailable");
+        return ErrorResponseBuilder::service_unavailable("Blockchain network is currently unavailable. Please check your internet connection and try again.");
     }
     
     // Use ethereum validation for basic format check
     if !ethereum::validate_transaction_hash(&req.signed_tx) {
-        return ErrorResponseBuilder::bad_request("Invalid transaction hash format");
+        return ErrorResponseBuilder::bad_request("Invalid transaction format. Please ensure the transaction is properly signed and formatted.");
     }
     
     // Create transaction validator
@@ -159,11 +181,11 @@ async fn handle_transaction_submission(
             // Update metrics
             let _ = storage.update_metrics("transactions_received", 1);
             
-            // Return success response
+            // Return success response with proper transaction ID
             HttpResponse::Ok().json(serde_json::json!({
                 "success": true,
                 "message": "Transaction received and stored",
-                "transaction_id": req.signed_tx,
+                "transaction_id": transaction.id,
                 "chain_id": req.chain_id,
                 "timestamp": chrono::Utc::now().to_rfc3339(),
             }))
@@ -216,6 +238,85 @@ async fn process_transaction(
     config_manager: Data<Arc<DynamicConfigManager>>,
 ) -> impl Responder {
     handle_transaction_submission(req, storage, blockchain_manager, error_handler, config_manager).await
+}
+
+#[post("/simple_send_tx")]
+async fn simple_send_tx(
+    req: web::Json<SendTxRequest>,
+    storage: Data<Arc<Storage>>,
+    blockchain_manager: Data<Arc<BlockchainManager>>,
+) -> impl Responder {
+    // Create transaction record
+    let transaction = Transaction::new(
+        req.signed_tx.clone(),
+        req.chain_id,
+    );
+    
+    // Save to storage
+    match storage.save_transaction(transaction.clone()) {
+        Ok(_) => {
+            // Update metrics
+            let _ = storage.update_metrics("transactions_received", 1);
+            
+            // Try to send the transaction immediately
+            match blockchain_manager.send_transaction(&QueuedTransaction {
+                transaction: serde_json::json!({}),
+                priority: crate::app::transaction_service::TransactionPriority::Normal,
+                queued_at: chrono::Utc::now(),
+                retry_count: 0,
+                max_retries: 3,
+                retry_delay: tokio::time::Duration::from_secs(2),
+                chain_id: req.chain_id,
+                metadata: {
+                    let mut metadata = std::collections::HashMap::new();
+                    metadata.insert("signedTx".to_string(), serde_json::Value::String(req.signed_tx.clone()));
+                    metadata.insert("id".to_string(), serde_json::Value::String(transaction.id.clone()));
+                    metadata
+                },
+            }).await {
+                Ok(tx_hash) => {
+                    // Update transaction with hash
+                    let tx_hash_str = format!("{:?}", tx_hash);
+                    let _ = storage.update_transaction_status(&transaction.id, "completed", Some(tx_hash_str.clone()));
+                    
+                    HttpResponse::Ok().json(serde_json::json!({
+                        "success": true,
+                        "message": "Transaction sent successfully",
+                        "transaction_id": transaction.id,
+                        "transaction_hash": tx_hash_str,
+                        "chain_id": req.chain_id,
+                        "chain_name": get_chain_name(req.chain_id),
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                        "status": "completed",
+                        "block_explorer_url": get_block_explorer_url(req.chain_id, &tx_hash_str),
+                    }))
+                }
+                Err(e) => {
+                    // Update transaction as failed
+                    let _ = storage.update_transaction_status(&transaction.id, "failed", None);
+                    
+                    HttpResponse::InternalServerError().json(serde_json::json!({
+                        "success": false,
+                        "message": "Transaction failed to send",
+                        "transaction_id": transaction.id,
+                        "error": format!("{:?}", e),
+                        "chain_id": req.chain_id,
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                        "status": "failed",
+                    }))
+                }
+            }
+        }
+        Err(e) => {
+            HttpResponse::InternalServerError().json(serde_json::json!({
+                "success": false,
+                "message": "Failed to save transaction",
+                "error": format!("{:?}", e),
+                "chain_id": req.chain_id,
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+            }))
+        }
+    }
 }
 
 #[post("/api/v1/submit-transaction")]
@@ -2005,5 +2106,335 @@ pub async fn submit_transaction(
 ) -> impl Responder {
     processor.enqueue_transaction(tx.into_inner()).await;
     HttpResponse::Ok().json(json!({ "status": "queued" }))
+}
+
+#[post("/test_tx")]
+async fn test_transaction() -> impl Responder {
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "message": "Test endpoint working",
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    }))
+}
+
+#[get("/transaction/{transaction_id}")]
+async fn get_transaction_details(
+    path: web::Path<String>,
+    storage: Data<Arc<Storage>>,
+) -> impl Responder {
+    let transaction_id = path.into_inner();
+    
+    let transactions = storage.get_transactions(1000); // Get all transactions
+    if let Some(transaction) = transactions.iter().find(|t| t.id == transaction_id) {
+        match transaction.status.as_str() {
+            "completed" => {
+                if let Some(tx_hash) = &transaction.tx_hash {
+                    HttpResponse::Ok().json(serde_json::json!({
+                        "success": true,
+                        "transaction_id": transaction.id,
+                        "status": transaction.status,
+                        "transaction_hash": tx_hash,
+                        "chain_id": transaction.chain_id,
+                        "chain_name": get_chain_name(transaction.chain_id),
+                        "timestamp": transaction.timestamp.to_rfc3339(),
+                        "message": "Transaction completed successfully",
+                        "block_explorer_url": get_block_explorer_url(transaction.chain_id, tx_hash),
+                    }))
+                } else {
+                    HttpResponse::Ok().json(serde_json::json!({
+                        "success": true,
+                        "transaction_id": transaction.id,
+                        "status": transaction.status,
+                        "transaction_hash": null,
+                        "chain_id": transaction.chain_id,
+                        "timestamp": transaction.timestamp.to_rfc3339(),
+                        "message": "Transaction completed but hash not available"
+                    }))
+                }
+            },
+            "pending" => {
+                HttpResponse::Ok().json(serde_json::json!({
+                    "success": true,
+                    "transaction_id": transaction.id,
+                    "status": transaction.status,
+                    "transaction_hash": null,
+                    "chain_id": transaction.chain_id,
+                    "timestamp": transaction.timestamp.to_rfc3339(),
+                    "message": "Transaction is still being processed"
+                }))
+            },
+            "failed" => {
+                HttpResponse::Ok().json(serde_json::json!({
+                    "success": true,
+                    "transaction_id": transaction.id,
+                    "status": transaction.status,
+                    "transaction_hash": null,
+                    "chain_id": transaction.chain_id,
+                    "timestamp": transaction.timestamp.to_rfc3339(),
+                    "message": "Transaction failed to process"
+                }))
+            },
+            _ => {
+                HttpResponse::Ok().json(serde_json::json!({
+                    "success": true,
+                    "transaction_id": transaction.id,
+                    "status": transaction.status,
+                    "transaction_hash": null,
+                    "chain_id": transaction.chain_id,
+                    "timestamp": transaction.timestamp.to_rfc3339(),
+                    "message": format!("Transaction status: {}", transaction.status)
+                }))
+            }
+        }
+    } else {
+        HttpResponse::NotFound().json(serde_json::json!({
+            "success": false,
+            "error": "Transaction not found",
+            "message": format!("No transaction found with ID: {}", transaction_id)
+        }))
+    }
+}
+
+#[get("/transaction/{transaction_id}/status")]
+async fn get_transaction_status(
+    path: web::Path<String>,
+    storage: Data<Arc<Storage>>,
+) -> impl Responder {
+    let transaction_id = path.into_inner();
+    
+    let transactions = storage.get_transactions(1000);
+    if let Some(transaction) = transactions.iter().find(|t| t.id == transaction_id) {
+        let response = serde_json::json!({
+            "success": true,
+            "transaction_id": transaction.id,
+            "status": transaction.status,
+            "chain_id": transaction.chain_id,
+            "chain_name": get_chain_name(transaction.chain_id),
+            "timestamp": transaction.timestamp.to_rfc3339(),
+        });
+        
+        // Add transaction hash if available
+        let mut response_obj = response.as_object().unwrap().clone();
+        if let Some(tx_hash) = &transaction.tx_hash {
+            response_obj.insert("transaction_hash".to_string(), serde_json::Value::String(tx_hash.clone()));
+            response_obj.insert("block_explorer_url".to_string(), serde_json::Value::String(get_block_explorer_url(transaction.chain_id, tx_hash)));
+        } else {
+            response_obj.insert("transaction_hash".to_string(), serde_json::Value::Null);
+        }
+        
+        // Add appropriate message based on status
+        let message = match transaction.status.as_str() {
+            "completed" => "Transaction completed successfully",
+            "pending" => "Transaction is being processed",
+            "failed" => "Transaction failed to process",
+            _ => &format!("Transaction status: {}", transaction.status)
+        };
+        response_obj.insert("message".to_string(), serde_json::Value::String(message.to_string()));
+        
+        HttpResponse::Ok().json(serde_json::Value::Object(response_obj))
+    } else {
+        HttpResponse::NotFound().json(serde_json::json!({
+            "success": false,
+            "error": "Transaction not found",
+            "message": format!("No transaction found with ID: {}", transaction_id)
+        }))
+    }
+}
+
+#[get("/transactions/user/{user_id}")]
+async fn get_user_transactions(
+    path: web::Path<String>,
+    storage: Data<Arc<Storage>>,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> impl Responder {
+    let user_id = path.into_inner();
+    let limit = query.get("limit")
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(50);
+    
+    let all_transactions = storage.get_transactions(1000);
+    let user_transactions: Vec<serde_json::Value> = all_transactions
+        .iter()
+        .filter(|t| {
+            // For now, we'll return all transactions since we don't have user_id in Transaction struct
+            // In a real implementation, you'd filter by user_id
+            true
+        })
+        .take(limit)
+        .map(|t| {
+            let mut tx_obj = serde_json::json!({
+                "transaction_id": t.id,
+                "status": t.status,
+                "chain_id": t.chain_id,
+                "chain_name": get_chain_name(t.chain_id),
+                "timestamp": t.timestamp.to_rfc3339(),
+            });
+            
+            if let Some(tx_hash) = &t.tx_hash {
+                tx_obj["transaction_hash"] = serde_json::Value::String(tx_hash.clone());
+                tx_obj["block_explorer_url"] = serde_json::Value::String(get_block_explorer_url(t.chain_id, tx_hash));
+            } else {
+                tx_obj["transaction_hash"] = serde_json::Value::Null;
+            }
+            
+            tx_obj
+        })
+        .collect();
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "user_id": user_id,
+        "transactions": user_transactions,
+        "total_count": user_transactions.len(),
+        "limit": limit,
+    }))
+}
+
+#[get("/chains/supported")]
+async fn get_supported_chains() -> impl Responder {
+    let chains = vec![
+        serde_json::json!({
+            "chain_id": 1114,
+            "name": "Core Testnet",
+            "block_explorer": "https://scan.test2.btcs.network",
+            "rpc_url": "https://rpc.test2.btcs.network",
+            "native_currency": "TCORE2",
+            "contract_address": "0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB"
+        }),
+        serde_json::json!({
+            "chain_id": 84532,
+            "name": "Base Sepolia",
+            "block_explorer": "https://sepolia.basescan.org",
+            "rpc_url": "https://sepolia.base.org",
+            "native_currency": "ETH",
+            "contract_address": "0x7B79117445C57eea1CEAb4733020A55e1D503934"
+        }),
+        serde_json::json!({
+            "chain_id": 17000,
+            "name": "Morph Holesky",
+            "block_explorer": "https://holesky.etherscan.io",
+            "rpc_url": "https://holesky.drpc.org",
+            "native_currency": "ETH",
+            "contract_address": "0x26C59cd738Df90604Ebb13Ed8DB76657cfD51f40"
+        }),
+        serde_json::json!({
+            "chain_id": 4202,
+            "name": "Lisk Sepolia",
+            "block_explorer": "https://sepolia.scroll.io",
+            "rpc_url": "https://rpc.sepolia.lisk.com",
+            "native_currency": "ETH",
+            "contract_address": "0xaBEEEc6e6c1f6bfDE1d05db74B28847Ba5b44EAF"
+        })
+    ];
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "supported_chains": chains,
+        "total_chains": chains.len(),
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    }))
+}
+
+#[get("/chains/{chain_id}/info")]
+async fn get_chain_info(
+    path: web::Path<u64>,
+) -> impl Responder {
+    let chain_id = path.into_inner();
+    
+    let chain_info = match chain_id {
+        1114 => serde_json::json!({
+            "chain_id": 1114,
+            "name": "Core Testnet",
+            "block_explorer": "https://scan.test2.btcs.network",
+            "rpc_url": "https://rpc.test2.btcs.network",
+            "native_currency": "TCORE2",
+            "contract_address": "0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB",
+            "is_supported": true
+        }),
+        84532 => serde_json::json!({
+            "chain_id": 84532,
+            "name": "Base Sepolia",
+            "block_explorer": "https://sepolia.basescan.org",
+            "rpc_url": "https://sepolia.base.org",
+            "native_currency": "ETH",
+            "contract_address": "0x7B79117445C57eea1CEAb4733020A55e1D503934",
+            "is_supported": true
+        }),
+        17000 => serde_json::json!({
+            "chain_id": 17000,
+            "name": "Morph Holesky",
+            "block_explorer": "https://holesky.etherscan.io",
+            "rpc_url": "https://holesky.drpc.org",
+            "native_currency": "ETH",
+            "contract_address": "0x26C59cd738Df90604Ebb13Ed8DB76657cfD51f40",
+            "is_supported": true
+        }),
+        4202 => serde_json::json!({
+            "chain_id": 4202,
+            "name": "Lisk Sepolia",
+            "block_explorer": "https://sepolia.scroll.io",
+            "rpc_url": "https://rpc.sepolia.lisk.com",
+            "native_currency": "ETH",
+            "contract_address": "0xaBEEEc6e6c1f6bfDE1d05db74B28847Ba5b44EAF",
+            "is_supported": true
+        }),
+        _ => serde_json::json!({
+            "chain_id": chain_id,
+            "name": "Unknown Chain",
+            "block_explorer": null,
+            "rpc_url": null,
+            "native_currency": null,
+            "contract_address": null,
+            "is_supported": false
+        })
+    };
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "chain_info": chain_info,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    }))
+}
+
+#[get("/transaction/hash/{tx_hash}")]
+async fn get_transaction_by_hash(
+    path: web::Path<String>,
+    storage: Data<Arc<Storage>>,
+) -> impl Responder {
+    let tx_hash = path.into_inner();
+    
+    let transactions = storage.get_transactions(1000);
+    if let Some(transaction) = transactions.iter().find(|t| {
+        t.tx_hash.as_ref().map(|h| h == &tx_hash).unwrap_or(false)
+    }) {
+        let response = serde_json::json!({
+            "success": true,
+            "transaction_id": transaction.id,
+            "transaction_hash": tx_hash,
+            "status": transaction.status,
+            "chain_id": transaction.chain_id,
+            "chain_name": get_chain_name(transaction.chain_id),
+            "timestamp": transaction.timestamp.to_rfc3339(),
+            "block_explorer_url": get_block_explorer_url(transaction.chain_id, &tx_hash),
+        });
+        
+        // Add appropriate message based on status
+        let mut response_obj = response.as_object().unwrap().clone();
+        let message = match transaction.status.as_str() {
+            "completed" => "Transaction completed successfully",
+            "pending" => "Transaction is being processed",
+            "failed" => "Transaction failed to process",
+            _ => &format!("Transaction status: {}", transaction.status)
+        };
+        response_obj.insert("message".to_string(), serde_json::Value::String(message.to_string()));
+        
+        HttpResponse::Ok().json(serde_json::Value::Object(response_obj))
+    } else {
+        HttpResponse::NotFound().json(serde_json::json!({
+            "success": false,
+            "error": "Transaction not found",
+            "message": format!("No transaction found with hash: {}", tx_hash)
+        }))
+    }
 }
 

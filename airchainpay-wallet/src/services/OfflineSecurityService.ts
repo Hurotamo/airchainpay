@@ -76,9 +76,42 @@ export class OfflineSecurityService {
         currentBalance = balance.balance;
       }
 
+      // Validate amount before parsing
+      if (!amount || typeof amount !== 'string') {
+        throw new Error(`Invalid amount: ${amount}. Must be a non-empty string.`);
+      }
+      
+      const amountString = amount.trim();
+      if (amountString === '') {
+        throw new Error('Amount cannot be empty');
+      }
+      
+      // Check if the original amount was actually NaN
+      if (typeof amount === 'number' && isNaN(amount)) {
+        throw new Error('Amount is NaN (number)');
+      }
+      
+      // Additional validation to catch NaN early
+      if (amountString === 'NaN' || amountString === 'undefined' || amountString === 'null') {
+        throw new Error(`Invalid amount string: ${amountString}`);
+      }
+      
+      // Validate amount is a valid number
+      const amountNum = parseFloat(amountString);
+      if (isNaN(amountNum) || amountNum <= 0) {
+        throw new Error(`Invalid amount: ${amountString}. Must be a positive number.`);
+      }
+      
+      logger.info('[OfflineSecurity] Amount validation passed', {
+        originalAmount: amountString,
+        parsedAmount: amountNum,
+        tokenDecimals: tokenInfo.decimals || 18,
+        isNative: tokenInfo.isNative
+      });
+
       const requiredAmount = tokenInfo.isNative 
-        ? ethers.parseEther(amount)
-        : ethers.parseUnits(amount, tokenInfo.decimals || 18);
+        ? ethers.parseEther(amountString)
+        : ethers.parseUnits(amountString, tokenInfo.decimals || 18);
 
       // Get pending transactions total
       const pendingAmount = await this.getPendingTransactionsTotal(chainId, tokenInfo);
@@ -423,9 +456,28 @@ export class OfflineSecurityService {
 
       for (const tx of pendingTxs) {
         if (tx.chainId === chainId && tx.status === 'pending') {
-          const txAmount = tokenInfo.isNative 
-            ? ethers.parseEther(tx.amount)
-            : ethers.parseUnits(tx.amount, tokenInfo.decimals || 18);
+                  // Validate tx.amount before parsing
+        if (!tx.amount || typeof tx.amount !== 'string') {
+          logger.warn('[OfflineSecurity] Invalid tx.amount in pending transaction:', { tx });
+          continue;
+        }
+        
+        const txAmountString = tx.amount.trim();
+        if (txAmountString === '') {
+          logger.warn('[OfflineSecurity] Empty tx.amount in pending transaction:', { tx });
+          continue;
+        }
+        
+        // Validate tx.amount is a valid number
+        const txAmountNum = parseFloat(txAmountString);
+        if (isNaN(txAmountNum) || txAmountNum <= 0) {
+          logger.warn('[OfflineSecurity] Invalid tx.amount in pending transaction:', { tx, parsed: txAmountNum });
+          continue;
+        }
+        
+        const txAmount = tokenInfo.isNative 
+          ? ethers.parseEther(txAmountString)
+          : ethers.parseUnits(txAmountString, tokenInfo.decimals || 18);
           total += BigInt(txAmount);
         }
       }
@@ -469,9 +521,29 @@ export class OfflineSecurityService {
       
       // Add current transaction amount to pending
       const currentPending = BigInt(tracking.pendingAmount);
+      
+      // Validate amount before parsing (amount should already be validated, but double-check)
+      if (!amount || typeof amount !== 'string') {
+        logger.warn('[OfflineSecurity] Invalid amount in updateOfflineBalanceTracking:', { amount });
+        return;
+      }
+      
+      const amountString = amount.trim();
+      if (amountString === '') {
+        logger.warn('[OfflineSecurity] Empty amount in updateOfflineBalanceTracking');
+        return;
+      }
+      
+      // Validate amount is a valid number
+      const amountNum = parseFloat(amountString);
+      if (isNaN(amountNum) || amountNum <= 0) {
+        logger.warn('[OfflineSecurity] Invalid amount in updateOfflineBalanceTracking:', { amount, parsed: amountNum });
+        return;
+      }
+      
       const newAmount = tokenInfo.isNative 
-        ? ethers.parseEther(amount)
-        : ethers.parseUnits(amount, tokenInfo.decimals || 18);
+        ? ethers.parseEther(amountString)
+        : ethers.parseUnits(amountString, tokenInfo.decimals || 18);
       
       tracking.pendingAmount = (currentPending + BigInt(newAmount)).toString();
       tracking.lastUpdated = Date.now();
@@ -509,9 +581,29 @@ export class OfflineSecurityService {
       
       // Subtract processed transaction amount from pending
       const currentPending = BigInt(tracking.pendingAmount);
+      
+      // Validate amount before parsing (amount should already be validated, but double-check)
+      if (!amount || typeof amount !== 'string') {
+        logger.warn('[OfflineSecurity] Invalid amount in clearOfflineBalanceTracking:', { amount });
+        return;
+      }
+      
+      const amountString = amount.trim();
+      if (amountString === '') {
+        logger.warn('[OfflineSecurity] Empty amount in clearOfflineBalanceTracking');
+        return;
+      }
+      
+      // Validate amount is a valid number
+      const amountNum = parseFloat(amountString);
+      if (isNaN(amountNum) || amountNum <= 0) {
+        logger.warn('[OfflineSecurity] Invalid amount in clearOfflineBalanceTracking:', { amount, parsed: amountNum });
+        return;
+      }
+      
       const processedAmount = tokenInfo.isNative 
-        ? ethers.parseEther(amount)
-        : ethers.parseUnits(amount, tokenInfo.decimals || 18);
+        ? ethers.parseEther(amountString)
+        : ethers.parseUnits(amountString, tokenInfo.decimals || 18);
       
       const newPending = currentPending - BigInt(processedAmount);
       tracking.pendingAmount = newPending > 0 ? newPending.toString() : '0';

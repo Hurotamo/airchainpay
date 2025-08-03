@@ -43,7 +43,7 @@ RUN useradd -r -s /bin/false relay
 WORKDIR /usr/local/bin
 
 # Copy binary from builder stage
-COPY --from=builder /usr/src/app/target/release/airchainpa-relay .
+COPY --from=builder /usr/src/app/target/release/airchainpay-relay .
 
 # Create data directory
 RUN mkdir -p /usr/local/bin/data && chown relay:relay /usr/local/bin/data

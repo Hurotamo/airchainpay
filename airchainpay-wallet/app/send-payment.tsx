@@ -127,8 +127,25 @@ export default function SendPaymentScreen() {
     token?: string;
   }>();
 
+  // Validate and sanitize amount from URL params
+  const validateAmount = (amountParam: string | undefined): string => {
+    if (!amountParam) return '';
+    
+    const trimmed = amountParam.trim();
+    if (trimmed === '') return '';
+    
+    // Check if it's a valid number
+    const num = parseFloat(trimmed);
+    if (isNaN(num) || num <= 0) {
+      logger.warn('[SendPayment] Invalid amount in URL params:', { amountParam, parsed: num });
+      return '';
+    }
+    
+    return trimmed;
+  };
+
   const [recipient, setRecipient] = useState(params.address || '');
-  const [amount, setAmount] = useState(params.amount || '');
+  const [amount, setAmount] = useState(validateAmount(params.amount));
   const [reference, setReference] = useState('');
   const [selectedToken, setSelectedToken] = useState<TokenInfo | null>(null);
   const [selectedChain, setSelectedChain] = useState(params.chainId || 'base_sepolia');
@@ -278,10 +295,30 @@ export default function SendPaymentScreen() {
   };
 
   const handleSendPayment = async () => {
-    if (!recipient || !amount) {
-      Alert.alert('Error', 'Recipient address and amount are required');
+    // Enhanced validation
+    if (!recipient) {
+      Alert.alert('Error', 'Recipient address is required');
       return;
     }
+    
+    if (!amount || amount.trim() === '') {
+      Alert.alert('Error', 'Amount is required');
+      return;
+    }
+    
+    // Validate amount is a valid number
+    const amountNum = parseFloat(amount.trim());
+    if (isNaN(amountNum) || amountNum <= 0) {
+      Alert.alert('Error', `Invalid amount: ${amount}. Please enter a valid positive number.`);
+      return;
+    }
+    
+    logger.info('[SendPayment] Validating payment request', {
+      recipient,
+      amount: amount.trim(),
+      amountNum,
+      selectedToken
+    });
 
     if (!selectedToken) {
       Alert.alert('Error', 'Please select a token to send');
@@ -299,15 +336,23 @@ export default function SendPaymentScreen() {
       // Set transport as the string literal 'onchain'
       const transport: 'onchain' = 'onchain';
 
-      // Build payment request
+      // Build payment request with validated amount
+      const validatedAmount = amount.trim();
       const paymentRequest: PaymentRequest = {
         to: recipient,
-        amount: amount,
+        amount: validatedAmount,
         chainId: selectedToken.chainId,
         transport,
         token: selectedToken,
         paymentReference: reference || undefined,
       };
+      
+      logger.info('[SendPayment] Sending payment request', {
+        to: recipient,
+        amount: validatedAmount,
+        chainId: selectedToken.chainId,
+        tokenSymbol: selectedToken.symbol
+      });
 
       // If you need to sign a transaction, handle it in the PaymentService or elsewhere as needed.
 

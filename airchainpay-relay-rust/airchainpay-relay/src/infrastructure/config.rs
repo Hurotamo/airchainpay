@@ -602,7 +602,7 @@ impl Config {
         chains.insert(1114, ChainConfig {
             name: "Core Testnet 2".to_string(),
             rpc_url: env::var("CORE_TESTNET2_RPC_URL").unwrap_or_else(|_| "https://rpc.test2.btcs.network".to_string()),
-            contract_address: env::var("CORE_TESTNET2_CONTRACT_ADDRESS").unwrap_or_else(|_| "".to_string()),
+            contract_address: env::var("CORE_TESTNET2_CONTRACT_ADDRESS").unwrap_or_else(|_| "0xcE2D2A50DaA794c12d079F2E2E2aF656ebB981fF".to_string()),
             explorer: env::var("CORE_TESTNET2_BLOCK_EXPLORER").unwrap_or_else(|_| "https://scan.test2.btcs.network".to_string()),
             currency_symbol: Some(env::var("CORE_TESTNET2_CURRENCY_SYMBOL").unwrap_or_else(|_| "TCORE2".to_string())),
             max_gas_limit: None,
@@ -612,9 +612,27 @@ impl Config {
         chains.insert(84532, ChainConfig {
             name: "Base Sepolia Testnet".to_string(),
             rpc_url: env::var("BASE_SEPOLIA_RPC_URL").unwrap_or_else(|_| "https://sepolia.base.org".to_string()),
-            contract_address: env::var("BASE_SEPOLIA_CONTRACT_ADDRESS").unwrap_or_else(|_| "".to_string()),
+            contract_address: env::var("BASE_SEPOLIA_CONTRACT_ADDRESS").unwrap_or_else(|_| "0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB".to_string()),
             explorer: env::var("BASE_SEPOLIA_BLOCK_EXPLORER").unwrap_or_else(|_| "https://sepolia.basescan.org".to_string()),
             currency_symbol: Some(env::var("BASE_SEPOLIA_CURRENCY_SYMBOL").unwrap_or_else(|_| "ETH".to_string())),
+            max_gas_limit: None,
+        });
+        
+        chains.insert(4202, ChainConfig {
+            name: "Lisk Sepolia Testnet".to_string(),
+            rpc_url: env::var("LISK_SEPOLIA_RPC_URL").unwrap_or_else(|_| "https://rpc.sepolia.lisk.com".to_string()),
+            contract_address: env::var("LISK_SEPOLIA_CONTRACT_ADDRESS").unwrap_or_else(|_| "0xaBEEEc6e6c1f6bfDE1d05db74B28847Ba5b44EAF".to_string()),
+            explorer: env::var("LISK_SEPOLIA_BLOCK_EXPLORER").unwrap_or_else(|_| "https://sepolia.lisk.com".to_string()),
+            currency_symbol: Some(env::var("LISK_SEPOLIA_CURRENCY_SYMBOL").unwrap_or_else(|_| "LSK".to_string())),
+            max_gas_limit: None,
+        });
+        
+        chains.insert(17000, ChainConfig {
+            name: "Ethereum Holesky Testnet".to_string(),
+            rpc_url: env::var("HOLESKY_RPC_URL").unwrap_or_else(|_| "https://ethereum-holesky.publicnode.com".to_string()),
+            contract_address: env::var("HOLESKY_CONTRACT_ADDRESS").unwrap_or_else(|_| "0x26C59cd738Df90604Ebb13Ed8DB76657cfD51f40".to_string()),
+            explorer: env::var("HOLESKY_BLOCK_EXPLORER").unwrap_or_else(|_| "https://holesky.etherscan.io".to_string()),
+            currency_symbol: Some(env::var("HOLESKY_CURRENCY_SYMBOL").unwrap_or_else(|_| "ETH".to_string())),
             max_gas_limit: None,
         });
         

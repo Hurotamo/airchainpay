@@ -92,6 +92,84 @@ export class PaymentService {
   }
 
   /**
+   * Preview transaction before sending
+   */
+  async previewTransaction(request: PaymentRequest): Promise<{
+    isValid: boolean;
+    estimatedGas?: string;
+    gasPrice?: string;
+    totalCost?: string;
+    balance?: string;
+    errors: string[];
+    warnings: string[];
+    transport: string;
+  }> {
+    try {
+      logger.info('[PaymentService] Previewing transaction', {
+        to: request.to,
+        amount: request.amount,
+        chainId: request.chainId,
+        transport: request.transport
+      });
+
+      // Validate payment request
+      this.validatePaymentRequest(request);
+
+      // Route to appropriate transport for preview
+      switch (request.transport) {
+        case 'onchain':
+          const onchainPreview = await this.onChainTransport.previewTransaction(request);
+          return {
+            ...onchainPreview,
+            transport: 'onchain'
+          };
+          
+        case 'relay':
+          // For relay, we can't preview without actually sending
+          return {
+            isValid: true,
+            errors: [],
+            warnings: ['Relay transactions cannot be previewed without sending'],
+            transport: 'relay'
+          };
+          
+        case 'ble':
+        case 'secure_ble':
+          return {
+            isValid: true,
+            errors: [],
+            warnings: ['BLE transactions are processed offline'],
+            transport: request.transport
+          };
+          
+        case 'qr':
+          return {
+            isValid: true,
+            errors: [],
+            warnings: ['QR transactions are processed offline'],
+            transport: 'qr'
+          };
+          
+        default:
+          return {
+            isValid: false,
+            errors: [`Unsupported transport: ${request.transport}`],
+            warnings: [],
+            transport: request.transport
+          };
+      }
+    } catch (error: unknown) {
+      logger.error('[PaymentService] Preview failed:', error);
+      return {
+        isValid: false,
+        errors: [`Preview failed: ${error instanceof Error ? error.message : String(error)}`],
+        warnings: [],
+        transport: request.transport
+      };
+    }
+  }
+
+  /**
    * Send payment using the proper flow:
    * - If user has internet: transaction -> relay -> blockchain
    * - If user doesn't have internet: transaction -> queued -> relay -> blockchain
@@ -256,15 +334,50 @@ export class PaymentService {
       logger.info('[PaymentService] Signing transaction for relay', {
         to: request.to,
         amount: request.amount,
-        chainId: request.chainId
+        amountType: typeof request.amount,
+        chainId: request.chainId,
+        tokenInfo: request.token
       });
 
-      // Create transaction object
+      // Validate amount before parsing
+      if (!request.amount || typeof request.amount !== 'string') {
+        throw new Error(`Invalid amount: ${request.amount}. Must be a non-empty string.`);
+      }
+
+      const amountString = request.amount.trim();
+      if (amountString === '') {
+        throw new Error('Amount cannot be empty');
+      }
+      
+      // Check if the original amount was actually NaN
+      if (typeof request.amount === 'number' && isNaN(request.amount)) {
+        throw new Error('Amount is NaN (number)');
+      }
+      
+      // Additional validation to catch NaN early
+      if (amountString === 'NaN' || amountString === 'undefined' || amountString === 'null') {
+        throw new Error(`Invalid amount string: ${amountString}`);
+      }
+
+      // Validate amount is a valid number
+      const amountNum = parseFloat(amountString);
+      if (isNaN(amountNum) || amountNum <= 0) {
+        throw new Error(`Invalid amount: ${amountString}. Must be a positive number.`);
+      }
+
+      logger.info('[PaymentService] Amount validation passed', {
+        originalAmount: amountString,
+        parsedAmount: amountNum,
+        tokenDecimals: request.token?.decimals || 18,
+        isNative: request.token?.isNative
+      });
+
+      // Create transaction object with validated amount
       const transaction = {
         to: request.to,
         value: request.token?.isNative 
-          ? ethers.parseEther(request.amount) 
-          : ethers.parseUnits(request.amount, request.token?.decimals || 18),
+          ? ethers.parseEther(amountString) 
+          : ethers.parseUnits(amountString, request.token?.decimals || 18),
         data: request.paymentReference 
           ? ethers.hexlify(ethers.toUtf8Bytes(request.paymentReference)) 
           : undefined

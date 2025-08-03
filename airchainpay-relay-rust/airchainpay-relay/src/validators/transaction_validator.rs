@@ -164,13 +164,16 @@ impl TransactionValidator {
     fn validate_gas_limits(&self, signed_tx: &str, chain_id: u64) -> Result<()> {
         // Set chain-specific default max gas limits
         // Base (ETH): much lower, Core (non-ETH): higher
-        let base_eth_chain_ids = [84532u64]; // Add more Base/ETH chain IDs as needed
-        let core_chain_ids = [1114u64];     // Add more Core chain IDs as needed
+        let base_eth_chain_ids = [84532u64, 17000u64]; // Base Sepolia, Ethereum Holesky
+        let core_chain_ids = [1114u64];     // Core Testnet
+        let lisk_chain_ids = [4202u64];     // Lisk Sepolia
 
         let default_max_gas_limit: u64 = if base_eth_chain_ids.contains(&chain_id) {
-            500_000 // Cheaper, lower limit for Base/ETH
+            500_000 // Cheaper, lower limit for Base/ETH chains
         } else if core_chain_ids.contains(&chain_id) {
             2_000_000 // Reasonable limit for Core
+        } else if lisk_chain_ids.contains(&chain_id) {
+            1_500_000 // Moderate limit for Lisk
         } else {
             1_000_000 // Fallback for unknown chains
         };

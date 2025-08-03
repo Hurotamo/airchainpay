@@ -268,7 +268,38 @@ export class MetaTransactionService {
     tokenAddress?: string,
     paymentReference?: string
   ): MetaTransactionRequest {
-    const amountBigInt = ethers.parseUnits(amount, 18); // Default to 18 decimals
+    // Validate amount before parsing
+    if (!amount || typeof amount !== 'string') {
+      throw new Error(`Invalid amount: ${amount}. Must be a non-empty string.`);
+    }
+    
+    const amountString = amount.trim();
+    if (amountString === '') {
+      throw new Error('Amount cannot be empty');
+    }
+    
+    // Check if the original amount was actually NaN
+    if (typeof amount === 'number' && isNaN(amount)) {
+      throw new Error('Amount is NaN (number)');
+    }
+    
+    // Additional validation to catch NaN early
+    if (amountString === 'NaN' || amountString === 'undefined' || amountString === 'null') {
+      throw new Error(`Invalid amount string: ${amountString}`);
+    }
+    
+    // Validate amount is a valid number
+    const amountNum = parseFloat(amountString);
+    if (isNaN(amountNum) || amountNum <= 0) {
+      throw new Error(`Invalid amount: ${amountString}. Must be a positive number.`);
+    }
+    
+    logger.info('[MetaTransaction] Amount validation passed', {
+      originalAmount: amountString,
+      parsedAmount: amountNum
+    });
+
+    const amountBigInt = ethers.parseUnits(amountString, 18); // Default to 18 decimals
     const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
     
     return {

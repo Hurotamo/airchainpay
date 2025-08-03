@@ -84,11 +84,44 @@ export class CrossWalletSecurityService {
       const externalActivity = await this.detectExternalWalletActivity(chainId);
       const externalPending = this.calculateExternalPending(externalActivity.externalTransactions);
       
+      // Validate amount before parsing
+      if (!amount || typeof amount !== 'string') {
+        throw new Error(`Invalid amount: ${amount}. Must be a non-empty string.`);
+      }
+      
+      const amountString = amount.trim();
+      if (amountString === '') {
+        throw new Error('Amount cannot be empty');
+      }
+      
+      // Check if the original amount was actually NaN
+      if (typeof amount === 'number' && isNaN(amount)) {
+        throw new Error('Amount is NaN (number)');
+      }
+      
+      // Additional validation to catch NaN early
+      if (amountString === 'NaN' || amountString === 'undefined' || amountString === 'null') {
+        throw new Error(`Invalid amount string: ${amountString}`);
+      }
+      
+      // Validate amount is a valid number
+      const amountNum = parseFloat(amountString);
+      if (isNaN(amountNum) || amountNum <= 0) {
+        throw new Error(`Invalid amount: ${amountString}. Must be a positive number.`);
+      }
+      
+      logger.info('[CrossWallet] Amount validation passed', {
+        originalAmount: amountString,
+        parsedAmount: amountNum,
+        tokenDecimals: tokenInfo.decimals || 18,
+        isNative: tokenInfo.isNative
+      });
+
       // Calculate truly available balance
       const availableBalance = BigInt(realTimeBalance) - airchainpayPending - BigInt(externalPending);
       const requiredAmount = tokenInfo.isNative 
-        ? ethers.parseEther(amount)
-        : ethers.parseUnits(amount, tokenInfo.decimals || 18);
+        ? ethers.parseEther(amountString)
+        : ethers.parseUnits(amountString, tokenInfo.decimals || 18);
 
       logger.info('[CrossWallet] Balance calculation', {
         realTimeBalance,

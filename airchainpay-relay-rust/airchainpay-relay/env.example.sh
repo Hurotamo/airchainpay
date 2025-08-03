@@ -27,6 +27,18 @@ export BASE_SEPOLIA_CONTRACT_ADDRESS=your_contract_address_here
 export BASE_SEPOLIA_BLOCK_EXPLORER=https://sepolia.basescan.org
 export BASE_SEPOLIA_CURRENCY_SYMBOL=ETH
 
+# Lisk Sepolia Configuration (New)
+export LISK_SEPOLIA_RPC_URL=https://rpc.sepolia.lisk.com
+export LISK_SEPOLIA_CONTRACT_ADDRESS=your_contract_address_here
+export LISK_SEPOLIA_BLOCK_EXPLORER=https://sepolia.lisk.com
+export LISK_SEPOLIA_CURRENCY_SYMBOL=LSK
+
+# Ethereum Holesky Configuration (New)
+export HOLESKY_RPC_URL=https://ethereum-holesky.publicnode.com
+export HOLESKY_CONTRACT_ADDRESS=your_contract_address_here
+export HOLESKY_BLOCK_EXPLORER=https://holesky.etherscan.io
+export HOLESKY_CURRENCY_SYMBOL=ETH
+
 # Security
 export API_KEY=your_api_key_here
 export JWT_SECRET=your_jwt_secret_here
@@ -53,4 +65,6 @@ export ENABLE_ALERTING=false
 
 echo "Environment variables loaded for AirChainPay Relay Server"
 echo "Primary Network: Core Testnet 2 (Chain ID: 1114)"
-echo "Secondary Network: Base Sepolia (Chain ID: 84532)" 
+echo "Secondary Network: Base Sepolia (Chain ID: 84532)"
+echo "New Network: Lisk Sepolia (Chain ID: 4202)"
+echo "New Network: Ethereum Holesky (Chain ID: 17000)" 

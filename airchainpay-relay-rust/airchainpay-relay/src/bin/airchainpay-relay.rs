@@ -17,10 +17,7 @@ use airchainpay_relay::middleware::error_handling::ErrorHandlingMiddleware;
 use airchainpay_relay::middleware::rate_limiting::RateLimitingMiddleware;
 use airchainpay_relay::middleware::ComprehensiveSecurityMiddleware;
 use airchainpay_relay::api::*;
-use airchainpay_relay::api::handlers::transaction::{
-    validate_inputs, simple_send_tx, get_transaction_details, 
-    get_transaction_status, get_user_transactions, get_supported_chains, get_chain_info, get_transaction_by_hash
-};
+use airchainpay_relay::api::handlers::transaction::validate_inputs;
 use airchainpay_relay::utils::animated_ascii;
 use std::env;
 
@@ -47,8 +44,6 @@ async fn main() -> std::io::Result<()> {
     
     // Initialize auth manager
     let auth_manager = Arc::new(AuthManager::new());
-    
-
     
     // Initialize monitoring manager
     let monitoring_manager = Arc::new(MonitoringManager::new());
@@ -97,6 +92,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(Arc::clone(&audit_logger)))
             .app_data(web::Data::new(Arc::clone(&transaction_processor)))
             .app_data(web::Data::new(Arc::clone(&config_manager)))
+            .app_data(web::Data::new(Arc::clone(&error_handler)))
             // Health endpoints (no custom middleware)
             .service(health)
             .service(detailed_health)
@@ -124,6 +120,7 @@ async fn main() -> std::io::Result<()> {
                     .service(submit_transaction)
                     .service(legacy_submit_transaction)
                     .service(test_transaction)
+                    .service(simple_send_tx)
                     .service(create_backup)
                     .service(restore_backup)
                     .service(list_backups)
@@ -156,14 +153,7 @@ async fn main() -> std::io::Result<()> {
                     .service(update_configuration_field)
                     .service(save_configuration_to_file)
                     .service(process_transaction)
-                    .service(simple_send_tx)
                     .service(get_transactions)
-                    .service(get_transaction_details)
-                    .service(get_transaction_status)
-                    .service(get_user_transactions)
-                    .service(get_transaction_by_hash)
-                    .service(get_supported_chains)
-                    .service(get_chain_info)
                     .service(get_metrics)
                     .service(get_devices)
                     .service(validate_inputs)
@@ -172,4 +162,4 @@ async fn main() -> std::io::Result<()> {
     .bind(("0.0.0.0", port))?
     .run()
     .await
-}
+} 

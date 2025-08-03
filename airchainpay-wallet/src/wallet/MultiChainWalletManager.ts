@@ -852,7 +852,126 @@ export class MultiChainWalletManager {
       }
 
       const connectedWallet = wallet.connect(provider);
-      const amountBigInt = ethers.parseUnits(amount, tokenInfo?.decimals || 18);
+      
+      // Enhanced amount validation and debugging
+      logger.info('[MultiChain] sendTokenTransaction input validation', {
+        amount,
+        amountType: typeof amount,
+        amountLength: amount ? amount.length : 0,
+        amountIsNaN: isNaN(Number(amount)),
+        amountParseFloat: parseFloat(String(amount || '')),
+        to,
+        chainId,
+        tokenInfo
+      });
+      
+      // Validate amount
+      if (!amount || amount.trim() === '') {
+        throw new Error('Amount is required');
+      }
+      
+      // Ensure amount is a string
+      const amountString = String(amount).trim();
+      
+      // Additional validation to catch NaN early
+      if (amountString === 'NaN' || amountString === 'undefined' || amountString === 'null') {
+        throw new Error(`Invalid amount string: ${amountString}`);
+      }
+      
+      // Check if the original amount was actually NaN
+      if (typeof amount === 'number' && isNaN(amount)) {
+        throw new Error('Amount is NaN (number)');
+      }
+      
+      // Validate amount is a valid number
+      const amountNum = parseFloat(amountString);
+      if (isNaN(amountNum) || amountNum <= 0) {
+        throw new Error(`Invalid amount: ${amountString}. Must be a positive number.`);
+      }
+      
+      // Convert amount from base units to smallest units (e.g., ETH to wei)
+      // The amount parameter is expected to be in base units (e.g., "10" for 10 ETH)
+      const decimals = tokenInfo?.decimals || 18;
+      
+      logger.info('[MultiChain] Converting amount', {
+        originalAmount: amountString,
+        decimals,
+        tokenSymbol: tokenInfo?.symbol || 'native'
+      });
+      
+      let amountBigInt: bigint;
+      
+      // Ensure both parameters are in the correct format for ethers v6
+      const amountForParseUnits = String(amountString);
+      const decimalsForParseUnits = Number(decimals);
+      
+      logger.info('[MultiChain] Final parameters for parseUnits', {
+        amountForParseUnits,
+        amountForParseUnitsType: typeof amountForParseUnits,
+        decimalsForParseUnits,
+        decimalsForParseUnitsType: typeof decimalsForParseUnits
+      });
+      
+      try {
+        // Ensure amountString is a valid string before passing to parseUnits
+        if (typeof amountString !== 'string' || amountString === '') {
+          throw new Error(`Invalid amount string: ${amountString}`);
+        }
+        
+        // Additional validation to ensure the string is a valid number
+        const testParse = parseFloat(amountString);
+        if (isNaN(testParse)) {
+          throw new Error(`Amount string "${amountString}" cannot be parsed as a number`);
+        }
+        
+        // Ensure decimals is a valid number
+        if (typeof decimals !== 'number' || isNaN(decimals) || decimals < 0) {
+          throw new Error(`Invalid decimals value: ${decimals}`);
+        }
+        
+        logger.info('[MultiChain] About to call parseUnits', {
+          amountString,
+          amountStringType: typeof amountString,
+          amountStringLength: amountString.length,
+          amountStringIsNaN: amountString === 'NaN',
+          decimals,
+          decimalsType: typeof decimals,
+          decimalsIsNaN: isNaN(decimals),
+          amountForParseUnits,
+          amountForParseUnitsType: typeof amountForParseUnits,
+          decimalsForParseUnits,
+          decimalsForParseUnitsType: typeof decimalsForParseUnits
+        });
+        
+        // Final validation before parseUnits
+        if (amountForParseUnits === 'NaN' || amountForParseUnits === 'undefined' || amountForParseUnits === 'null') {
+          throw new Error(`Invalid amount for parseUnits: ${amountForParseUnits}`);
+        }
+        
+        if (isNaN(decimalsForParseUnits) || decimalsForParseUnits < 0) {
+          throw new Error(`Invalid decimals for parseUnits: ${decimalsForParseUnits}`);
+        }
+        
+        amountBigInt = ethers.parseUnits(amountForParseUnits, decimalsForParseUnits);
+        logger.info('[MultiChain] Amount converted successfully', {
+          originalAmount: amountString,
+          convertedAmount: amountBigInt.toString(),
+          decimals
+        });
+      } catch (error) {
+        logger.error('[MultiChain] Failed to parse amount', {
+          amountString,
+          amountStringType: typeof amountString,
+          decimals,
+          decimalsType: typeof decimals,
+          amountForParseUnits,
+          amountForParseUnitsType: typeof amountForParseUnits,
+          decimalsForParseUnits,
+          decimalsForParseUnitsType: typeof decimalsForParseUnits,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        throw new Error(`Failed to parse amount "${amountString}" with ${decimals} decimals: ${error instanceof Error ? error.message : String(error)}`);
+      }
 
       let transaction: ethers.TransactionResponse;
 
@@ -861,6 +980,8 @@ export class MultiChainWalletManager {
         logger.info('[MultiChain] Sending native token meta-transaction', {
           to,
           amount: amountBigInt.toString(),
+          amountBigIntType: typeof amountBigInt,
+          amountBigIntIsValid: amountBigInt > 0n,
           chainId
         });
 
@@ -875,6 +996,8 @@ export class MultiChainWalletManager {
         logger.info('[MultiChain] Sending ERC-20 token meta-transaction', {
           to,
           amount: amountBigInt.toString(),
+          amountBigIntType: typeof amountBigInt,
+          amountBigIntIsValid: amountBigInt > 0n,
           tokenAddress: tokenInfo.address,
           chainId
         });
@@ -934,6 +1057,15 @@ export class MultiChainWalletManager {
     // Create deadline (1 hour from now)
     const deadline = Math.floor(Date.now() / 1000) + 3600;
     
+    logger.info('[MultiChain] Native meta-transaction parameters', {
+      walletAddress: wallet.address,
+      to,
+      amount: amount.toString(),
+      deadline,
+      currentTime: Math.floor(Date.now() / 1000),
+      timeUntilDeadline: deadline - Math.floor(Date.now() / 1000)
+    });
+    
     // Create payment reference
     const paymentReference = `Payment from ${wallet.address} to ${to} at ${Date.now()}`;
 
@@ -949,7 +1081,18 @@ export class MultiChainWalletManager {
       chainId
     );
 
-    // Execute meta-transaction
+    // Execute meta-transaction with validation
+    logger.info('[MultiChain] Executing native meta-transaction', {
+      walletAddress: wallet.address,
+      to,
+      amount: amount.toString(),
+      amountType: typeof amount,
+      amountIsValid: amount > 0n,
+      paymentReference,
+      deadline,
+      signatureLength: signature.length
+    });
+    
     const tx = await contract.executeNativeMetaTransaction(
       wallet.address,
       to,
@@ -989,10 +1132,32 @@ export class MultiChainWalletManager {
     // Create deadline (1 hour from now)
     const deadline = Math.floor(Date.now() / 1000) + 3600;
     
+    logger.info('[MultiChain] Token meta-transaction parameters', {
+      walletAddress: wallet.address,
+      to,
+      tokenAddress,
+      amount: amount.toString(),
+      deadline,
+      currentTime: Math.floor(Date.now() / 1000),
+      timeUntilDeadline: deadline - Math.floor(Date.now() / 1000)
+    });
+    
     // Create payment reference
     const paymentReference = `Token payment from ${wallet.address} to ${to} at ${Date.now()}`;
 
     // Create signature
+    logger.info('[MultiChain] About to create token meta-transaction signature', {
+      walletAddress: wallet.address,
+      to,
+      tokenAddress,
+      amount: amount.toString(),
+      paymentReference,
+      nonce: nonce.toString(),
+      deadline,
+      contractAddress,
+      chainId
+    });
+    
     const signature = await this.createTokenMetaTransactionSignature(
       wallet.address,
       to,
@@ -1004,8 +1169,35 @@ export class MultiChainWalletManager {
       contractAddress,
       chainId
     );
+    
+    logger.info('[MultiChain] Token meta-transaction signature created', {
+      signatureLength: signature.length,
+      signaturePrefix: signature.slice(0, 10) + '...'
+    });
 
-    // Execute meta-transaction
+    // Execute meta-transaction with validation
+    logger.info('[MultiChain] Executing token meta-transaction', {
+      walletAddress: wallet.address,
+      to,
+      tokenAddress,
+      amount: amount.toString(),
+      amountType: typeof amount,
+      amountIsValid: amount > 0n,
+      paymentReference,
+      deadline,
+      signatureLength: signature.length
+    });
+    
+    logger.info('[MultiChain] About to call contract.executeTokenMetaTransaction', {
+      walletAddress: wallet.address,
+      to,
+      tokenAddress,
+      amount: amount.toString(),
+      paymentReference,
+      deadline,
+      signatureLength: signature.length
+    });
+    
     const tx = await contract.executeTokenMetaTransaction(
       wallet.address,
       to,
@@ -1015,6 +1207,11 @@ export class MultiChainWalletManager {
       deadline,
       signature
     );
+    
+    logger.info('[MultiChain] Contract call successful', {
+      txHash: tx.hash,
+      txType: typeof tx
+    });
 
     return tx;
   }
@@ -1038,10 +1235,25 @@ export class MultiChainWalletManager {
       throw new Error('Unsupported wallet type for signature creation');
     }
 
+    // Get the correct chainId number from chain configuration
+    const chain = SUPPORTED_CHAINS[chainId];
+    if (!chain) {
+      throw new Error(`Unsupported chain: ${chainId}`);
+    }
+    
+    logger.info('[MultiChain] Creating native meta-transaction signature', {
+      from,
+      to,
+      amount: amount.toString(),
+      chainId: chainId,
+      chainIdNumber: chain.chainId,
+      contractAddress
+    });
+
     const domain = {
       name: 'AirChainPayToken',
       version: '1',
-      chainId: parseInt(chainId),
+      chainId: chain.chainId,
       verifyingContract: contractAddress
     };
 
@@ -1088,10 +1300,26 @@ export class MultiChainWalletManager {
       throw new Error('Unsupported wallet type for signature creation');
     }
 
+    // Get the correct chainId number from chain configuration
+    const chain = SUPPORTED_CHAINS[chainId];
+    if (!chain) {
+      throw new Error(`Unsupported chain: ${chainId}`);
+    }
+    
+    logger.info('[MultiChain] Creating token meta-transaction signature', {
+      from,
+      to,
+      token,
+      amount: amount.toString(),
+      chainId: chainId,
+      chainIdNumber: chain.chainId,
+      contractAddress
+    });
+
     const domain = {
       name: 'AirChainPayToken',
       version: '1',
-      chainId: parseInt(chainId),
+      chainId: chain.chainId,
       verifyingContract: contractAddress
     };
 

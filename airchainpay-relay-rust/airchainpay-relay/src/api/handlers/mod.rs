@@ -43,4 +43,7 @@ pub use transaction::{
     get_transactions,
     get_metrics,
     get_devices,
+    test_transaction,
+    simple_send_tx,
+    get_transaction_details,
 };
