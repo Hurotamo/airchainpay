@@ -404,10 +404,13 @@ impl DynamicConfigManager {
 
 impl Config {
     pub fn new() -> Result<Self> {
-        let env = env::var("RUST_ENV").unwrap_or_else(|_| "development".to_string());
+        let env = Self::validate_and_get_env_var("RUST_ENV", "development", false)?;
         
         // Load environment variables
         dotenv::dotenv().ok();
+        
+        // Validate critical environment variables on startup
+        Self::validate_startup_env_vars()?;
         
         // Try to load from config file first
         if let Ok(config) = Self::load_from_file() {
@@ -426,6 +429,59 @@ impl Config {
         config.validate()?;
         
         Ok(config)
+    }
+    
+    /// Validates critical environment variables on startup
+    fn validate_startup_env_vars() -> Result<()> {
+        let mut errors = Vec::new();
+        
+        // Check for required environment variables based on environment
+        let env = env::var("RUST_ENV").unwrap_or_else(|_| "development".to_string());
+        
+        match env.as_str() {
+            "production" => {
+                let required_vars = [
+                    "RPC_URL",
+                    "CHAIN_ID", 
+                    "CONTRACT_ADDRESS",
+                    "API_KEY",
+                    "JWT_SECRET"
+                ];
+                
+                for var in &required_vars {
+                    if let Err(_) = env::var(var) {
+                        errors.push(format!("Required environment variable {} is not set for production", var));
+                    } else if env::var(var).unwrap().is_empty() {
+                        errors.push(format!("Required environment variable {} is empty for production", var));
+                    }
+                }
+            }
+            "staging" => {
+                let required_vars = ["API_KEY", "JWT_SECRET"];
+                
+                for var in &required_vars {
+                    if let Err(_) = env::var(var) {
+                        errors.push(format!("Required environment variable {} is not set for staging", var));
+                    } else if env::var(var).unwrap().is_empty() {
+                        errors.push(format!("Required environment variable {} is empty for staging", var));
+                    }
+                }
+            }
+            _ => {
+                // Development environment - no required vars, but validate if present
+                if let Ok(contract_addr) = env::var("CONTRACT_ADDRESS") {
+                    if !contract_addr.is_empty() && !Self::is_valid_hex_address(&contract_addr) {
+                        errors.push(format!("Invalid CONTRACT_ADDRESS format: '{}'. Expected: 0x followed by 40 hex characters", contract_addr));
+                    }
+                }
+            }
+        }
+        
+        if !errors.is_empty() {
+            return Err(anyhow!("Environment validation failed:\n{}", errors.join("\n")));
+        }
+        
+        Ok(())
     }
     
     fn load_from_file() -> Result<Self> {
@@ -595,44 +651,217 @@ impl Config {
         })
     }
     
+    /// Validates if a string is a valid hex address (0x followed by 40 hex characters)
+    pub fn is_valid_hex_address(address: &str) -> bool {
+        if !address.starts_with("0x") {
+            return false;
+        }
+        
+        let hex_part = &address[2..];
+        if hex_part.len() != 40 {
+            return false;
+        }
+        
+        hex_part.chars().all(|c| c.is_ascii_hexdigit())
+    }
+    
+    /// Validates environment variables and provides fallback values
+    pub fn validate_and_get_env_var(key: &str, fallback: &str, required: bool) -> Result<String> {
+        match env::var(key) {
+            Ok(value) => {
+                if value.is_empty() {
+                    if required {
+                        return Err(anyhow!("Environment variable {} is required but empty", key));
+                    }
+                    Ok(fallback.to_string())
+                } else {
+                    Ok(value)
+                }
+            }
+            Err(_) => {
+                if required {
+                    return Err(anyhow!("Required environment variable {} is not set", key));
+                }
+                Ok(fallback.to_string())
+            }
+        }
+    }
+    
+    /// Validates contract addresses and provides fallback values
+    pub fn validate_contract_address(env_key: &str, fallback: &str, chain_name: &str) -> Result<String> {
+        let address = Self::validate_and_get_env_var(env_key, fallback, false)?;
+        
+        if !Self::is_valid_hex_address(&address) {
+            return Err(anyhow!(
+                "Invalid contract address for {}: '{}'. Expected format: 0x followed by 40 hex characters",
+                chain_name,
+                address
+            ));
+        }
+        
+        Ok(address)
+    }
+    
     fn get_supported_chains() -> HashMap<u64, ChainConfig> {
         let mut chains = HashMap::new();
         
         // Core Testnet 2 (Primary)
+        let core_testnet2_address = Self::validate_contract_address(
+            "CORE_TESTNET2_CONTRACT_ADDRESS",
+            "0xcE2D2A50DaA794c12d079F2E2E2aF656ebB981fF",
+            "Core Testnet 2"
+        ).unwrap_or_else(|e| {
+            eprintln!("Warning: {}", e);
+            "0xcE2D2A50DaA794c12d079F2E2E2aF656ebB981fF".to_string()
+        });
+        
         chains.insert(1114, ChainConfig {
             name: "Core Testnet 2".to_string(),
-            rpc_url: env::var("CORE_TESTNET2_RPC_URL").unwrap_or_else(|_| "https://rpc.test2.btcs.network".to_string()),
-            contract_address: env::var("CORE_TESTNET2_CONTRACT_ADDRESS").unwrap_or_else(|_| "0xcE2D2A50DaA794c12d079F2E2E2aF656ebB981fF".to_string()),
-            explorer: env::var("CORE_TESTNET2_BLOCK_EXPLORER").unwrap_or_else(|_| "https://scan.test2.btcs.network".to_string()),
-            currency_symbol: Some(env::var("CORE_TESTNET2_CURRENCY_SYMBOL").unwrap_or_else(|_| "TCORE2".to_string())),
+            rpc_url: Self::validate_and_get_env_var(
+                "CORE_TESTNET2_RPC_URL",
+                "https://rpc.test2.btcs.network",
+                false
+            ).unwrap_or_else(|e| {
+                eprintln!("Warning: {}", e);
+                "https://rpc.test2.btcs.network".to_string()
+            }),
+            contract_address: core_testnet2_address,
+            explorer: Self::validate_and_get_env_var(
+                "CORE_TESTNET2_BLOCK_EXPLORER",
+                "https://scan.test2.btcs.network",
+                false
+            ).unwrap_or_else(|e| {
+                eprintln!("Warning: {}", e);
+                "https://scan.test2.btcs.network".to_string()
+            }),
+            currency_symbol: Some(Self::validate_and_get_env_var(
+                "CORE_TESTNET2_CURRENCY_SYMBOL",
+                "TCORE2",
+                false
+            ).unwrap_or_else(|e| {
+                eprintln!("Warning: {}", e);
+                "TCORE2".to_string()
+            })),
             max_gas_limit: None,
         });
         
         // Base Sepolia Testnet (Secondary)
+        let base_sepolia_address = Self::validate_contract_address(
+            "BASE_SEPOLIA_CONTRACT_ADDRESS",
+            "0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB",
+            "Base Sepolia"
+        ).unwrap_or_else(|e| {
+            eprintln!("Warning: {}", e);
+            "0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB".to_string()
+        });
+        
         chains.insert(84532, ChainConfig {
             name: "Base Sepolia Testnet".to_string(),
-            rpc_url: env::var("BASE_SEPOLIA_RPC_URL").unwrap_or_else(|_| "https://sepolia.base.org".to_string()),
-            contract_address: env::var("BASE_SEPOLIA_CONTRACT_ADDRESS").unwrap_or_else(|_| "0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB".to_string()),
-            explorer: env::var("BASE_SEPOLIA_BLOCK_EXPLORER").unwrap_or_else(|_| "https://sepolia.basescan.org".to_string()),
-            currency_symbol: Some(env::var("BASE_SEPOLIA_CURRENCY_SYMBOL").unwrap_or_else(|_| "ETH".to_string())),
+            rpc_url: Self::validate_and_get_env_var(
+                "BASE_SEPOLIA_RPC_URL",
+                "https://sepolia.base.org",
+                false
+            ).unwrap_or_else(|e| {
+                eprintln!("Warning: {}", e);
+                "https://sepolia.base.org".to_string()
+            }),
+            contract_address: base_sepolia_address,
+            explorer: Self::validate_and_get_env_var(
+                "BASE_SEPOLIA_BLOCK_EXPLORER",
+                "https://sepolia.basescan.org",
+                false
+            ).unwrap_or_else(|e| {
+                eprintln!("Warning: {}", e);
+                "https://sepolia.basescan.org".to_string()
+            }),
+            currency_symbol: Some(Self::validate_and_get_env_var(
+                "BASE_SEPOLIA_CURRENCY_SYMBOL",
+                "ETH",
+                false
+            ).unwrap_or_else(|e| {
+                eprintln!("Warning: {}", e);
+                "ETH".to_string()
+            })),
             max_gas_limit: None,
+        });
+        
+        // Lisk Sepolia Testnet
+        let lisk_sepolia_address = Self::validate_contract_address(
+            "LISK_SEPOLIA_CONTRACT_ADDRESS",
+            "0xaBEEEc6e6c1f6bfDE1d05db74B28847Ba5b44EAF",
+            "Lisk Sepolia"
+        ).unwrap_or_else(|e| {
+            eprintln!("Warning: {}", e);
+            "0xaBEEEc6e6c1f6bfDE1d05db74B28847Ba5b44EAF".to_string()
         });
         
         chains.insert(4202, ChainConfig {
             name: "Lisk Sepolia Testnet".to_string(),
-            rpc_url: env::var("LISK_SEPOLIA_RPC_URL").unwrap_or_else(|_| "https://rpc.sepolia.lisk.com".to_string()),
-            contract_address: env::var("LISK_SEPOLIA_CONTRACT_ADDRESS").unwrap_or_else(|_| "0xaBEEEc6e6c1f6bfDE1d05db74B28847Ba5b44EAF".to_string()),
-            explorer: env::var("LISK_SEPOLIA_BLOCK_EXPLORER").unwrap_or_else(|_| "https://sepolia.lisk.com".to_string()),
-            currency_symbol: Some(env::var("LISK_SEPOLIA_CURRENCY_SYMBOL").unwrap_or_else(|_| "LSK".to_string())),
+            rpc_url: Self::validate_and_get_env_var(
+                "LISK_SEPOLIA_RPC_URL",
+                "https://rpc.sepolia-api.lisk.com",
+                false
+            ).unwrap_or_else(|e| {
+                eprintln!("Warning: {}", e);
+                "https://rpc.sepolia-api.lisk.com".to_string()
+            }),
+            contract_address: lisk_sepolia_address,
+            explorer: Self::validate_and_get_env_var(
+                "LISK_SEPOLIA_BLOCK_EXPLORER",
+                "https://sepolia.lisk.com",
+                false
+            ).unwrap_or_else(|e| {
+                eprintln!("Warning: {}", e);
+                "https://sepolia.lisk.com".to_string()
+            }),
+            currency_symbol: Some(Self::validate_and_get_env_var(
+                "LISK_SEPOLIA_CURRENCY_SYMBOL",
+                "LSK",
+                false
+            ).unwrap_or_else(|e| {
+                eprintln!("Warning: {}", e);
+                "LSK".to_string()
+            })),
             max_gas_limit: None,
+        });
+        
+        // Ethereum Holesky Testnet
+        let holesky_address = Self::validate_contract_address(
+            "HOLESKY_CONTRACT_ADDRESS",
+            "0x26C59cd738Df90604Ebb13Ed8DB76657cfD51f40",
+            "Ethereum Holesky"
+        ).unwrap_or_else(|e| {
+            eprintln!("Warning: {}", e);
+            "0x26C59cd738Df90604Ebb13Ed8DB76657cfD51f40".to_string()
         });
         
         chains.insert(17000, ChainConfig {
             name: "Ethereum Holesky Testnet".to_string(),
-            rpc_url: env::var("HOLESKY_RPC_URL").unwrap_or_else(|_| "https://ethereum-holesky.publicnode.com".to_string()),
-            contract_address: env::var("HOLESKY_CONTRACT_ADDRESS").unwrap_or_else(|_| "0x26C59cd738Df90604Ebb13Ed8DB76657cfD51f40".to_string()),
-            explorer: env::var("HOLESKY_BLOCK_EXPLORER").unwrap_or_else(|_| "https://holesky.etherscan.io".to_string()),
-            currency_symbol: Some(env::var("HOLESKY_CURRENCY_SYMBOL").unwrap_or_else(|_| "ETH".to_string())),
+            rpc_url: Self::validate_and_get_env_var(
+                "HOLESKY_RPC_URL",
+                "https://ethereum-holesky.publicnode.com",
+                false
+            ).unwrap_or_else(|e| {
+                eprintln!("Warning: {}", e);
+                "https://ethereum-holesky.publicnode.com".to_string()
+            }),
+            contract_address: holesky_address,
+            explorer: Self::validate_and_get_env_var(
+                "HOLESKY_BLOCK_EXPLORER",
+                "https://holesky.etherscan.io",
+                false
+            ).unwrap_or_else(|e| {
+                eprintln!("Warning: {}", e);
+                "https://holesky.etherscan.io".to_string()
+            }),
+            currency_symbol: Some(Self::validate_and_get_env_var(
+                "HOLESKY_CURRENCY_SYMBOL",
+                "ETH",
+                false
+            ).unwrap_or_else(|e| {
+                eprintln!("Warning: {}", e);
+                "ETH".to_string()
+            })),
             max_gas_limit: None,
         });
         
@@ -640,6 +869,39 @@ impl Config {
     }
     
     fn validate(&self) -> Result<()> {
+        // Validate main contract address
+        if !self.contract_address.is_empty() && !Self::is_valid_hex_address(&self.contract_address) {
+            return Err(anyhow!(
+                "Invalid main contract address: '{}'. Expected format: 0x followed by 40 hex characters",
+                self.contract_address
+            ));
+        }
+        
+        // Validate RPC URL
+        if self.rpc_url.is_empty() {
+            return Err(anyhow!("RPC_URL is required and cannot be empty"));
+        }
+        
+        // Validate chain configurations
+        for (chain_id, chain_config) in &self.supported_chains {
+            if !Self::is_valid_hex_address(&chain_config.contract_address) {
+                return Err(anyhow!(
+                    "Invalid contract address for chain {} ({}): '{}'. Expected format: 0x followed by 40 hex characters",
+                    chain_id,
+                    chain_config.name,
+                    chain_config.contract_address
+                ));
+            }
+            
+            if chain_config.rpc_url.is_empty() {
+                return Err(anyhow!(
+                    "RPC URL is required for chain {} ({})",
+                    chain_id,
+                    chain_config.name
+                ));
+            }
+        }
+        
         match self.environment.as_str() {
             "production" => {
                 let required_fields = [
@@ -673,4 +935,104 @@ impl Config {
 
     
     
+} 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_hex_address_validation() {
+        // Valid addresses
+        assert!(Config::is_valid_hex_address("0x1234567890123456789012345678901234567890"));
+        assert!(Config::is_valid_hex_address("0xabcdefABCDEF1234567890abcdefABCDEF123456"));
+        assert!(Config::is_valid_hex_address("0x0000000000000000000000000000000000000000"));
+        
+        // Invalid addresses
+        assert!(!Config::is_valid_hex_address("0x123456789012345678901234567890123456789")); // Too short
+        assert!(!Config::is_valid_hex_address("0x12345678901234567890123456789012345678901")); // Too long
+        assert!(!Config::is_valid_hex_address("1234567890123456789012345678901234567890")); // No 0x prefix
+        assert!(!Config::is_valid_hex_address("0x123456789012345678901234567890123456789g")); // Invalid character
+        assert!(!Config::is_valid_hex_address("")); // Empty
+        assert!(!Config::is_valid_hex_address("0x")); // Just prefix
+    }
+    
+    #[test]
+    fn test_validate_and_get_env_var() {
+        // Test with fallback when env var doesn't exist
+        let result = Config::validate_and_get_env_var("NONEXISTENT_VAR", "fallback", false);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "fallback");
+        
+        // Test with fallback when env var is empty
+        std::env::set_var("TEST_EMPTY_VAR", "");
+        let result = Config::validate_and_get_env_var("TEST_EMPTY_VAR", "fallback", false);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "fallback");
+        
+        // Test with actual value
+        std::env::set_var("TEST_VALID_VAR", "test_value");
+        let result = Config::validate_and_get_env_var("TEST_VALID_VAR", "fallback", false);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "test_value");
+        
+        // Clean up
+        std::env::remove_var("TEST_EMPTY_VAR");
+        std::env::remove_var("TEST_VALID_VAR");
+    }
+    
+    #[test]
+    fn test_validate_contract_address() {
+        // Test valid address
+        let result = Config::validate_contract_address(
+            "TEST_CONTRACT_ADDR",
+            "0x1234567890123456789012345678901234567890",
+            "Test Chain"
+        );
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "0x1234567890123456789012345678901234567890");
+        
+        // Test invalid address in environment
+        std::env::set_var("TEST_INVALID_ADDR", "invalid_address");
+        let result = Config::validate_contract_address(
+            "TEST_INVALID_ADDR",
+            "0x1234567890123456789012345678901234567890",
+            "Test Chain"
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid contract address"));
+        
+        // Clean up
+        std::env::remove_var("TEST_INVALID_ADDR");
+    }
+    
+    #[test]
+    fn test_config_validation() {
+        // Test that configuration loads and validates correctly
+        match Config::new() {
+            Ok(config) => {
+                // Test that all contract addresses are valid
+                for (chain_id, chain_config) in &config.supported_chains {
+                    assert!(
+                        Config::is_valid_hex_address(&chain_config.contract_address),
+                        "Invalid contract address for chain {}: {}",
+                        chain_id,
+                        chain_config.contract_address
+                    );
+                }
+                
+                // Test that RPC URLs are not empty
+                for (chain_id, chain_config) in &config.supported_chains {
+                    assert!(
+                        !chain_config.rpc_url.is_empty(),
+                        "Empty RPC URL for chain {}",
+                        chain_id
+                    );
+                }
+            }
+            Err(e) => {
+                panic!("Configuration loading failed: {}", e);
+            }
+        }
+    }
 } 

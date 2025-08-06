@@ -18,6 +18,8 @@ use crate::app::transaction_service::{QueuedTransaction, TransactionProcessor};
 use serde_json::json;
 use crate::domain::auth;
 use crate::domain::error::{RelayError, BlockchainError};
+use ethers::core::types::Address;
+use std::str::FromStr;
 
 // Helper function to get block explorer URL for a given chain ID
 fn get_block_explorer_url(chain_id: u64, tx_hash: &str) -> String {
@@ -2436,5 +2438,178 @@ async fn get_transaction_by_hash(
             "message": format!("No transaction found with hash: {}", tx_hash)
         }))
     }
+}
+
+/// Health check endpoint for contract connectivity
+#[get("/health/contracts")]
+async fn contract_health_check(
+    blockchain_manager: Data<Arc<BlockchainManager>>,
+    config_manager: Data<Arc<DynamicConfigManager>>,
+) -> impl Responder {
+    let start_time = std::time::Instant::now();
+    let config = config_manager.get_config().await;
+    let mut contract_status = HashMap::new();
+    let mut overall_status = "healthy";
+    let mut total_chains = 0;
+    let mut healthy_chains = 0;
+    
+    // Check each chain's contract connectivity
+    for (chain_id, chain_config) in &config.supported_chains {
+        total_chains += 1;
+        let mut chain_status = HashMap::new();
+        
+        // Test contract connectivity
+        let contract_healthy = match test_contract_connectivity(blockchain_manager.as_ref(), *chain_id).await {
+            Ok(_) => {
+                healthy_chains += 1;
+                true
+            }
+            Err(e) => {
+                log::warn!("Contract connectivity test failed for chain {}: {}", chain_id, e);
+                false
+            }
+        };
+        
+        // Test RPC connectivity
+        let rpc_healthy = match test_rpc_connectivity(blockchain_manager.as_ref(), *chain_id).await {
+            Ok(_) => true,
+            Err(e) => {
+                log::warn!("RPC connectivity test failed for chain {}: {}", chain_id, e);
+                false
+            }
+        };
+        
+        // Determine chain status
+        let chain_overall_status = if contract_healthy && rpc_healthy {
+            "healthy"
+        } else if contract_healthy || rpc_healthy {
+            "degraded"
+        } else {
+            "unhealthy"
+        };
+        
+        if chain_overall_status == "unhealthy" {
+            overall_status = "degraded";
+        }
+        
+        chain_status.insert("status".to_string(), chain_overall_status.to_string());
+        chain_status.insert("contract_address".to_string(), chain_config.contract_address.clone());
+        chain_status.insert("rpc_url".to_string(), chain_config.rpc_url.clone());
+        chain_status.insert("contract_healthy".to_string(), contract_healthy.to_string());
+        chain_status.insert("rpc_healthy".to_string(), rpc_healthy.to_string());
+        chain_status.insert("name".to_string(), chain_config.name.clone());
+        
+        contract_status.insert(chain_id.to_string(), chain_status);
+    }
+    
+    // Calculate response time
+    let response_time = start_time.elapsed().as_millis() as f64;
+    
+    // Determine overall status
+    if healthy_chains == 0 {
+        overall_status = "critical";
+    } else if healthy_chains < total_chains {
+        overall_status = "degraded";
+    }
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": overall_status,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "response_time_ms": response_time,
+        "summary": {
+            "total_chains": total_chains,
+            "healthy_chains": healthy_chains,
+            "unhealthy_chains": total_chains - healthy_chains,
+            "health_percentage": if total_chains > 0 { (healthy_chains as f64 / total_chains as f64) * 100.0 } else { 0.0 }
+        },
+        "contracts": contract_status
+    }))
+}
+
+/// Test contract connectivity for a specific chain
+async fn test_contract_connectivity(
+    blockchain_manager: &BlockchainManager,
+    chain_id: u64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Test getting nonce (simple contract call)
+    let test_address = Address::from_str("0x1234567890123456789012345678901234567890")?;
+    blockchain_manager.get_nonce(chain_id, test_address).await?;
+    Ok(())
+}
+
+/// Test RPC connectivity for a specific chain
+async fn test_rpc_connectivity(
+    blockchain_manager: &BlockchainManager,
+    _chain_id: u64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Test network status (simple RPC call)
+    blockchain_manager.get_network_status().await?;
+    Ok(())
+}
+
+/// Detailed contract health check with individual function tests
+#[get("/health/contracts/detailed")]
+async fn detailed_contract_health_check(
+    blockchain_manager: Data<Arc<BlockchainManager>>,
+    config_manager: Data<Arc<DynamicConfigManager>>,
+) -> impl Responder {
+    let start_time = std::time::Instant::now();
+    let config = config_manager.get_config().await;
+    let mut detailed_status = HashMap::new();
+    
+    for (chain_id, chain_config) in &config.supported_chains {
+        let mut chain_tests = HashMap::new();
+        
+        // Test 1: Basic contract connectivity
+        let basic_connectivity = match test_contract_connectivity(blockchain_manager.as_ref(), *chain_id).await {
+            Ok(_) => ("healthy".to_string(), "Contract connectivity test passed".to_string()),
+            Err(e) => ("unhealthy".to_string(), format!("Contract connectivity test failed: {}", e)),
+        };
+        
+        // Test 2: RPC connectivity
+        let rpc_connectivity = match test_rpc_connectivity(blockchain_manager.as_ref(), *chain_id).await {
+            Ok(_) => ("healthy".to_string(), "RPC connectivity test passed".to_string()),
+            Err(e) => ("unhealthy".to_string(), format!("RPC connectivity test failed: {}", e)),
+        };
+        
+        // Test 3: Contract function calls (if contract is accessible)
+        let function_tests = if basic_connectivity.0 == "healthy" {
+            let mut functions = HashMap::new();
+            
+            // Test getting payment typehash
+            match blockchain_manager.get_payment_typehash(*chain_id).await {
+                Ok(_) => functions.insert("get_payment_typehash".to_string(), ("healthy".to_string(), "Function call successful".to_string())),
+                Err(e) => functions.insert("get_payment_typehash".to_string(), ("unhealthy".to_string(), format!("Function call failed: {}", e))),
+            };
+            
+            // Test getting EIP-712 domain
+            match blockchain_manager.get_eip712_domain(*chain_id).await {
+                Ok(_) => functions.insert("get_eip712_domain".to_string(), ("healthy".to_string(), "Function call successful".to_string())),
+                Err(e) => functions.insert("get_eip712_domain".to_string(), ("unhealthy".to_string(), format!("Function call failed: {}", e))),
+            };
+            
+            functions
+        } else {
+            let mut functions = HashMap::new();
+            functions.insert("get_payment_typehash".to_string(), ("skipped".to_string(), "Skipped due to connectivity issues".to_string()));
+            functions.insert("get_eip712_domain".to_string(), ("skipped".to_string(), "Skipped due to connectivity issues".to_string()));
+            functions
+        };
+        
+        chain_tests.insert("basic_connectivity".to_string(), serde_json::json!(basic_connectivity));
+        chain_tests.insert("rpc_connectivity".to_string(), serde_json::json!(rpc_connectivity));
+        chain_tests.insert("function_tests".to_string(), serde_json::json!(function_tests));
+        
+        detailed_status.insert(chain_id.to_string(), chain_tests);
+    }
+    
+    let response_time = start_time.elapsed().as_millis() as f64;
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "completed",
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "response_time_ms": response_time,
+        "detailed_tests": detailed_status
+    }))
 }
 

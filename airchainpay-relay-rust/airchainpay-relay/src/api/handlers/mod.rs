@@ -6,6 +6,8 @@ pub use transaction::{
     health_alerts,
     resolve_alert,
     health_metrics,
+    contract_health_check,
+    detailed_contract_health_check,
     submit_transaction,
     legacy_submit_transaction,
     create_backup,

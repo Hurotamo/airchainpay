@@ -28,7 +28,7 @@ export BASE_SEPOLIA_BLOCK_EXPLORER=https://sepolia.basescan.org
 export BASE_SEPOLIA_CURRENCY_SYMBOL=ETH
 
 # Lisk Sepolia Configuration (New)
-export LISK_SEPOLIA_RPC_URL=https://rpc.sepolia.lisk.com
+export LISK_SEPOLIA_RPC_URL=https://rpc.sepolia-api.lisk.com
 export LISK_SEPOLIA_CONTRACT_ADDRESS=your_contract_address_here
 export LISK_SEPOLIA_BLOCK_EXPLORER=https://sepolia.lisk.com
 export LISK_SEPOLIA_CURRENCY_SYMBOL=LSK
