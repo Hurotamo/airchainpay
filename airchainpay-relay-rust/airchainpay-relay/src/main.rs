@@ -29,11 +29,8 @@ async fn main() -> std::io::Result<()> {
     // Display animated ASCII logo
     animated_ascii::display_animated_logo();
     
-    // Initialize logger with error handling
-    if let Err(e) = Logger::init("info") {
-        eprintln!("Failed to initialize logger: {}", e);
-        return Err(std::io::Error::new(std::io::ErrorKind::Other, "Logger initialization failed"));
-    }
+    // Initialize logger
+    Logger::init("info");
     
     log::info!("🚀 Starting AirChainPay Relay Server...");
     
@@ -49,23 +46,20 @@ async fn main() -> std::io::Result<()> {
         }
     };
     
-    // Get initial configuration with validation
-    let config = match config_manager.get_config().await {
-        Ok(config) => {
-            log::info!("✅ Configuration loaded successfully");
-            config
-        }
-        Err(e) => {
-            log::error!("❌ Failed to load configuration: {}", e);
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Configuration loading failed: {}", e)));
-        }
-    };
+    // Get initial configuration
+    let config = config_manager.get_config().await;
+    log::info!("✅ Configuration loaded successfully");
     
     // Validate configuration before blockchain manager init
     log::info!("🔍 Validating configuration...");
-    if let Err(e) = config.validate() {
-        log::error!("❌ Configuration validation failed: {}", e);
-        return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Configuration validation failed: {}", e)));
+    let validation_errors = config_manager.validate_config().await
+        .unwrap_or_else(|e| vec![format!("Validation error: {}", e)]);
+    if !validation_errors.is_empty() {
+        log::error!("❌ Configuration validation failed: {}", validation_errors.join(", "));
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Configuration validation failed: {}", validation_errors.join(", ")),
+        ));
     }
     log::info!("✅ Configuration validation passed");
     
@@ -117,58 +111,32 @@ async fn main() -> std::io::Result<()> {
     let monitoring_manager = Arc::new(MonitoringManager::new());
     log::info!("✅ Monitoring manager initialized successfully");
     
-    // Initialize backup manager with error handling
+    // Initialize backup manager
     let backup_config = BackupConfig::default();
-    let backup_manager = match BackupManager::new(backup_config, "data".to_string()) {
-        Ok(manager) => {
-            log::info!("✅ Backup manager initialized successfully");
-            Arc::new(manager.with_monitoring(Arc::clone(&monitoring_manager)))
-        }
-        Err(e) => {
-            log::error!("❌ Failed to initialize backup manager: {}", e);
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Backup manager initialization failed: {}", e)));
-        }
-    };
+    let backup_manager = Arc::new(BackupManager::new(backup_config, "data".to_string())
+        .with_monitoring(Arc::clone(&monitoring_manager)));
+    log::info!("✅ Backup manager initialized successfully");
     
-    // Start automatic backup with error handling
-    if let Err(e) = BackupManager::start_auto_backup(Arc::clone(&backup_manager)) {
-        log::warn!("⚠️ Failed to start auto backup: {}", e);
-        // Don't fail startup for backup issues
-    } else {
-        log::info!("✅ Auto backup started successfully");
-    }
+    // Start automatic backup
+    BackupManager::start_auto_backup(Arc::clone(&backup_manager));
+    log::info!("✅ Auto backup started successfully");
     
-    // Initialize audit logger with error handling
-    let audit_logger = match AuditLogger::new("audit.log".to_string(), 10000) {
-        Ok(logger) => {
-            log::info!("✅ Audit logger initialized successfully");
-            Arc::new(logger.with_monitoring(Arc::clone(&monitoring_manager)))
-        }
-        Err(e) => {
-            log::error!("❌ Failed to initialize audit logger: {}", e);
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Audit logger initialization failed: {}", e)));
-        }
-    };
+    // Initialize audit logger
+    let audit_logger = Arc::new(AuditLogger::new("audit.log".to_string(), 10000)
+        .with_monitoring(Arc::clone(&monitoring_manager)));
+    log::info!("✅ Audit logger initialized successfully");
     
     // Initialize enhanced error handler
     let error_handler = Arc::new(EnhancedErrorHandler::new());
     log::info!("✅ Error handler initialized successfully");
     
-    // Initialize enhanced transaction processor with error handling
-    let transaction_processor = match TransactionProcessor::new(
+    // Initialize enhanced transaction processor
+    let transaction_processor = Arc::new(TransactionProcessor::new(
         Arc::clone(&blockchain_manager),
         Arc::clone(&storage),
         None, // Use default config
-    ) {
-        Ok(processor) => {
-            log::info!("✅ Transaction processor initialized successfully");
-            Arc::new(processor)
-        }
-        Err(e) => {
-            log::error!("❌ Failed to initialize transaction processor: {}", e);
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Transaction processor initialization failed: {}", e)));
-        }
-    };
+    ));
+    log::info!("✅ Transaction processor initialized successfully");
     
     // Start the transaction processor with error handling
     if let Err(e) = transaction_processor.start().await {
@@ -259,6 +227,7 @@ async fn main() -> std::io::Result<()> {
                     .service(update_configuration_field)
                     .service(save_configuration_to_file)
                     .service(process_transaction)
+                    .service(validate_inputs)
                     .service(simple_send_tx)
                     .service(get_transactions)
                     .service(get_transaction_details)

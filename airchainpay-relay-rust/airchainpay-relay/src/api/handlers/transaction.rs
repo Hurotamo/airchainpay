@@ -69,9 +69,16 @@ async fn handle_transaction_submission(
     error_handler: Data<Arc<EnhancedErrorHandler>>,
     config_manager: Data<Arc<DynamicConfigManager>>,
 ) -> impl Responder {
-    // Validate input using ethereum validation functions
-    use crate::infrastructure::blockchain::ethereum;
-    
+    // Basic raw tx hex sanity check (do not treat as a tx hash)
+    let signed_tx_str = req.signed_tx.as_str();
+    if !(signed_tx_str.starts_with("0x") 
+        && signed_tx_str.len() > 2 
+        && signed_tx_str.len() % 2 == 0 
+        && hex::decode(signed_tx_str.trim_start_matches("0x")).is_ok())
+    {
+        return ErrorResponseBuilder::bad_request("Invalid raw transaction: must be 0x-prefixed, even-length, valid hex");
+    }
+
     // Use blockchain manager to check network status
     let network_status = blockchain_manager.get_ref().get_network_status().await;
     let is_healthy = match network_status {
@@ -81,11 +88,6 @@ async fn handle_transaction_submission(
     
     if !is_healthy {
         return ErrorResponseBuilder::service_unavailable("Blockchain network is currently unavailable. Please check your internet connection and try again.");
-    }
-    
-    // Use ethereum validation for basic format check
-    if !ethereum::validate_transaction_hash(&req.signed_tx) {
-        return ErrorResponseBuilder::bad_request("Invalid transaction format. Please ensure the transaction is properly signed and formatted.");
     }
     
     // Create transaction validator
@@ -248,6 +250,21 @@ async fn simple_send_tx(
     storage: Data<Arc<Storage>>,
     blockchain_manager: Data<Arc<BlockchainManager>>,
 ) -> impl Responder {
+    // Minimal raw tx hex validation before immediate broadcast
+    let signed_tx_str = req.signed_tx.as_str();
+    if !(signed_tx_str.starts_with("0x") 
+        && signed_tx_str.len() > 2 
+        && signed_tx_str.len() % 2 == 0 
+        && hex::decode(signed_tx_str.trim_start_matches("0x")).is_ok())
+    {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "success": false,
+            "message": "Invalid raw transaction: must be 0x-prefixed, even-length, valid hex",
+            "chain_id": req.chain_id,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        }));
+    }
+
     // Create transaction record
     let transaction = Transaction::new(
         req.signed_tx.clone(),
@@ -2257,11 +2274,6 @@ async fn get_user_transactions(
     let all_transactions = storage.get_transactions(1000);
     let user_transactions: Vec<serde_json::Value> = all_transactions
         .iter()
-        .filter(|t| {
-            // For now, we'll return all transactions since we don't have user_id in Transaction struct
-            // In a real implementation, you'd filter by user_id
-            true
-        })
         .take(limit)
         .map(|t| {
             let mut tx_obj = serde_json::json!({
@@ -2557,7 +2569,7 @@ async fn detailed_contract_health_check(
     let config = config_manager.get_config().await;
     let mut detailed_status = HashMap::new();
     
-    for (chain_id, chain_config) in &config.supported_chains {
+    for (chain_id, _chain_config) in &config.supported_chains {
         let mut chain_tests = HashMap::new();
         
         // Test 1: Basic contract connectivity

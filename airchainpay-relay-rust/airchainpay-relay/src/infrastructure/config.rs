@@ -704,167 +704,203 @@ impl Config {
     
     fn get_supported_chains() -> HashMap<u64, ChainConfig> {
         let mut chains = HashMap::new();
-        
+
         // Core Testnet 2 (Primary)
         let core_testnet2_address = Self::validate_contract_address(
             "CORE_TESTNET2_CONTRACT_ADDRESS",
             "0xcE2D2A50DaA794c12d079F2E2E2aF656ebB981fF",
-            "Core Testnet 2"
-        ).unwrap_or_else(|e| {
+            "Core Testnet 2",
+        )
+        .unwrap_or_else(|e| {
             eprintln!("Warning: {}", e);
             "0xcE2D2A50DaA794c12d079F2E2E2aF656ebB981fF".to_string()
         });
-        
-        chains.insert(1114, ChainConfig {
-            name: "Core Testnet 2".to_string(),
-            rpc_url: Self::validate_and_get_env_var(
-                "CORE_TESTNET2_RPC_URL",
-                "https://rpc.test2.btcs.network",
-                false
-            ).unwrap_or_else(|e| {
-                eprintln!("Warning: {}", e);
-                "https://rpc.test2.btcs.network".to_string()
-            }),
-            contract_address: core_testnet2_address,
-            explorer: Self::validate_and_get_env_var(
-                "CORE_TESTNET2_BLOCK_EXPLORER",
-                "https://scan.test2.btcs.network",
-                false
-            ).unwrap_or_else(|e| {
-                eprintln!("Warning: {}", e);
-                "https://scan.test2.btcs.network".to_string()
-            }),
-            currency_symbol: Some(Self::validate_and_get_env_var(
-                "CORE_TESTNET2_CURRENCY_SYMBOL",
-                "TCORE2",
-                false
-            ).unwrap_or_else(|e| {
-                eprintln!("Warning: {}", e);
-                "TCORE2".to_string()
-            })),
-            max_gas_limit: None,
-        });
-        
+
+        chains.insert(
+            1114,
+            ChainConfig {
+                name: "Core Testnet 2".to_string(),
+                rpc_url: Self::validate_and_get_env_var(
+                    "CORE_TESTNET2_RPC_URL",
+                    "https://rpc.test2.btcs.network",
+                    false,
+                )
+                .unwrap_or_else(|e| {
+                    eprintln!("Warning: {}", e);
+                    "https://rpc.test2.btcs.network".to_string()
+                }),
+                contract_address: core_testnet2_address,
+                explorer: Self::validate_and_get_env_var(
+                    "CORE_TESTNET2_BLOCK_EXPLORER",
+                    "https://scan.test2.btcs.network",
+                    false,
+                )
+                .unwrap_or_else(|e| {
+                    eprintln!("Warning: {}", e);
+                    "https://scan.test2.btcs.network".to_string()
+                }),
+                currency_symbol: Some(
+                    Self::validate_and_get_env_var(
+                        "CORE_TESTNET2_CURRENCY_SYMBOL",
+                        "TCORE2",
+                        false,
+                    )
+                    .unwrap_or_else(|e| {
+                        eprintln!("Warning: {}", e);
+                        "TCORE2".to_string()
+                    }),
+                ),
+                max_gas_limit: None,
+            },
+        );
+
         // Base Sepolia Testnet (Secondary)
         let base_sepolia_address = Self::validate_contract_address(
             "BASE_SEPOLIA_CONTRACT_ADDRESS",
             "0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB",
-            "Base Sepolia"
-        ).unwrap_or_else(|e| {
+            "Base Sepolia",
+        )
+        .unwrap_or_else(|e| {
             eprintln!("Warning: {}", e);
             "0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB".to_string()
         });
-        
-        chains.insert(84532, ChainConfig {
-            name: "Base Sepolia Testnet".to_string(),
-            rpc_url: Self::validate_and_get_env_var(
-                "BASE_SEPOLIA_RPC_URL",
-                "https://sepolia.base.org",
-                false
-            ).unwrap_or_else(|e| {
-                eprintln!("Warning: {}", e);
-                "https://sepolia.base.org".to_string()
-            }),
-            contract_address: base_sepolia_address,
-            explorer: Self::validate_and_get_env_var(
-                "BASE_SEPOLIA_BLOCK_EXPLORER",
-                "https://sepolia.basescan.org",
-                false
-            ).unwrap_or_else(|e| {
-                eprintln!("Warning: {}", e);
-                "https://sepolia.basescan.org".to_string()
-            }),
-            currency_symbol: Some(Self::validate_and_get_env_var(
-                "BASE_SEPOLIA_CURRENCY_SYMBOL",
-                "ETH",
-                false
-            ).unwrap_or_else(|e| {
-                eprintln!("Warning: {}", e);
-                "ETH".to_string()
-            })),
-            max_gas_limit: None,
-        });
-        
+
+        chains.insert(
+            84532,
+            ChainConfig {
+                name: "Base Sepolia Testnet".to_string(),
+                rpc_url: Self::validate_and_get_env_var(
+                    "BASE_SEPOLIA_RPC_URL",
+                    "https://sepolia.base.org",
+                    false,
+                )
+                .unwrap_or_else(|e| {
+                    eprintln!("Warning: {}", e);
+                    "https://sepolia.base.org".to_string()
+                }),
+                contract_address: base_sepolia_address,
+                explorer: Self::validate_and_get_env_var(
+                    "BASE_SEPOLIA_BLOCK_EXPLORER",
+                    "https://sepolia.basescan.org",
+                    false,
+                )
+                .unwrap_or_else(|e| {
+                    eprintln!("Warning: {}", e);
+                    "https://sepolia.basescan.org".to_string()
+                }),
+                currency_symbol: Some(
+                    Self::validate_and_get_env_var(
+                        "BASE_SEPOLIA_CURRENCY_SYMBOL",
+                        "ETH",
+                        false,
+                    )
+                    .unwrap_or_else(|e| {
+                        eprintln!("Warning: {}", e);
+                        "ETH".to_string()
+                    }),
+                ),
+                max_gas_limit: None,
+            },
+        );
+
         // Lisk Sepolia Testnet
         let lisk_sepolia_address = Self::validate_contract_address(
             "LISK_SEPOLIA_CONTRACT_ADDRESS",
             "0xaBEEEc6e6c1f6bfDE1d05db74B28847Ba5b44EAF",
-            "Lisk Sepolia"
-        ).unwrap_or_else(|e| {
+            "Lisk Sepolia",
+        )
+        .unwrap_or_else(|e| {
             eprintln!("Warning: {}", e);
             "0xaBEEEc6e6c1f6bfDE1d05db74B28847Ba5b44EAF".to_string()
         });
-        
-        chains.insert(4202, ChainConfig {
-            name: "Lisk Sepolia Testnet".to_string(),
-            rpc_url: Self::validate_and_get_env_var(
-                "LISK_SEPOLIA_RPC_URL",
-                "https://rpc.sepolia-api.lisk.com",
-                false
-            ).unwrap_or_else(|e| {
-                eprintln!("Warning: {}", e);
-                "https://rpc.sepolia-api.lisk.com".to_string()
-            }),
-            contract_address: lisk_sepolia_address,
-            explorer: Self::validate_and_get_env_var(
-                "LISK_SEPOLIA_BLOCK_EXPLORER",
-                "https://sepolia.lisk.com",
-                false
-            ).unwrap_or_else(|e| {
-                eprintln!("Warning: {}", e);
-                "https://sepolia.lisk.com".to_string()
-            }),
-            currency_symbol: Some(Self::validate_and_get_env_var(
-                "LISK_SEPOLIA_CURRENCY_SYMBOL",
-                "LSK",
-                false
-            ).unwrap_or_else(|e| {
-                eprintln!("Warning: {}", e);
-                "LSK".to_string()
-            })),
-            max_gas_limit: None,
-        });
-        
+
+        chains.insert(
+            4202,
+            ChainConfig {
+                name: "Lisk Sepolia Testnet".to_string(),
+                rpc_url: Self::validate_and_get_env_var(
+                    "LISK_SEPOLIA_RPC_URL",
+                    "https://rpc.sepolia-api.lisk.com",
+                    false,
+                )
+                .unwrap_or_else(|e| {
+                    eprintln!("Warning: {}", e);
+                    "https://rpc.sepolia-api.lisk.com".to_string()
+                }),
+                contract_address: lisk_sepolia_address,
+                explorer: Self::validate_and_get_env_var(
+                    "LISK_SEPOLIA_BLOCK_EXPLORER",
+                    "https://sepolia.lisk.com",
+                    false,
+                )
+                .unwrap_or_else(|e| {
+                    eprintln!("Warning: {}", e);
+                    "https://sepolia.lisk.com".to_string()
+                }),
+                currency_symbol: Some(
+                    Self::validate_and_get_env_var(
+                        "LISK_SEPOLIA_CURRENCY_SYMBOL",
+                        "LSK",
+                        false,
+                    )
+                    .unwrap_or_else(|e| {
+                        eprintln!("Warning: {}", e);
+                        "LSK".to_string()
+                    }),
+                ),
+                max_gas_limit: None,
+            },
+        );
+
         // Ethereum Holesky Testnet
         let holesky_address = Self::validate_contract_address(
             "HOLESKY_CONTRACT_ADDRESS",
             "0x26C59cd738Df90604Ebb13Ed8DB76657cfD51f40",
-            "Ethereum Holesky"
-        ).unwrap_or_else(|e| {
+            "Ethereum Holesky",
+        )
+        .unwrap_or_else(|e| {
             eprintln!("Warning: {}", e);
             "0x26C59cd738Df90604Ebb13Ed8DB76657cfD51f40".to_string()
         });
-        
-        chains.insert(17000, ChainConfig {
-            name: "Ethereum Holesky Testnet".to_string(),
-            rpc_url: Self::validate_and_get_env_var(
-                "HOLESKY_RPC_URL",
-                "https://ethereum-holesky.publicnode.com",
-                false
-            ).unwrap_or_else(|e| {
-                eprintln!("Warning: {}", e);
-                "https://ethereum-holesky.publicnode.com".to_string()
-            }),
-            contract_address: holesky_address,
-            explorer: Self::validate_and_get_env_var(
-                "HOLESKY_BLOCK_EXPLORER",
-                "https://holesky.etherscan.io",
-                false
-            ).unwrap_or_else(|e| {
-                eprintln!("Warning: {}", e);
-                "https://holesky.etherscan.io".to_string()
-            }),
-            currency_symbol: Some(Self::validate_and_get_env_var(
-                "HOLESKY_CURRENCY_SYMBOL",
-                "ETH",
-                false
-            ).unwrap_or_else(|e| {
-                eprintln!("Warning: {}", e);
-                "ETH".to_string()
-            })),
-            max_gas_limit: None,
-        });
-        
+
+        chains.insert(
+            17000,
+            ChainConfig {
+                name: "Ethereum Holesky Testnet".to_string(),
+                rpc_url: Self::validate_and_get_env_var(
+                    "HOLESKY_RPC_URL",
+                    "https://ethereum-holesky.publicnode.com",
+                    false,
+                )
+                .unwrap_or_else(|e| {
+                    eprintln!("Warning: {}", e);
+                    "https://ethereum-holesky.publicnode.com".to_string()
+                }),
+                contract_address: holesky_address,
+                explorer: Self::validate_and_get_env_var(
+                    "HOLESKY_BLOCK_EXPLORER",
+                    "https://holesky.etherscan.io",
+                    false,
+                )
+                .unwrap_or_else(|e| {
+                    eprintln!("Warning: {}", e);
+                    "https://holesky.etherscan.io".to_string()
+                }),
+                currency_symbol: Some(
+                    Self::validate_and_get_env_var(
+                        "HOLESKY_CURRENCY_SYMBOL",
+                        "ETH",
+                        false,
+                    )
+                    .unwrap_or_else(|e| {
+                        eprintln!("Warning: {}", e);
+                        "ETH".to_string()
+                    }),
+                ),
+                max_gas_limit: None,
+            },
+        );
+
         chains
     }
     

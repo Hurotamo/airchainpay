@@ -115,12 +115,16 @@ impl TransactionValidator {
     }
 
     fn validate_hex_format(&self, signed_tx: &str) -> Result<()> {
-        // Use ethereum validation function for transaction hash format
-        use crate::infrastructure::blockchain::ethereum;
-        if !ethereum::validate_transaction_hash(signed_tx) {
-            return Err(anyhow!("Invalid transaction hash format"));
+        // Validate raw signed transaction hex, not a transaction hash
+        let without_prefix = signed_tx
+            .strip_prefix("0x")
+            .ok_or_else(|| anyhow!("Transaction must start with 0x"))?;
+        if without_prefix.is_empty() || without_prefix.len() % 2 != 0 {
+            return Err(anyhow!("Hex payload must be non-empty and even-length"));
         }
-        Ok(())
+        hex::decode(without_prefix)
+            .map(|_| ())
+            .map_err(|e| anyhow!("Invalid hex payload: {}", e))
     }
 
     async fn validate_signature(&self, signed_tx: &str) -> Result<()> {

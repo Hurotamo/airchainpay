@@ -8,10 +8,6 @@ name = "airchainpay_relay"
 path = "src/lib.rs"
 
 [[bin]]
-name = "airchainpay-relay"
-path = "src/bin/airchainpay-relay.rs"
-
-[[bin]]
 name = "test_server"
 path = "src/bin/test_server.rs"
 
