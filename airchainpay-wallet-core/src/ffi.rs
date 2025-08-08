@@ -269,22 +269,32 @@ pub extern "C" fn wallet_core_sign_message(
     SecureResult::success(signature)
 }
 
-/// Get wallet balance (placeholder implementation)
+/// Get wallet balance (real on-chain query)
 #[no_mangle]
 pub extern "C" fn wallet_core_get_balance(
     wallet_id: *const c_char,
 ) -> SecureResult {
     // Validate input
-    let _wallet_id_str = match validate_input(wallet_id, 100) {
+    let wallet_id_str = match validate_input(wallet_id, 100) {
         Ok(s) => s,
         Err(_) => return SecureResult::error(1), // Invalid input
     };
 
-    // For now, return a default balance
-    // In a real implementation, this would query the blockchain
-    let balance = "0".to_string();
-    
-    SecureResult::success(balance)
+    // Use a local runtime to call async balance method without exposing runtime externally
+    let rt = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt,
+        Err(_) => return SecureResult::error(15), // Runtime creation failed
+    };
+
+    let result = rt.block_on(async {
+        let manager = crate::core::wallet::WalletManager::new();
+        manager.get_balance(&wallet_id_str).await
+    });
+
+    match result {
+        Ok(balance) => SecureResult::success(balance),
+        Err(_) => SecureResult::error(16), // Balance fetch failed
+    }
 }
 
 /// Validate a wallet's private key without exposing it

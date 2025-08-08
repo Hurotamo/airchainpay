@@ -59,36 +59,30 @@ impl TransactionManager {
         if private_key_id.is_empty() {
             return Err(WalletError::crypto("Private key ID cannot be empty"));
         }
-        
+
+        // Require nonce, gas price, gas limit for raw signing
+        if transaction.nonce.is_none() || transaction.gas_price.is_none() || transaction.gas_limit.is_none() {
+            return Err(WalletError::validation("Transaction requires nonce, gas_price, and gas_limit"));
+        }
+
         // Create a SecurePrivateKey reference (does not load key into memory)
         let private_key = crate::core::crypto::keys::SecurePrivateKey::new(private_key_id.to_string());
-        
-        // Use the with_key method to perform signing without exposing the key
-        let tx_signature = private_key.with_key(storage, |key_bytes| {
-            self.signature_manager.sign_ethereum_transaction_with_bytes(transaction, key_bytes)
+
+        // Perform EIP-155 legacy signing and get raw tx bytes and hash
+        let (raw_tx, tx_hash) = private_key.with_key(storage, |key_bytes| {
+            self.signature_manager.sign_legacy_raw(transaction, key_bytes)
         })?;
-        
-        // Compose the signature as r || s || v (Ethereum style)
-        let mut signature_bytes = Vec::new();
-        signature_bytes.extend_from_slice(&hex::decode(&tx_signature.r).unwrap_or_default());
-        signature_bytes.extend_from_slice(&hex::decode(&tx_signature.s).unwrap_or_default());
-        signature_bytes.push(tx_signature.v);
-        
-        use sha3::{Keccak256, Digest};
-        let hasher = Keccak256::new();
-        // NOTE: For production, use RLP encoding for Ethereum transaction hash as in the wallet implementation.
-        let hash = format!("0x{}", hex::encode(hasher.finalize()));
-        
+
         Ok(SignedTransaction {
             transaction: transaction.clone(),
-            signature: signature_bytes,
-            hash,
+            signature: raw_tx, // signature now carries raw RLP bytes
+            hash: tx_hash,
         })
     }
 
     pub async fn send_transaction(&self, signed_transaction: &SignedTransaction) -> Result<TransactionHash, WalletError> {
         let client = Client::new();
-        let tx_hex = hex::encode(&signed_transaction.signature);
+        let tx_hex = format!("0x{}", hex::encode(&signed_transaction.signature));
         let params = json!([tx_hex]);
         let body = json!({
             "jsonrpc": "2.0",

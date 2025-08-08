@@ -119,10 +119,11 @@ pub async fn init_wallet_core() -> Result<WalletCore, WalletError> {
         .unwrap_or_else(|_| "core_testnet".to_string());
 
     // Read RPC URLs for supported networks
-    let core_testnet_url = env::var("https://rpc.test2.btcs.network
-")
+    // Read from environment variables; fall back to known defaults
+    // Keys: WALLET_CORE_RPC_CORE_TESTNET, WALLET_CORE_RPC_BASE_SEPOLIA
+    let core_testnet_url = env::var("WALLET_CORE_RPC_CORE_TESTNET")
         .unwrap_or_else(|_| "https://rpc.test2.btcs.network".to_string());
-    let base_sepolia_url = env::var("ttps://sepolia.base.org")
+    let base_sepolia_url = env::var("WALLET_CORE_RPC_BASE_SEPOLIA")
         .unwrap_or_else(|_| "https://sepolia.base.org".to_string());
 
     // Select the correct RPC URL based on the default network

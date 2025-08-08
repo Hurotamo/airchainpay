@@ -8,14 +8,16 @@ pub type TransactionHash = String;
 pub type BlockNumber = u64;
 pub type GasPrice = u64;
 pub type GasLimit = u64;
-pub type Amount = String; // Use string for precise decimal handling
+pub type Amount = String; 
 pub type Balance = String;
 
-// Network types - Only Core Testnet and Base Sepolia
+// Network types - Core Testnet, Base Sepolia, Lisk Sepolia, Ethereum Holesky
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum Network {
     CoreTestnet,
     BaseSepolia,
+    LiskSepolia,
+    EthereumHolesky,
 }
 
 impl Network {
@@ -23,6 +25,8 @@ impl Network {
         match self {
             Network::CoreTestnet => 1114,
             Network::BaseSepolia => 84532,
+            Network::LiskSepolia => 4202,
+            Network::EthereumHolesky => 17000,
         }
     }
 
@@ -30,6 +34,8 @@ impl Network {
         match self {
             Network::CoreTestnet => "Core Testnet",
             Network::BaseSepolia => "Base Sepolia",
+            Network::LiskSepolia => "Lisk Sepolia",
+            Network::EthereumHolesky => "Ethereum Holesky",
         }
     }
 
@@ -37,6 +43,9 @@ impl Network {
         match self {
             Network::CoreTestnet => "https://rpc.test2.btcs.network",
             Network::BaseSepolia => "https://sepolia.base.org",
+            // For these networks, require env overrides; return empty to force config
+            Network::LiskSepolia => "",
+            Network::EthereumHolesky => "",
         }
     }
 
@@ -44,6 +53,8 @@ impl Network {
         match self {
             Network::CoreTestnet => "TCORE2",
             Network::BaseSepolia => "ETH",
+            Network::LiskSepolia => "ETH",
+            Network::EthereumHolesky => "ETH",
         }
     }
 
@@ -51,6 +62,8 @@ impl Network {
         match self {
             Network::CoreTestnet => "https://scan.test2.btcs.network",
             Network::BaseSepolia => "https://sepolia.basescan.org",
+            Network::LiskSepolia => "https://sepolia.lisk.com",
+            Network::EthereumHolesky => "https://holesky.etherscan.io",
         }
     }
 
@@ -58,6 +71,8 @@ impl Network {
         match self {
             Network::CoreTestnet => "0x8d7eaB03a72974F5D9F5c99B4e4e1B393DBcfCAB",
             Network::BaseSepolia => "0x7B79117445C57eea1CEAb4733020A55e1D503934",
+            Network::LiskSepolia => "0xaBEEEc6e6c1f6bfDE1d05db74B28847Ba5b44EAF",
+            Network::EthereumHolesky => "0x26C59cd738Df90604Ebb13Ed8DB76657cfD51f40",
         }
     }
 }

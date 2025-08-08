@@ -5,6 +5,8 @@
 use crate::domain::{SecureWallet, WalletBalance};
 use crate::shared::error::WalletError;
 use crate::shared::types::{Network, Transaction, SignedTransaction};
+use reqwest::Client;
+use ethers::types::U256;
 
 /// Wallet manager for handling multiple wallets
 pub struct WalletManager {
@@ -28,11 +30,46 @@ impl WalletManager {
         name: &str,
         network: Network,
     ) -> Result<SecureWallet, WalletError> {
-        let _wallet_id = wallet_id;
-        let _name = name;
-        let _network = network;
-        // Key generation is not implemented yet
-        return Err(WalletError::crypto("Wallet creation not available: key generation not implemented".to_string()));
+        // Initialize secure file storage and key manager
+        let file_storage = crate::infrastructure::platform::FileStorage::new()?;
+        let key_manager = crate::core::crypto::keys::KeyManager::new(&file_storage);
+
+        // Derive deterministic key id from wallet id
+        let key_id = format!("wallet_key_{}", wallet_id);
+
+        // Generate a private key and derive public key and address
+        let private_key = key_manager.generate_private_key(&key_id)?;
+        let public_key = key_manager.get_public_key(&private_key)?;
+        let address = key_manager.get_address(&public_key)?;
+
+        // Construct secure wallet entity
+        let wallet = SecureWallet::new(
+            wallet_id.to_string(),
+            name.to_string(),
+            address,
+            network.clone(),
+        );
+
+        // Persist in manager state
+        {
+            let mut wallets = self.wallets.write().await;
+            wallets.insert(wallet_id.to_string(), SecureWallet::new(
+                wallet.id.clone(),
+                wallet.name.clone(),
+                wallet.address.clone(),
+                wallet.network.clone(),
+            ));
+        }
+
+        // Initialize balance cache with zero until on-chain fetch updates it
+        {
+            let mut balances = self.balances.write().await;
+            let currency = network.native_currency().to_string();
+            let balance = WalletBalance::new(wallet_id.to_string(), network.clone(), "0".to_string(), currency);
+            balances.insert(wallet_id.to_string(), balance);
+        }
+
+        Ok(wallet)
     }
 
     /// Get a wallet by ID
@@ -48,14 +85,73 @@ impl WalletManager {
             .ok_or_else(|| WalletError::wallet_not_found(format!("Wallet not found: {}", wallet_id)))
     }
     
-    /// Get wallet balance
+    /// Get wallet balance (queries RPC by network and updates cache)
     pub async fn get_balance(&self, wallet_id: &str) -> Result<String, WalletError> {
-        let balances = self.balances.read().await;
-        if let Some(balance) = balances.get(wallet_id) {
-            Ok(balance.amount.clone())
-        } else {
-            Ok("0".to_string())
+        // Resolve wallet, network, and address
+        let (address, network) = {
+            let wallets = self.wallets.read().await;
+            let wallet = wallets
+                .get(wallet_id)
+                .ok_or_else(|| WalletError::wallet_not_found(format!("Wallet not found: {}", wallet_id)))?;
+            (wallet.address.clone(), wallet.network.clone())
+        };
+
+        // Resolve RPC URL via env override or network defaults
+        let rpc_url = match network {
+            Network::CoreTestnet => std::env::var("WALLET_CORE_RPC_CORE_TESTNET")
+                .unwrap_or_else(|_| Network::CoreTestnet.rpc_url().to_string()),
+            Network::BaseSepolia => std::env::var("WALLET_CORE_RPC_BASE_SEPOLIA")
+                .unwrap_or_else(|_| Network::BaseSepolia.rpc_url().to_string()),
+            Network::LiskSepolia => std::env::var("WALLET_CORE_RPC_LISK_SEPOLIA")
+                .map_err(|_| WalletError::config("RPC URL not set for Lisk Sepolia"))?,
+            Network::EthereumHolesky => std::env::var("WALLET_CORE_RPC_HOLESKY")
+                .map_err(|_| WalletError::config("RPC URL not set for Holesky"))?,
+        };
+
+        // Query eth_getBalance
+        let client = Client::new();
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "eth_getBalance",
+            "params": [address, "latest"],
+            "id": 1
+        });
+        let resp = client
+            .post(&rpc_url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| WalletError::network(format!("Failed to query balance: {}", e)))?;
+        let resp_json: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| WalletError::network(format!("Invalid balance response: {}", e)))?;
+
+        let hex_balance = resp_json
+            .get("result")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| WalletError::network("Missing balance result".to_string()))?;
+
+        // Convert 0x hex to decimal string using U256
+        let dec_balance = {
+            let clean = hex_balance.trim_start_matches("0x");
+            let bytes = hex::decode(clean).unwrap_or_default();
+            let mut val = U256::zero();
+            if !bytes.is_empty() {
+                val = U256::from_big_endian(&bytes);
+            }
+            val.to_string()
+        };
+
+        // Update cache
+        {
+            let mut balances = self.balances.write().await;
+            let currency = network.native_currency().to_string();
+            let balance = WalletBalance::new(wallet_id.to_string(), network.clone(), dec_balance.clone(), currency);
+            balances.insert(wallet_id.to_string(), balance);
         }
+
+        Ok(dec_balance)
     }
 
     /// Sign a message using a wallet's private key
@@ -65,48 +161,72 @@ impl WalletManager {
         let key_manager = crate::core::crypto::keys::KeyManager::new(&file_storage);
         
         // Get private key reference (does not load key into memory)
-        let private_key = key_manager.get_private_key(wallet_id)?;
+        let key_id = format!("wallet_key_{}", wallet_id);
+        let private_key = key_manager.get_private_key(&key_id)?;
         
         // Sign message without loading private key into memory
         key_manager.sign_message(&private_key, message)
     }
 
-    /// Send a transaction
+    /// Sign and broadcast a transaction using the wallet's private key
     pub async fn send_transaction(&self, wallet_id: &str, transaction: Transaction) -> Result<SignedTransaction, WalletError> {
-        // Get secure storage and key manager
+        // Resolve wallet and network
+        let (network, rpc_url) = {
+            let wallets = self.wallets.read().await;
+            let wallet = wallets.get(wallet_id)
+                .ok_or_else(|| WalletError::wallet_not_found(format!("Wallet not found: {}", wallet_id)))?;
+            let rpc = wallet.network.rpc_url().to_string();
+            (wallet.network.clone(), rpc)
+        };
+
+        // Validate chain id alignment
+        if transaction.chain_id != network.chain_id() {
+            return Err(WalletError::validation("Transaction chain_id does not match wallet network"));
+        }
+
+        // Prepare signing/storage
         let file_storage = crate::infrastructure::platform::FileStorage::new()?;
-        let key_manager = crate::core::crypto::keys::KeyManager::new(&file_storage);
-        
-        // Get private key reference (does not load key into memory)
-        let private_key = key_manager.get_private_key(wallet_id)?;
-        
-        // Sign transaction without loading private key into memory
-        let signature = key_manager.sign_message(&private_key, &format!("{:?}", transaction))?;
-        
-        // For now, return a mock signed transaction
-        // In a real implementation, this would create a proper signed transaction
-        Ok(SignedTransaction {
-            transaction,
-            signature: hex::decode(signature).unwrap_or_default(),
-            hash: "0x".to_string(),
-        })
+        let key_id = format!("wallet_key_{}", wallet_id);
+
+        // Sign using the transaction manager
+        let tx_manager = crate::core::transactions::TransactionManager::new(rpc_url);
+        let mut signed = tx_manager
+            .sign_transaction(&transaction, &key_id, &file_storage)
+            .await?;
+
+        // Broadcast and attach returned hash
+        let tx_hash = tx_manager.send_transaction(&signed).await?;
+        signed.hash = tx_hash;
+        Ok(signed)
     }
 
     /// Get transaction history
     pub async fn get_transaction_history(&self, _wallet_id: &str) -> Result<Vec<SignedTransaction>, WalletError> {
-        // For now, return empty history
-        // In a real implementation, this would query the blockchain
-        Ok(vec![])
+        // Transaction history requires an indexer or third-party API; JSON-RPC alone cannot query by address efficiently.
+        Err(WalletError::not_implemented("Transaction history requires an indexer; not supported via JSON-RPC only"))
     }
 
-    /// Update wallet balance
+    /// Update wallet balance (uses wallet's configured network and currency)
     pub async fn update_balance(&self, wallet_id: &str, balance: String) -> Result<(), WalletError> {
+        let (network, currency) = {
+            let wallets = self.wallets.read().await;
+            if let Some(wallet) = wallets.get(wallet_id) {
+                let n = wallet.network.clone();
+                let c = n.native_currency().to_string();
+                (n, c)
+            } else {
+                // Fallback if wallet not found
+                let n = Network::CoreTestnet;
+                (n.clone(), n.native_currency().to_string())
+            }
+        };
+
         let mut balances = self.balances.write().await;
         let wallet_balance = WalletBalance::new(
             wallet_id.to_string(),
-            Network::CoreTestnet, // Default network
+            network,
             balance,
-            "TCORE2".to_string(), // Default currency
+            currency,
         );
         balances.insert(wallet_id.to_string(), wallet_balance);
         Ok(())
