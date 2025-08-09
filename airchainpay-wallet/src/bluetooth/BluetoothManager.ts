@@ -68,6 +68,14 @@ export class BluetoothManager {
   private initializationError: string | null = null;
   private stateSubscription: any = null;
   private advertisingTimeout: NodeJS.Timeout | null = null;
+  private static readonly CONFIG = {
+    CHUNK_PAYLOAD_SIZE: 160, // bytes of base64 per write
+    LARGE_MESSAGE_THRESHOLD: 4096, // bytes
+    CONNECT_TIMEOUT_MS: 10000,
+    WRITE_TIMEOUT_MS: 5000,
+    LISTEN_MESSAGE_TIMEOUT_MS: 30000,
+    MAX_WRITE_RETRIES: 3,
+  } as const;
   
   private constructor() {
     logger.info('[BLE] Initializing BluetoothManager');
@@ -558,7 +566,7 @@ export class BluetoothManager {
       this.stopScan();
       
       this.manager!.startDeviceScan(
-        [AIRCHAINPAY_SERVICE_UUID],
+        null,
         { allowDuplicates: false },
         (error, device) => {
           if (error) {
@@ -675,15 +683,14 @@ export class BluetoothManager {
       return { success: true };
     }
 
-    // Check platform support first
+    // Check platform support first (disable advertising on iOS)
     if (Platform.OS !== 'android') {
-      console.log('[BLE] Non-Android platform detected, using fallback advertising');
-      await this.startFallbackAdvertising(paymentData);
-      return { success: true };
+      console.log('[BLE] Advertising not supported on this platform');
+      return { success: false, message: 'BLE advertising is not supported on iOS. Scanning is available.' };
     }
 
     // Check advertiser availability
-    if (!this.advertiser) {
+      if (!this.advertiser) {
       console.warn('[BLE] No advertiser available');
       return { 
         success: false, 
@@ -902,8 +909,11 @@ export class BluetoothManager {
       logger.info('[BLE] Connecting to device:', device.name || device.id);
       
       this.notifyConnectionChange(device.id, ConnectionStatus.CONNECTING);
-      
-      const connectedDevice = await device.connect();
+      // Enforce connect timeout
+      const connectedDevice = await Promise.race([
+        device.connect(),
+        new Promise<Device>((_, reject) => setTimeout(() => reject(new BluetoothError('Connect timeout', 'CONNECT_TIMEOUT')), BluetoothManager.CONFIG.CONNECT_TIMEOUT_MS))
+      ]) as Device;
       await connectedDevice.discoverAllServicesAndCharacteristics();
       
       this.connectedDevices.set(device.id, {
@@ -920,7 +930,7 @@ export class BluetoothManager {
       this.notifyConnectionChange(device.id, ConnectionStatus.ERROR);
       throw new BluetoothError(
         `Failed to connect to device: ${error instanceof Error ? error.message : String(error)}`,
-        'CONNECTION_ERROR'
+        error instanceof BluetoothError ? error.code : 'CONNECTION_ERROR'
       );
     }
   }
@@ -973,20 +983,8 @@ export class BluetoothManager {
       throw new BluetoothError('Device not connected', 'DEVICE_NOT_CONNECTED');
     }
 
-    try {
-      const characteristic = await deviceState.device.writeCharacteristicWithResponseForService(
-        serviceUUID,
-        characteristicUUID,
-        Buffer.from(data, 'utf8').toString('base64')
-      );
-      
-      logger.info('[BLE] Data sent successfully:', characteristic.uuid);
-    } catch (error) {
-      throw new BluetoothError(
-        `Failed to send data: ${error instanceof Error ? error.message : String(error)}`,
-        'SEND_ERROR'
-      );
-    }
+    const payloadBase64 = Buffer.from(data, 'utf8').toString('base64');
+    await this.writeWithTimeoutAndRetry(deviceState.device, serviceUUID, characteristicUUID, payloadBase64);
   }
 
   /**
@@ -1036,6 +1034,130 @@ export class BluetoothManager {
         `Failed to start listening: ${error instanceof Error ? error.message : String(error)}`,
         'LISTEN_ERROR'
       );
+    }
+  }
+
+  /**
+   * Send large data by chunking into small frames. base64Data must be a base64-encoded string of the raw payload.
+   */
+  async sendLargeDataToDevice(
+    deviceId: string,
+    serviceUUID: string,
+    characteristicUUID: string,
+    base64Data: string
+  ): Promise<void> {
+    const deviceState = this.connectedDevices.get(deviceId);
+    if (!deviceState || deviceState.status !== ConnectionStatus.CONNECTED) {
+      throw new BluetoothError('Device not connected', 'DEVICE_NOT_CONNECTED');
+    }
+
+    const id = `${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+    const total = Math.ceil(base64Data.length / BluetoothManager.CONFIG.CHUNK_PAYLOAD_SIZE);
+
+    for (let i = 0; i < total; i++) {
+      const start = i * BluetoothManager.CONFIG.CHUNK_PAYLOAD_SIZE;
+      const end = Math.min(start + BluetoothManager.CONFIG.CHUNK_PAYLOAD_SIZE, base64Data.length);
+      const d = base64Data.slice(start, end);
+      const frame = JSON.stringify({ t: 'chunk', id, i, n: total, d });
+      const frameB64 = Buffer.from(frame, 'utf8').toString('base64');
+      await this.writeWithTimeoutAndRetry(deviceState.device, serviceUUID, characteristicUUID, frameB64);
+    }
+
+    // Send end marker
+    const endFrame = JSON.stringify({ t: 'end', id });
+    const endFrameB64 = Buffer.from(endFrame, 'utf8').toString('base64');
+    await this.writeWithTimeoutAndRetry(deviceState.device, serviceUUID, characteristicUUID, endFrameB64);
+  }
+
+  /**
+   * Listen and reassemble chunked messages.
+   */
+  async listenForChunks(
+    deviceId: string,
+    serviceUUID: string,
+    characteristicUUID: string,
+    onMessage: (utf8Data: string) => void
+  ): Promise<{ remove: () => void }> {
+    const assemblies = new Map<string, { parts: string[]; total: number; timer?: NodeJS.Timeout }>();
+
+    const clearAssembly = (id: string) => {
+      const a = assemblies.get(id);
+      if (a?.timer) clearTimeout(a.timer);
+      assemblies.delete(id);
+    };
+
+    const listener = await this.listenForData(
+      deviceId,
+      serviceUUID,
+      characteristicUUID,
+      (data: string) => {
+        try {
+          const obj = JSON.parse(data);
+          if (obj && (obj.t === 'chunk' || obj.t === 'end')) {
+            const id: string = obj.id;
+            if (obj.t === 'chunk') {
+              const total: number = obj.n;
+              const index: number = obj.i;
+              const part: string = obj.d;
+              let asm = assemblies.get(id);
+              if (!asm) {
+                asm = { parts: new Array(total).fill(''), total, timer: undefined };
+                // Cleanup timer per message
+                asm.timer = setTimeout(() => clearAssembly(id), BluetoothManager.CONFIG.LISTEN_MESSAGE_TIMEOUT_MS);
+                assemblies.set(id, asm);
+              }
+              asm.parts[index] = part;
+            } else if (obj.t === 'end') {
+              const asm = assemblies.get(id);
+              if (asm) {
+                const fullBase64 = asm.parts.join('');
+                const utf8Data = Buffer.from(fullBase64, 'base64').toString('utf8');
+                clearAssembly(id);
+                onMessage(utf8Data);
+              }
+            }
+            return;
+          }
+          // Not a chunked frame, pass through
+          onMessage(data);
+        } catch {
+          onMessage(data);
+        }
+      }
+    );
+
+    return listener;
+  }
+
+  /**
+   * Internal helper: write with timeout and retry using exponential backoff
+   */
+  private async writeWithTimeoutAndRetry(device: Device, serviceUUID: string, characteristicUUID: string, base64Value: string): Promise<void> {
+    let attempt = 0;
+    const max = BluetoothManager.CONFIG.MAX_WRITE_RETRIES;
+    const writeOnce = async () => {
+      return await Promise.race([
+        device.writeCharacteristicWithResponseForService(serviceUUID, characteristicUUID, base64Value),
+        new Promise((_, reject) => setTimeout(() => reject(new BluetoothError('Write timeout', 'WRITE_TIMEOUT')), BluetoothManager.CONFIG.WRITE_TIMEOUT_MS))
+      ]);
+    };
+
+    while (true) {
+      try {
+        const characteristic = await writeOnce();
+        logger.info('[BLE] Data sent successfully:', (characteristic as any).uuid);
+        return;
+      } catch (error) {
+        attempt++;
+        if (attempt > max) {
+          throw new BluetoothError(
+            `Failed to send data: ${error instanceof Error ? error.message : String(error)}`,
+            error instanceof BluetoothError ? error.code : 'SEND_ERROR'
+          );
+        }
+        const delayMs = Math.pow(2, attempt - 1) * 200; // 200, 400, 800ms
+        await new Promise(res => setTimeout(res, delayMs));
+      }
     }
   }
 

@@ -250,9 +250,22 @@ mod tests {
 
     #[test]
     fn test_validate_seed_phrase() {
-        // Valid seed phrases
-        assert!(validate_seed_phrase("abandon ability able about above absent absorb abstract absurd abuse access accident").is_ok());
-        assert!(validate_seed_phrase("abandon ability able about above absent absorb abstract absurd abuse access accident abandon ability able").is_ok());
+        // Generate a valid seed phrase for testing using entropy
+        let mut entropy = [0u8; 16]; // 128 bits for 12 words
+        OsRng.fill_bytes(&mut entropy);
+        let mnemonic = Mnemonic::from_entropy(&entropy).expect("Failed to generate mnemonic");
+        let valid_seed_phrase = mnemonic.to_string();
+        
+        // Test the generated seed phrase
+        assert!(validate_seed_phrase(&valid_seed_phrase).is_ok());
+        
+        // Test a known valid seed phrase (12 words)
+        let known_valid_12 = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        assert!(validate_seed_phrase(known_valid_12).is_ok());
+        
+        // Test a known valid seed phrase (24 words)
+        let known_valid_24 = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
+        assert!(validate_seed_phrase(known_valid_24).is_ok());
         
         // Invalid seed phrases
         assert!(validate_seed_phrase("abandon ability able about above absent absorb abstract absurd abuse access").is_err()); // Too short

@@ -119,16 +119,25 @@ pub async fn init_wallet_core() -> Result<WalletCore, WalletError> {
         .unwrap_or_else(|_| "core_testnet".to_string());
 
     // Read RPC URLs for supported networks
-    // Read from environment variables; fall back to known defaults
-    // Keys: WALLET_CORE_RPC_CORE_TESTNET, WALLET_CORE_RPC_BASE_SEPOLIA
+    // Read from environment variables; fall back to known defaults where safe
+    // Keys: WALLET_CORE_RPC_CORE_TESTNET, WALLET_CORE_RPC_BASE_SEPOLIA,
+    //       WALLET_CORE_RPC_LISK_SEPOLIA, WALLET_CORE_RPC_HOLESKY
     let core_testnet_url = env::var("WALLET_CORE_RPC_CORE_TESTNET")
         .unwrap_or_else(|_| "https://rpc.test2.btcs.network".to_string());
     let base_sepolia_url = env::var("WALLET_CORE_RPC_BASE_SEPOLIA")
         .unwrap_or_else(|_| "https://sepolia.base.org".to_string());
+    let lisk_sepolia_url = env::var("WALLET_CORE_RPC_LISK_SEPOLIA").unwrap_or_default();
+    let holesky_url = env::var("WALLET_CORE_RPC_HOLESKY").unwrap_or_default();
 
     // Select the correct RPC URL based on the default network
     let rpc_url = match default_network.as_str() {
         "base_sepolia" => base_sepolia_url,
+        "lisk_sepolia" => {
+            if lisk_sepolia_url.is_empty() { "".to_string() } else { lisk_sepolia_url }
+        }
+        "holesky" => {
+            if holesky_url.is_empty() { "".to_string() } else { holesky_url }
+        }
         _ => core_testnet_url,
     };
 

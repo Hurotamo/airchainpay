@@ -306,7 +306,7 @@ mod tests {
         let storage = MockStorage::new();
         let manager = KeyManager::new(&storage);
         // Use a valid BIP39 seed phrase (12 words)
-        let seed_phrase = "abandon ability able about above absent absorb abstract absurd abuse access accident";
+        let seed_phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
         let private_key = manager.derive_private_key_from_seed(seed_phrase, "test_id")
             .expect("Failed to derive private key from seed");
         assert_eq!(private_key.key_id(), "test_id");

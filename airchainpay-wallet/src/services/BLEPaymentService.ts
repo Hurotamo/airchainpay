@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import { Device } from 'react-native-ble-plx';
 import { BluetoothManager, BLEPaymentData, SupportedToken, SUPPORTED_TOKENS } from '../bluetooth/BluetoothManager';
+import { createEnvelope, parseEnvelope } from './transports/BLEEnvelope';
 import { logger } from '../utils/Logger';
 
 // BLE Payment Service for handling simplified payment data
@@ -298,7 +299,8 @@ export class BLEPaymentService {
       throw new Error('Device not connected');
     }
 
-    const data = JSON.stringify(paymentData);
+    const envelope = createEnvelope('payment_request', paymentData);
+    const data = JSON.stringify(envelope);
     
     try {
       await this.bleManager.sendDataToDevice(
@@ -332,9 +334,9 @@ export class BLEPaymentService {
         '0000abce-0000-1000-8000-00805f9b34fb', // AirChainPay characteristic UUID
         (data) => {
           try {
-            const paymentData = JSON.parse(data) as BLEPaymentData;
-            if (this.isValidPaymentData(paymentData)) {
-              onPaymentData(paymentData);
+            const env = parseEnvelope<any>(data);
+            if (env.type === 'payment_request' && this.isValidPaymentData(env.payload)) {
+              onPaymentData(env.payload as BLEPaymentData);
             } else {
               logger.warn('[BLE Payment] Received invalid payment data:', data);
             }

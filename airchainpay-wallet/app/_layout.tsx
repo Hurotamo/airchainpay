@@ -2,7 +2,7 @@
 import '../src/polyfills';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Platform, ActivityIndicator, View, Alert } from 'react-native';
+import { Platform, ActivityIndicator, View,  } from 'react-native';
 import { initializeCameraModule } from '../src/utils/CameraModule';
 
 import { StatusBar } from 'expo-status-bar';

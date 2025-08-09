@@ -22,6 +22,7 @@ interface BLESession {
   lastActivity: number;
   isAuthenticated: boolean;
   encryptionNonce: number;
+  lastReceivedNonce: number;
 }
 
 // Key exchange message types
@@ -121,7 +122,8 @@ export class BLESecurity {
         createdAt: Date.now(),
         lastActivity: Date.now(),
         isAuthenticated: false,
-        encryptionNonce: 0
+        encryptionNonce: 0,
+        lastReceivedNonce: 0
       };
 
       this.sessions.set(sessionId, session);
@@ -130,6 +132,63 @@ export class BLESecurity {
       return sessionId;
     } catch (error) {
       logger.error('[BLESecurity] Failed to create session:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create a key exchange response for an incoming init
+   */
+  async createKeyExchangeResponse(initMessage: KeyExchangeMessage): Promise<KeyExchangeMessage> {
+    try {
+      const { sessionId, publicKey } = initMessage;
+      if (!this.deviceKeyPair) {
+        throw new Error('Device keys not initialized');
+      }
+      let session = this.sessions.get(sessionId);
+      if (!session) {
+        // Create session with unknown device id placeholder
+        session = {
+          sessionId,
+          deviceId: 'unknown',
+          sharedKey: '',
+          hmacKey: '',
+          createdAt: Date.now(),
+          lastActivity: Date.now(),
+          isAuthenticated: false,
+          encryptionNonce: 0,
+          lastReceivedNonce: 0
+        };
+        this.sessions.set(sessionId, session);
+      }
+
+      // Derive shared key from initiator's public key
+      const sharedSecret = await this.generateSharedSecret(publicKey);
+      const sharedKey = CryptoJS.SHA256(sharedSecret).toString();
+      const hmacKey = CryptoJS.SHA256(sharedKey + 'hmac').toString();
+
+      session.sharedKey = sharedKey;
+      session.hmacKey = hmacKey;
+      session.lastActivity = Date.now();
+
+      const nonce = this.generateNonce();
+      const timestamp = Date.now();
+      const messageToSign = `${sessionId}${this.deviceKeyPair.publicKey}${nonce}${timestamp}`;
+      const signature = await this.signMessage(messageToSign);
+
+      const response: KeyExchangeMessage = {
+        type: 'key_exchange_response',
+        sessionId,
+        publicKey: this.deviceKeyPair.publicKey,
+        nonce,
+        signature,
+        timestamp
+      };
+
+      logger.info(`[BLESecurity] Created key exchange response for session ${sessionId}`);
+      return response;
+    } catch (error) {
+      logger.error('[BLESecurity] Failed to create key exchange response:', error);
       throw error;
     }
   }
@@ -325,6 +384,21 @@ export class BLESecurity {
         throw new Error('Invalid or unauthenticated session');
       }
 
+      // Expiry check: prevent decryption for stale sessions
+      const now = Date.now();
+      if (now - session.lastActivity > BLE_SECURITY_CONFIG.SESSION_TIMEOUT) {
+        this.sessions.delete(sessionId);
+        throw new Error('Session expired');
+      }
+
+      // Replay protection: ensure strictly increasing nonce per session
+      const receivedNonce = parseInt(nonce, 10);
+      if (Number.isFinite(receivedNonce)) {
+        if (receivedNonce <= session.lastReceivedNonce) {
+          throw new Error('Replay detected: nonce not increasing');
+        }
+      }
+
       // Verify HMAC for data integrity
       const expectedHmac = CryptoJS.HmacSHA256(encryptedData, session.hmacKey).toString();
       if (hmac !== expectedHmac) {
@@ -351,6 +425,10 @@ export class BLESecurity {
       const paymentData: PaymentData = JSON.parse(decryptedData);
       
       logger.info(`[BLESecurity] Decrypted payment data for session ${sessionId}`);
+      // Update last received nonce only after successful decrypt
+      if (Number.isFinite(receivedNonce)) {
+        session.lastReceivedNonce = receivedNonce;
+      }
       return paymentData;
     } catch (error) {
       logger.error('[BLESecurity] Failed to decrypt payment data:', error);

@@ -66,8 +66,13 @@ pub const MAX_ERROR_MESSAGE_LENGTH: usize = 500;
 pub const MAX_LOG_MESSAGE_LENGTH: usize = 1000;
 pub const ERROR_RETRY_DELAY: u64 = 1000; // milliseconds
 
-// Supported networks - Only Core Testnet and Base Sepolia
-pub const SUPPORTED_NETWORKS: &[&str] = &["core_testnet", "base_sepolia"];
+// Supported networks
+pub const SUPPORTED_NETWORKS: &[&str] = &[
+    "core_testnet",
+    "base_sepolia",
+    "lisk_sepolia",
+    "holesky",
+];
 
 // Network configurations
 #[derive(Debug, Clone)]
@@ -96,6 +101,26 @@ pub static BASE_SEPOLIA_CONFIG: NetworkConfig = NetworkConfig {
     block_explorer: "https://sepolia.basescan.org",
     native_currency: "ETH",
     contract_address: "0x7B79117445C57eea1CEAb4733020A55e1D503934",
+};
+
+pub static LISK_SEPOLIA_CONFIG: NetworkConfig = NetworkConfig {
+    chain_id: 4202,
+    name: "Lisk Sepolia",
+    // Intentionally empty: require env override via WALLET_CORE_RPC_LISK_SEPOLIA
+    rpc_url: "",
+    block_explorer: "https://sepolia.lisk.com",
+    native_currency: "ETH",
+    contract_address: "0xaBEEEc6e6c1f6bfDE1d05db74B28847Ba5b44EAF",
+};
+
+pub static HOLESKY_CONFIG: NetworkConfig = NetworkConfig {
+    chain_id: 17000,
+    name: "Ethereum Holesky",
+    // Intentionally empty: require env override via WALLET_CORE_RPC_HOLESKY
+    rpc_url: "",
+    block_explorer: "https://holesky.etherscan.io",
+    native_currency: "ETH",
+    contract_address: "0x26C59cd738Df90604Ebb13Ed8DB76657cfD51f40",
 };
 
 // Token configurations
@@ -212,7 +237,9 @@ mod tests {
     fn test_supported_networks() {
         assert!(SUPPORTED_NETWORKS.contains(&"core_testnet"));
         assert!(SUPPORTED_NETWORKS.contains(&"base_sepolia"));
-        assert_eq!(SUPPORTED_NETWORKS.len(), 2);
+        assert!(SUPPORTED_NETWORKS.contains(&"lisk_sepolia"));
+        assert!(SUPPORTED_NETWORKS.contains(&"holesky"));
+        assert_eq!(SUPPORTED_NETWORKS.len(), 4);
     }
 
     #[test]

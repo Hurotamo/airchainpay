@@ -23,6 +23,7 @@ use std::os::unix::fs::PermissionsExt;
 use zeroize::Zeroizing;
 #[cfg(not(target_os = "android"))]
 use sys_info;
+use std::env;
 
 /// Platform-specific features and capabilities
 pub struct PlatformFeatures {
@@ -220,6 +221,19 @@ impl SecureFileStorage {
         Ok(Self {})
     }
 
+    // Helper: Get password from env or prompt (tests are non-interactive)
+    fn get_password_string() -> Result<String, WalletError> {
+        if let Ok(pw) = env::var("WALLET_CORE_PASSWORD") {
+            return Ok(pw);
+        }
+        #[cfg(test)]
+        {
+            return Ok("test_password".to_string());
+        }
+        rpassword::prompt_password("Enter password for secure storage: ")
+            .map_err(|e| WalletError::crypto(format!("Password prompt failed: {}", e)))
+    }
+
     // Helper: Derive encryption key from password using Argon2 with secure parameters
     fn derive_key(password: &str, salt: &[u8]) -> Result<Zeroizing<[u8; 32]>, WalletError> {
         let salt = argon2::password_hash::SaltString::encode_b64(salt)?;
@@ -289,10 +303,7 @@ impl SecureFileStorage {
 
     // Helper: Get secure password from OS keyring or prompt
     fn get_password() -> Result<Zeroizing<String>, WalletError> {
-        // In production, use OS keyring (keyring crate)
-        // For now, use a secure prompt
-        let password = rpassword::prompt_password("Enter password for secure storage: ")
-            .map_err(|e| WalletError::crypto(format!("Password prompt failed: {}", e)))?;
+        let password = Self::get_password_string()?;
         Ok(Zeroizing::new(password))
     }
 }
@@ -377,6 +388,19 @@ impl FileStorage {
         Ok(Self {})
     }
 
+    // Helper: Get password from env or prompt (tests are non-interactive)
+    fn get_password_string() -> Result<String, WalletError> {
+        if let Ok(pw) = env::var("WALLET_CORE_PASSWORD") {
+            return Ok(pw);
+        }
+        #[cfg(test)]
+        {
+            return Ok("test_password".to_string());
+        }
+        rpassword::prompt_password("Enter password for secure storage: ")
+            .map_err(|e| WalletError::crypto(format!("Password prompt failed: {}", e)))
+    }
+
     // Helper: Derive encryption key from password using Argon2
     fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; 32], WalletError> {
         let salt = argon2::password_hash::SaltString::encode_b64(salt)?;
@@ -426,9 +450,7 @@ impl FileStorage {
 
 impl PlatformStorage for FileStorage {
     fn store(&self, key: &str, data: &[u8]) -> Result<(), WalletError> {
-        // Prompt user for password or use OS keyring
-        let password = rpassword::prompt_password("Enter password for secure storage: ")
-            .map_err(|e| WalletError::crypto(format!("Password prompt failed: {}", e)))?;
+        let password = Self::get_password_string()?;
         let salt = Self::get_salt(key)?;
         let key_bytes = Self::derive_key(&password, &salt)?;
         let cipher = Aes256Gcm::new(GenericArray::from_slice(&key_bytes));
@@ -445,8 +467,7 @@ impl PlatformStorage for FileStorage {
     }
 
     fn retrieve(&self, key: &str) -> Result<Vec<u8>, WalletError> {
-        let password = rpassword::prompt_password("Enter password for secure storage: ")
-            .map_err(|e| WalletError::crypto(format!("Password prompt failed: {}", e)))?;
+        let password = Self::get_password_string()?;
         let salt = Self::get_salt(key)?;
         let key_bytes = Self::derive_key(&password, &salt)?;
         let cipher = Aes256Gcm::new(GenericArray::from_slice(&key_bytes));

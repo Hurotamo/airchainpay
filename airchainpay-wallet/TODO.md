@@ -1,178 +1,156 @@
-# TODO: Update Wallet App to Use Exact Contract Functions
+## BLE payment – production-ready TODOs (airchainpay-wallet)
 
-## Overview
-Transform the wallet app from basic token transfers to full contract integration with meta-transactions, offline signing, and advanced payment features.
+### Protocol and transport
+- [x] Define BLE message envelope and types
+  - Envelope: `{ type, version, sessionId, nonce, hmac, payload }`
+  - Types: `payment_request`, `transaction_confirmation`, `advertiser_confirmation`, `error`
+  - Version: `1.0.0` (constant)
+  - Acceptance: All BLE sends/receives use the envelope; unknown `version` is rejected; `type` is validated.
+  - Implemented:
+    - `src/services/transports/BLEEnvelope.ts` with version `1.0.0`, validators, and helpers
+    - `src/services/transports/BLETransport.ts` wraps outgoing payment request and parses confirmations via envelope
+    - `src/services/BLEPaymentService.ts` uses envelope for send/listen of `payment_request`
 
-## Phase 1: Core Contract Integration
+- [x] Switch to compressed payloads for BLE
+  - Outgoing: use `TransactionBuilder.serializeBLEPayment`
+  - Incoming: use `TransactionBuilder.deserializeBLEPayment` with JSON fallback
+  - Files: `src/services/transports/BLETransport.ts`, `src/services/BLEReceiverService.ts` (new), `src/utils/TransactionBuilder.ts`
+  - Acceptance: Payloads >10KB serialize; compression ratio logged; receiver correctly deserializes.
 
-### 1.1 Update Transaction Services
-- [x] **Replace `sendTokenTransaction()` in `MultiChainWalletManager.ts`**
-  - Remove direct `transfer()` calls on ERC-20 tokens
-  - Remove direct `sendTransaction()` for native tokens
-  - Add calls to `executeTokenMetaTransaction()` for ERC-20
-  - Add calls to `executeNativeMetaTransaction()` for native tokens
+### Sender flow (scan → connect → send → wait)
+- [x] Replace `BLEPaymentScreen` mock send with transport
+  - Call `BLETransport.send(request)` instead of `BLEPaymentService.sendPaymentData` and remove mock tx hash
+  - Wire UI states: connecting, sending, waiting for confirmation, success/failure
+  - File: `src/screens/BLEPaymentScreen.tsx` (`handleConnectDevice`, `handleSendPayment`)
+  - Acceptance: UI shows real tx hash from transport; no mock paths remain.
 
-### 1.2 Add Meta-Transaction Support
-- [x] **Create `MetaTransactionService.ts`**
-  - Add `signMetaTransaction()` method for offline signing
-  - Add `executeMetaTransaction()` method for contract calls
-  - Add EIP-712 domain separator handling
-  - Add nonce management per user/chain
+- [x] Ensure `BLETransport` uses envelope + compression
+  - Build `payment_request` envelope; send via `BluetoothManager.sendDataToDevice`
+  - Wait for `transaction_confirmation` and `advertiser_confirmation` messages; enforce timeouts
+  - File: `src/services/transports/BLETransport.ts`
+  - Acceptance: Transport returns `confirmed` only after receiving confirmations; timeouts surface as errors.
 
-### 1.3 Update Contract Service
-- [x] **Enhance `ContractService.ts`**
-  - Add `executeNativeMetaTransaction()` method
-  - Add `executeTokenMetaTransaction()` method
-  - Add `executeBatchNativeMetaTransaction()` method
-  - Add `executeBatchTokenMetaTransaction()` method
-  - Add `getNonce()` method for replay protection
+### Receiver flow (advertise → accept → execute → confirm)
+- [ ] Implement receiver service to process incoming payment requests
+  - New: `src/services/BLEReceiverService.ts`
+  - Responsibilities:
+    - On advertising start, begin listening with `BluetoothManager.listenForData`
+    - Reassemble/chunk (see MTU task), decode base64 → decompress or JSON fallback → envelope validation
+    - Validate request fields; reject invalid
+    - If online: sign and broadcast (native/token) using `MultiChainWalletManager`/`TransactionService` or `ContractService`
+    - If offline: queue with `TxQueue`, return `status: queued`
+    - Send back `transaction_confirmation` with `{ transactionHash, confirmed }`
+    - Optionally start receiver advertising and then send `advertiser_confirmation { advertising: true }`
+  - Acceptance: Advertiser device receives a valid request, executes path (online/offline), and replies over BLE.
 
-## Phase 2: Payment Flow Updates
+- [ ] Integrate receiver service with advertising lifecycle
+  - On `BLEPaymentService.startAdvertising(...)` success, attach listener; on `stopAdvertising`, detach
+  - Files: `src/services/BLEPaymentService.ts`, `src/bluetooth/BluetoothManager.ts`
+  - Acceptance: No orphan listeners; lifecycle cleanup verified.
 
-### 2.1 Update BLE Payment Service
-- [ ] **Modify `BLEPaymentService.ts`**
-  - Replace direct blockchain calls with contract meta-transactions
-  - Add offline transaction signing for BLE payments
-  - Add payment reference generation
-  - Add transaction status tracking
+### Security (mandatory)
+- [x] Integrate `BLESecurity` key exchange and session
+  - On connect: run `initiateKeyExchange` → process response → confirm; store `sessionId`
+  - Encrypt outgoing `payload` and HMAC; decrypt incoming; include `sessionId`, `nonce`
+  - Files: `src/services/transports/BLETransport.ts`, `src/services/BLEReceiverService.ts`, `src/utils/crypto/BLESecurity.ts`
+  - Acceptance: Messages without valid HMAC/session are rejected; replay attempts (reused `nonce`) are rejected.
 
-### 2.2 Update Payment Screen
-- [ ] **Modify `BLEPaymentScreen.tsx`**
-  - Add meta-transaction signing flow
-  - Add payment reference input/display
-  - Add transaction status updates
-  - Add fee calculation display
+- [x] Replay/window protections and session cleanup
+  - Maintain monotonic `nonce` per `sessionId`; expire sessions after inactivity (configurable)
+  - Files: `src/utils/crypto/BLESecurity.ts` (reuse), call cleanup on disconnect/timeout
+  - Acceptance: Sessions auto-expire; stale sessions cannot decrypt.
 
-## Phase 3: Advanced Features
+### BLE transport specifics
+- [x] MTU-aware chunking and reassembly for characteristic writes
+  - Add `sendLargeDataToDevice(deviceId, serviceUUID, characteristicUUID, base64Data)` and `listenForChunks(...)`
+  - Chunk size target: <= 180 bytes payload per write (tune per platform)
+  - File: `src/bluetooth/BluetoothManager.ts`
+  - Acceptance: Large (>4KB) messages reliably transmit and reassemble; back-to-back messages do not interleave.
 
-### 3.1 Batch Payment Support
-- [ ] **Add batch payment functionality**
-  - Create `BatchPaymentService.ts`
-  - Add UI for multiple recipient payments
-  - Add batch transaction signing
-  - Add batch payment status tracking
+- [x] Robust timeouts/retries and error taxonomy
+  - Timeouts: connect, write, read, confirmation; configurable constants
+  - Retries: exponential backoff for connect/write; no infinite loops
+  - Standardize error codes (e.g., `BLE_NOT_AVAILABLE`, `DEVICE_NOT_CONNECTED`, `LISTEN_TIMEOUT`, `DECRYPT_FAILED`)
+  - Files: `src/bluetooth/BluetoothManager.ts`, `src/services/transports/BLETransport.ts`
+  - Acceptance: All errors propagate with stable codes; UI maps to actionable messages.
 
-### 3.2 Token Management
-- [ ] **Integrate contract token management**
-  - Use `getSupportedTokens()` from contract
-  - Use `getTokenConfig()` for token validation
-  - Add dynamic token support based on contract
-  - Add token fee rate display
+### Platform coverage
+- [x] iOS advertising strategy
+  - Option B: disable advertising on iOS; support only scanning/central; show UI message
+  - Files: `src/bluetooth/BluetoothManager.ts`, `src/screens/BLEPaymentScreen.tsx`
+  - Acceptance: No misleading advertising UI on unsupported platforms; QA verified on both OSes.
 
-### 3.3 Payment History
-- [ ] **Add contract-based payment tracking**
-  - Use `getPayment()` for transaction details
-  - Use `getUserPaymentCount()` for user stats
-  - Use `getTotalPayments()` for global stats
-  - Add payment ID tracking
+- [x] Permissions hardening (Android)
+  - Enforce `BLUETOOTH_SCAN`, `BLUETOOTH_CONNECT`, `BLUETOOTH_ADVERTISE` with settings redirect when `never_ask_again`
+  - File: `src/bluetooth/BluetoothManager.ts` (`requestAllPermissions`, `hasCriticalPermissions`)
+  - Acceptance: Permission denials surfaced; UI prompts and settings redirect path working.
 
-## Phase 4: Security & Validation
+### On-chain execution
+- [x] Online execution path
+  - Native: sign/send via `MultiChainWalletManager`; Token: `ContractService.executeTokenMetaTransaction` or standard ERC20 transfer
+  - Confirmations: poll provider or listen for receipt; include `blockExplorerUrl`
+  - Files: `src/services/TransactionService.ts`, `src/services/ContractService.ts`, `src/services/BLEReceiverService.ts`
+  - Acceptance: Returns real `transactionHash`; failures include reason.
 
-### 4.1 Signature Validation
-- [ ] **Add signature verification**
-  - Verify meta-transaction signatures
-  - Add deadline validation
-  - Add nonce validation
-  - Add replay attack protection
+- [x] Offline queue path
+  - Validate with `offlineSecurityService.performOfflineSecurityCheck`
+  - Queue in `TxQueue` with signed tx; update offline balance tracking
+  - Files: `src/services/transports/BLETransport.ts` (already queues), `src/services/BLEReceiverService.ts`
+  - Acceptance: Sender receives `queued`; item appears in queue; processes when online.
 
-### 4.2 Error Handling
-- [ ] **Add contract-specific error handling**
-  - Handle `TokenNotSupported` errors
-  - Handle `InvalidAmount` errors
-  - Handle `TransactionExpired` errors
-  - Handle `InsufficientBalance` errors
+### UI/UX
+- [x] Replace mock receipt and wire real statuses
+  - Remove local `mockTransaction`; render states based on transport result
+  - File: `src/screens/BLEPaymentScreen.tsx`
+  - Acceptance: Hash is real; explorer link available; errors visible.
 
-## Phase 5: UI/UX Updates
+- [x] Advertising UI gating and status
+  - Show supported tokens from `SUPPORTED_TOKENS`; disable on unsupported platforms; show countdown/auto-stop
+  - File: `src/screens/BLEPaymentScreen.tsx`
+  - Acceptance: Accurate status text; stop works reliably; auto-stop after timeout.
 
-### 5.1 Transaction Flow
-- [ ] **Update transaction confirmation screens**
-  - Add meta-transaction signing step
-  - Add payment reference display
-  - Add fee breakdown display
-  - Add transaction status indicators
+### Observability
+- [x] Structured logs and metrics
+  - Use `logger` with fields: `deviceId`, `sessionId`, `type`, `size`, `durationMs`
+  - Leverage `BLEAdvertisingMonitor` for sessions; expose a simple report screen/log dump
+  - Files: `src/bluetooth/BLEAdvertisingMonitor.ts`, call sites in transport/receiver
+  - Acceptance: Monitor shows session counts, error rates; logs enable debugging failed sessions.
 
-### 5.2 Settings & Configuration
-- [ ] **Add contract configuration**
-  - Add supported tokens display
-  - Add fee rates display
-  - Add contract status indicators
-  - Add network configuration
+### Testing and QA
+- [ ] Unit tests
+  - `TransactionBuilder` compression/decompression round-trips
+  - `BLESecurity` key exchange, encrypt/decrypt, HMAC/replay rejection
+  - Files: `__tests__/TransactionBuilder.test.ts`, `__tests__/BLESecurity.test.ts`
+  - Acceptance: Tests pass locally/CI.
 
-## Phase 6: Testing & Validation
+- [ ] Integration tests (mocked BLE)
+  - Abstract `BluetoothManager` behind an interface; provide a mock for Jest to simulate chunking and callbacks
+  - Files: `src/bluetooth/BluetoothManager.ts` (interface extraction), `__mocks__/BluetoothManager.ts`
+  - Acceptance: End-to-end send/receive path passes in CI.
 
-### 6.1 Contract Integration Testing
-- [ ] **Test meta-transaction flows**
-  - Test native token meta-transactions
-  - Test ERC-20 token meta-transactions
-  - Test batch payment transactions
-  - Test error scenarios
+- [ ] Device QA matrix
+  - Android: 2 devices, Android 11–14; iOS: 1 device if supported
+  - Scenarios: online/native, online/token, offline queue, permission denied, BT off, large payload (>8KB)
+  - Acceptance: All pass with logs captured.
 
-### 6.2 BLE Integration Testing
-- [ ] **Test BLE + Contract integration**
-  - Test offline signing + BLE transmission
-  - Test contract execution from BLE data
-  - Test payment reference handling
-  - Test transaction status updates
+### Hardening and cleanup
+- [ ] Feature flag
+  - Gate BLE payment behind a remote or local flag; safe rollout
+  - Files: `src/constants/AppConfig.ts`, usage in screen
+  - Acceptance: Can disable feature without shipping a new build.
 
-## Phase 7: Migration & Cleanup
+- [ ] Documentation
+  - Update `README.md` with BLE capabilities, limitations, and privacy notes
+  - Add developer runbook for testing with two devices
+  - Acceptance: Docs up to date; new dev can follow and validate.
 
-### 7.1 Remove Legacy Code
-- [ ] **Remove direct blockchain calls**
-  - Remove direct `transfer()` calls
-  - Remove direct `sendTransaction()` calls
-  - Remove inline ABI definitions
-  - Clean up unused imports
+### Explicit file edits summary
+- [ ] `src/screens/BLEPaymentScreen.tsx`: remove mock, call `BLETransport.send`, add real status handling
+- [ ] `src/services/transports/BLETransport.ts`: envelope, compression, encryption, timeouts, retries, confirmations
+- [ ] `src/services/BLEPaymentService.ts`: integrate receiver lifecycle hooks or delegate to receiver service
+- [ ] `src/services/BLEReceiverService.ts` (new): implement receive/execute/confirm flow
+- [ ] `src/bluetooth/BluetoothManager.ts`: add chunking APIs; robust error codes; lifecycle cleanup
+- [ ] `src/utils/crypto/BLESecurity.ts`: wire into transport/receiver; session management
+- [ ] Tests: add unit/integration as above; add mocks
 
-### 7.2 Update Documentation
-- [ ] **Update code documentation**
-  - Document meta-transaction flows
-  - Document contract integration
-  - Document payment reference system
-  - Update API documentation
 
-## Priority Order
-1. **High Priority**: Phase 1 (Core Contract Integration)
-2. **Medium Priority**: Phase 2 (Payment Flow Updates)
-3. **Medium Priority**: Phase 3 (Advanced Features)
-4. **Low Priority**: Phase 4-7 (Security, UI, Testing, Cleanup)
-
-## Estimated Effort
-- **Phase 1**: 2-3 days
-- **Phase 2**: 1-2 days  
-- **Phase 3**: 2-3 days
-- **Phase 4-7**: 2-3 days
-- **Total**: 7-11 days
-
-## Current Status
-- [x] Updated ABIs to exact contract ABIs
-- [x] Created ContractService with contract methods
-- [x] Updated imports to use exact ABIs
-- [x] **COMPLETED**: Implement meta-transaction flows
-- [x] **COMPLETED**: Replace direct transfers with contract calls
-- [x] **COMPLETED**: Add offline signing capabilities
-- [x] **COMPLETED**: Integrate payment references
-- [x] **COMPLETED**: Create MetaTransactionService with full support
-- [x] **COMPLETED**: Enhance ContractService with meta-transaction methods
-- [ ] **TODO**: Add fee management
-- [ ] **TODO**: Add batch payment support
-
-## Contract Functions to Implement
-### AirChainPayToken.sol Functions:
-- `executeNativeMetaTransaction()` - Offline-signed native payments
-- `executeTokenMetaTransaction()` - Offline-signed ERC-20 payments  
-- `executeBatchNativeMetaTransaction()` - Batch native payments
-- `executeBatchTokenMetaTransaction()` - Batch ERC-20 payments
-- `getSupportedTokens()` - Get supported token list
-- `getTokenConfig()` - Get token configuration
-- `getNonce()` - Get user nonce for replay protection
-
-### AirChainPay.sol Functions:
-- `executeMetaTransaction()` - Basic offline-signed payments
-- `executeBatchMetaTransaction()` - Batch offline payments
-- `pay()` - Direct payments with references
-
-## Notes
-- Current wallet only does basic ERC-20 `transfer()` and native `sendTransaction()`
-- Need to replace with contract meta-transaction functions
-- This will enable offline signing, payment tracking, and fee management
-- BLE payments should use contract functions instead of direct blockchain calls
