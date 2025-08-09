@@ -116,13 +116,16 @@ export default function BLEPaymentScreen() {
     try {
       setScanning(true);
       setErrorMessage(null);
-      
-      blePaymentService.startScanning(handleDevicesFound);
+      await blePaymentService.startScanning(handleDevicesFound);
       
       logger.info('[BLE Payment] Started scanning for devices');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('LOCATION_SERVICES_OFF')) {
+        setErrorMessage('Turn on Location Services to scan on Android 11 and below.');
+      } else {
       setErrorMessage(`Failed to start scanning: ${errorMessage}`);
+      }
       setScanning(false);
       logger.error('[BLE Payment] Scan failed:', error);
     }
@@ -167,7 +170,12 @@ export default function BLEPaymentScreen() {
         setAdvertisingStatus('Advertising payment availability');
         logger.info('[BLE Payment] Started advertising successfully');
       } else {
-        setErrorMessage(result.message || 'Failed to start advertising');
+        const msg = result.message || 'Failed to start advertising';
+        if (msg.toLowerCase().includes('does not support') && msg.toLowerCase().includes('advertis')) {
+          setErrorMessage('Device does not support BLE peripheral advertising');
+        } else {
+          setErrorMessage(msg);
+        }
         setAdvertisingStatus('Advertising failed');
       }
     } catch (error) {

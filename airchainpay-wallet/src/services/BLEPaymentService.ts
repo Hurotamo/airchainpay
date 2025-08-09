@@ -11,7 +11,7 @@ export class BLEPaymentService {
   private isScanning: boolean = false;
   private isAdvertising: boolean = false;
   private discoveredDevices: Map<string, { device: Device; paymentData?: BLEPaymentData }> = new Map();
-  private scanListeners: Set<(devices: Array<{ device: Device; paymentData?: BLEPaymentData }>) => void> = new Set();
+  private scanListeners: Set<(devices: { device: Device; paymentData?: BLEPaymentData }[]) => void> = new Set();
   private advertisingListeners: Set<(status: boolean) => void> = new Set();
 
   private constructor() {
@@ -62,7 +62,18 @@ export class BLEPaymentService {
       } else {
         logger.warn('[BLE Payment] ❌ Some Bluetooth permissions were denied');
       }
-      
+      // After granting, enforce Location Services ON on Android ≤ 11
+      if (Platform.OS === 'android') {
+        const apiLevel = typeof Platform.Version === 'number' ? Platform.Version : parseInt(String(Platform.Version), 10) || 0;
+        if (apiLevel < 31) {
+          const locationOn = await this.bleManager.ensureLocationServicesEnabled();
+          if (!locationOn) {
+            logger.warn('[BLE Payment] Location Services are OFF on Android 11 or below; scanning will not find devices');
+            return false;
+          }
+        }
+      }
+
       return result;
     } catch (error) {
       logger.error('[BLE Payment] Error requesting permissions:', error);
@@ -94,7 +105,7 @@ export class BLEPaymentService {
   /**
    * Start scanning for nearby payment devices
    */
-  startScanning(onDevicesFound?: (devices: Array<{ device: Device; paymentData?: BLEPaymentData }>) => void): void {
+  async startScanning(onDevicesFound?: (devices: { device: Device; paymentData?: BLEPaymentData }[]) => void): Promise<void> {
     if (this.isScanning) {
       logger.info('[BLE Payment] Already scanning, skipping start request');
       return;
@@ -115,7 +126,7 @@ export class BLEPaymentService {
     }
 
     try {
-      this.bleManager.startScan(
+      await this.bleManager.startScan(
         (device, paymentData) => {
           logger.info('[BLE Payment] Found device:', device.name || device.id);
           
@@ -128,8 +139,9 @@ export class BLEPaymentService {
         30000 // 30 second timeout
       );
     } catch (error) {
-      logger.error('[BLE Payment] Error starting scan:', error);
       this.isScanning = false;
+      logger.error('[BLE Payment] Error starting scan:', error);
+      throw error;
     }
   }
 
@@ -149,7 +161,7 @@ export class BLEPaymentService {
   /**
    * Get discovered devices
    */
-  getDiscoveredDevices(): Array<{ device: Device; paymentData?: BLEPaymentData }> {
+  getDiscoveredDevices(): { device: Device; paymentData?: BLEPaymentData }[] {
     return Array.from(this.discoveredDevices.values());
   }
 
@@ -234,8 +246,8 @@ export class BLEPaymentService {
       this.isAdvertising = false;
       this.notifyAdvertisingListeners(false);
       logger.info('[BLE Payment] ✅ Advertising stopped successfully');
-    } catch (error) {
-      logger.error('[BLE Payment] Error stopping advertising:', error);
+    } catch {
+      logger.error('[BLE Payment] Error stopping advertising');
       // Force stop even if there's an error
       this.isAdvertising = false;
       this.notifyAdvertisingListeners(false);
@@ -357,14 +369,14 @@ export class BLEPaymentService {
   /**
    * Add scan listener
    */
-  addScanListener(listener: (devices: Array<{ device: Device; paymentData?: BLEPaymentData }>) => void): void {
+  addScanListener(listener: (devices: { device: Device; paymentData?: BLEPaymentData }[]) => void): void {
     this.scanListeners.add(listener);
   }
 
   /**
    * Remove scan listener
    */
-  removeScanListener(listener: (devices: Array<{ device: Device; paymentData?: BLEPaymentData }>) => void): void {
+  removeScanListener(listener: (devices: { device: Device; paymentData?: BLEPaymentData }[]) => void): void {
     this.scanListeners.delete(listener);
   }
 
@@ -424,7 +436,7 @@ export class BLEPaymentService {
       const decimalPlaces = (amount.split('.')[1] || '').length;
       
       return decimalPlaces <= tokenConfig.decimals;
-    } catch (error) {
+    } catch {
       return false;
     }
   }

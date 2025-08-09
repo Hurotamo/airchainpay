@@ -1,4 +1,4 @@
-import { Platform, PermissionsAndroid } from 'react-native';
+import { Platform, PermissionsAndroid, NativeModules } from 'react-native';
 import { BleManager, Device, State, Service } from 'react-native-ble-plx';
 import TpBleAdvertiser from 'tp-rn-ble-advertiser';
 import { logger } from '../utils/Logger';
@@ -152,10 +152,98 @@ export class BluetoothManager {
         console.log('[BLE] tp-rn-ble-advertiser not available on this platform');
         this.initializationError = null; // Not an error, just not available
       }
-    } catch (error) {
+    } catch {
       console.log('[BLE] tp-rn-ble-advertiser initialization skipped');
       this.initializationError = null; // Not an error, just not available
     }
+  }
+
+  /**
+   * Ensure Location Services are enabled (Android ≤ 11 requirement for BLE scan visibility)
+   */
+  async ensureLocationServicesEnabled(): Promise<boolean> {
+    if (Platform.OS !== 'android') {
+      return true;
+    }
+
+    const apiLevel = typeof Platform.Version === 'number'
+      ? Platform.Version
+      : parseInt(String(Platform.Version), 10) || 0;
+
+    // Only enforce on Android API < 31
+    if (apiLevel >= 31) {
+      return true;
+    }
+
+    // Use NativeModules if RNAndroidLocationEnabler is present; otherwise do not block
+    const RNAndroidLocationEnabler: any = (NativeModules as any).RNAndroidLocationEnabler;
+    if (RNAndroidLocationEnabler) {
+      try {
+        if (typeof RNAndroidLocationEnabler.isLocationEnabled === 'function') {
+          const enabled = await RNAndroidLocationEnabler.isLocationEnabled();
+          return !!enabled;
+        }
+        if (typeof RNAndroidLocationEnabler.checkLocationSetting === 'function') {
+          const status = await RNAndroidLocationEnabler.checkLocationSetting({ needGPSEnable: false });
+          return status === true || status === 'enabled';
+        }
+      } catch {
+        return false;
+      }
+    }
+
+    console.log('[BLE] ensureLocationServicesEnabled: native checker not available; assuming enabled');
+    return true;
+  }
+
+  /**
+   * Best-effort check for BLE peripheral advertising capability on Android
+   */
+  private async canAdvertise(): Promise<boolean> {
+    if (Platform.OS !== 'android') {
+      return false;
+    }
+
+    if (!this.manager) {
+      return false;
+    }
+
+    const state = await this.manager.state();
+    if (state !== State.PoweredOn) {
+      return false;
+    }
+
+    // Require advertiser module presence
+    if (!this.advertiser || typeof this.advertiser.startBroadcast !== 'function' || typeof this.advertiser.stopBroadcast !== 'function') {
+      return false;
+    }
+
+    // If the native module exposes a capability probe, use it
+    const nativeAdvertiser: any = (NativeModules as any).TpBleAdvertiser
+      || (NativeModules as any).ReactNativeBleAdvertiser
+      || (NativeModules as any).BleAdvertiser
+      || null;
+
+    try {
+      const probeNames = [
+        'canAdvertise',
+        'isMultipleAdvertisementSupported',
+        'isAdvertiseSupported',
+        'isSupported',
+      ];
+      for (const name of probeNames) {
+        const fn = nativeAdvertiser && typeof nativeAdvertiser[name] === 'function' ? nativeAdvertiser[name] : null;
+        if (fn) {
+          const result = await fn();
+          return !!result;
+        }
+      }
+    } catch {
+      // Ignore and use fallback below
+    }
+
+    // Fallback: assume supported if advertiser module exists and Bluetooth is powered on
+    return true;
   }
 
   /**
@@ -293,11 +381,20 @@ export class BluetoothManager {
       };
     }
 
-    const requiredPermissions = [
-      PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-      PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-      PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE,
-    ];
+    const apiLevel = typeof Platform.Version === 'number'
+      ? Platform.Version
+      : parseInt(String(Platform.Version), 10) || 0;
+
+    const requiredPermissions = apiLevel >= 31
+      ? [
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE,
+        ]
+      : [
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+          PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
+        ];
 
     const grantedPermissions: string[] = [];
     const deniedPermissions: string[] = [];
@@ -402,11 +499,20 @@ export class BluetoothManager {
       return { granted: true, missing: [], details: {} };
     }
 
-    const requiredPermissions = [
-      PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-      PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-      PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE,
-    ];
+    const apiLevel = typeof Platform.Version === 'number'
+      ? Platform.Version
+      : parseInt(String(Platform.Version), 10) || 0;
+
+    const requiredPermissions = apiLevel >= 31
+      ? [
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE,
+        ]
+      : [
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+          PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
+        ];
 
     const details: { [key: string]: string } = {};
     const missing: string[] = [];
@@ -461,39 +567,70 @@ export class BluetoothManager {
       return { granted: true, missing: [], details: 'Not Android' };
     }
 
-    // For advertising, we primarily need BLUETOOTH_CONNECT
-    // BLUETOOTH_SCAN and BLUETOOTH_ADVERTISE are secondary
-    const criticalPermissions = [
-      PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-    ];
+    const apiLevel = typeof Platform.Version === 'number'
+      ? Platform.Version
+      : parseInt(String(Platform.Version), 10) || 0;
 
-    const secondaryPermissions = [
-      PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-      PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE,
-    ];
+    // API-gated critical permissions
+    const criticalPermissions = apiLevel >= 31
+      ? [PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT]
+      : [
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+          PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
+        ];
+
+    const secondaryPermissions = apiLevel >= 31
+      ? [
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE,
+        ]
+      : [];
 
     const missing: string[] = [];
     let details = '';
 
     console.log('[BLE] Checking critical permissions...');
 
-    // Check critical permissions
-    for (const permission of criticalPermissions) {
-      try {
-        const granted = await PermissionsAndroid.check(permission);
-        if (!granted) {
+    // Check critical permissions (API logic: on <31, either fine or coarse is acceptable)
+    if (apiLevel >= 31) {
+      for (const permission of criticalPermissions) {
+        try {
+          const granted = await PermissionsAndroid.check(permission);
+          if (!granted) {
+            missing.push(permission);
+            details += `Critical permission missing: ${permission}\n`;
+          } else {
+            console.log(`[BLE] ✅ Critical permission granted: ${permission}`);
+          }
+        } catch (error) {
           missing.push(permission);
-          details += `Critical permission missing: ${permission}\n`;
+          details += `Error checking critical permission ${permission}: ${error}\n`;
+        }
+      }
+    } else {
+      // API < 31: consider granted if either FINE or COARSE is granted
+      try {
+        const fineGranted = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
+        const coarseGranted = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION);
+        if (!fineGranted && !coarseGranted) {
+          missing.push(
+            PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+            PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION
+          );
+          details += 'Critical permission missing: location (fine or coarse)\n';
         } else {
-          console.log(`[BLE] ✅ Critical permission granted: ${permission}`);
+          console.log('[BLE] ✅ Critical permission granted: location (fine or coarse)');
         }
       } catch (error) {
-        missing.push(permission);
-        details += `Error checking critical permission ${permission}: ${error}\n`;
+        missing.push(
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+          PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION
+        );
+        details += `Error checking critical location permission: ${error}\n`;
       }
     }
 
-    // Check secondary permissions (for debugging)
+    // Check secondary permissions (for debugging) only on API >= 31
     for (const permission of secondaryPermissions) {
       try {
         const granted = await PermissionsAndroid.check(permission);
@@ -529,9 +666,7 @@ export class BluetoothManager {
       return false;
     }
 
-    if (!this.advertiser || 
-        typeof this.advertiser.startBroadcast !== 'function' ||
-        typeof this.advertiser.stopBroadcast !== 'function') {
+    if (!this.advertiser || typeof this.advertiser.startBroadcast !== 'function' || typeof this.advertiser.stopBroadcast !== 'function') {
       return false;
     }
 
@@ -540,22 +675,31 @@ export class BluetoothManager {
       return false;
     }
 
+    const apiLevel = typeof Platform.Version === 'number' ? Platform.Version : parseInt(String(Platform.Version), 10) || 0;
+
+    // On legacy Android (<31), do not gate by BLUETOOTH_* runtime perms. Check hardware capability.
+    if (apiLevel < 31) {
+      return await this.canAdvertise();
+    }
+
+    // API >= 31: require runtime permissions PLUS capability
     const permissionStatus = await this.checkPermissions();
     const criticalPermissions = [
+      PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
       PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-      PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT
     ];
-    const criticalMissing = permissionStatus.missing.filter(perm =>
-      criticalPermissions.includes(perm as any)
-    );
-    
-    return criticalMissing.length === 0;
+    const criticalMissing = permissionStatus.missing.filter((perm) => criticalPermissions.includes(perm as any));
+    if (criticalMissing.length > 0) {
+      return false;
+    }
+
+    return await this.canAdvertise();
   }
 
   /**
    * Start scanning for AirChainPay BLE devices
    */
-  startScan(onDeviceFound: (device: Device, paymentData?: BLEPaymentData) => void, timeoutMs: number = 30000): void {
+  async startScan(onDeviceFound: (device: Device, paymentData?: BLEPaymentData) => void, timeoutMs: number = 30000): Promise<void> {
     logger.info('[BLE] Starting scan for AirChainPay devices');
     
     if (!this.isBleAvailable()) {
@@ -563,6 +707,19 @@ export class BluetoothManager {
     }
     
     try {
+      // On Android ≤ 11, require location permissions AND location services enabled for visibility
+      if (Platform.OS === 'android') {
+        const apiLevel = typeof Platform.Version === 'number' ? Platform.Version : parseInt(String(Platform.Version), 10) || 0;
+        if (apiLevel < 31) {
+          const fineGranted = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
+          const coarseGranted = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION);
+          const locationEnabled = await this.ensureLocationServicesEnabled();
+          if ((!fineGranted && !coarseGranted) || !locationEnabled) {
+            throw new BluetoothError('Location services disabled', 'LOCATION_SERVICES_OFF');
+          }
+        }
+      }
+
       this.stopScan();
       
       this.manager!.startDeviceScan(
@@ -608,35 +765,12 @@ export class BluetoothManager {
    */
   private parsePaymentDataFromDevice(device: Device): BLEPaymentData | undefined {
     try {
-      // Try to parse from device name first
+      // Legacy-friendly: do not parse detailed payment data from ADV
+      // Only detect presence of our identifier and defer details to GATT after connect
       const deviceName = device.name || device.localName || '';
-      
-      // Look for JSON data in device name (fallback for older devices)
-      if (deviceName.includes('{') && deviceName.includes('}')) {
-        const jsonStart = deviceName.indexOf('{');
-        const jsonEnd = deviceName.lastIndexOf('}') + 1;
-        const jsonStr = deviceName.substring(jsonStart, jsonEnd);
-        
-        const parsed = JSON.parse(jsonStr);
-        if (this.isValidPaymentData(parsed)) {
-          return parsed;
-        }
+      if (deviceName.includes(AIRCHAINPAY_DEVICE_PREFIX)) {
+        return undefined;
       }
-      
-      // Try to parse from manufacturer data if available
-      if (device.manufacturerData) {
-        const manufacturerData = device.manufacturerData;
-        try {
-          const decoded = Buffer.from(manufacturerData, 'base64').toString('utf8');
-          const parsed = JSON.parse(decoded);
-          if (this.isValidPaymentData(parsed)) {
-            return parsed;
-          }
-        } catch (e) {
-          // Ignore parsing errors
-        }
-      }
-      
       return undefined;
     } catch (error) {
       logger.warn('[BLE] Error parsing payment data from device:', error);
@@ -705,6 +839,12 @@ export class BluetoothManager {
           success: false,
           message: 'Bluetooth LE is not available on this device'
         };
+      }
+
+      // Preflight: hardware capability for advertising (legacy-friendly)
+      const canAdv = await this.canAdvertise();
+      if (!canAdv) {
+        return { success: false, message: 'Device does not support BLE peripheral advertising' };
       }
 
       // Check permissions with detailed feedback
@@ -780,22 +920,10 @@ export class BluetoothManager {
   /**
    * Create advertising message with payment data
    */
-  private createAdvertisingMessage(paymentData: BLEPaymentData): string {
-    return JSON.stringify({
-      name: this.deviceName,
-      serviceUUID: AIRCHAINPAY_SERVICE_UUID,
-      type: 'AirChainPay',
-      version: '1.0.0',
-      capabilities: ['payment', 'ble'],
-      timestamp: Date.now(),
-      paymentData: {
-        walletAddress: paymentData.walletAddress,
-        amount: paymentData.amount,
-        token: paymentData.token,
-        chainId: paymentData.chainId,
-        timestamp: paymentData.timestamp
-      }
-    });
+  private createAdvertisingMessage(_paymentData: BLEPaymentData): string {
+    // Minimal identifier (<= 31 bytes) suitable for legacy ADV limits
+    // Example: AirChainPay|v1|pay
+    return 'AirChainPay|v1|pay';
   }
 
   /**
