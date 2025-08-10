@@ -1,7 +1,7 @@
 import { ethers } from 'ethers';
 import { SUPPORTED_CHAINS } from '../constants/AppConfig';
 import { logger } from '../utils/Logger';
-import { WalletError, TransactionError } from '../utils/ErrorClasses';
+import { WalletError } from '../utils/ErrorClasses';
 import { ERC20_ABI } from '../constants/abi';
 
 export interface TokenInfo {

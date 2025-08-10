@@ -5,7 +5,7 @@ import { secureStorage } from '../utils/SecureStorageService';
 import { PasswordHasher } from '../utils/crypto/PasswordHasher';
 import { PasswordMigration } from '../utils/crypto/PasswordMigration';
 import { WalletCorruptionFix } from '../utils/WalletCorruptionFix';
-import { ERC20_ABI, AIRCHAINPAY_TOKEN_ABI } from '../constants/abi';
+import {  AIRCHAINPAY_TOKEN_ABI } from '../constants/abi';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Storage keys - hardcoded to avoid import issues

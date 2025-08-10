@@ -69,6 +69,7 @@ export class BluetoothManager {
   private initializationError: string | null = null;
   private stateSubscription: any = null;
   private advertisingTimeout: NodeJS.Timeout | null = null;
+  private isScanning: boolean = false;
   private static readonly CONFIG = {
     CHUNK_PAYLOAD_SIZE: 160, // bytes of base64 per write
     LARGE_MESSAGE_THRESHOLD: 4096, // bytes
@@ -111,7 +112,17 @@ export class BluetoothManager {
           }
         }, true);
         
-        this.bleAvailable = true;
+        // Initialize availability from current state
+        try {
+          this.manager.state().then((state) => {
+            this.bleAvailable = state === State.PoweredOn;
+            console.log('[BLE] Initial state:', state);
+          }).catch(() => {
+            this.bleAvailable = false;
+          });
+        } catch {
+          this.bleAvailable = false;
+        }
         logger.info('[BLE] BluetoothManager initialized successfully');
         
       } else {
@@ -776,6 +787,23 @@ export class BluetoothManager {
     }
     
     try {
+      // Ensure Bluetooth radio is powered on
+      const state = await this.manager!.state();
+      if (state !== State.PoweredOn) {
+        throw new BluetoothError('Bluetooth is not powered on', 'BLUETOOTH_OFF');
+      }
+
+      // Ensure runtime permissions are granted on Android
+      if (Platform.OS === 'android') {
+        const permissionStatus = await this.checkPermissions();
+        if (!permissionStatus.granted) {
+          const req = await this.requestPermissionsEnhanced();
+          if (!req.success) {
+            throw new BluetoothError('Bluetooth permissions denied', 'PERMISSION_DENIED');
+          }
+        }
+      }
+
       // Check location services status for Android
       if (Platform.OS === 'android') {
         const locationStatus = await this.checkLocationServicesStatus();
@@ -790,7 +818,13 @@ export class BluetoothManager {
         logger.info('[BLE] Location services check passed:', locationStatus.message);
       }
 
-      this.stopScan();
+      // Avoid concurrent scans
+      if (this.isScanning) {
+        logger.info('[BLE] Scan already in progress, stopping before restart');
+        this.stopScan();
+        await new Promise(resolve => setTimeout(resolve, 400));
+      }
+      this.isScanning = true;
       
       this.manager!.startDeviceScan(
         null,
@@ -804,6 +838,10 @@ export class BluetoothManager {
             } else {
               logger.warn('[BLE] Scan error:', error);
             }
+            // End scanning state on error from native
+            this.isScanning = false;
+            // Best-effort stop to clear native scanning state
+            try { this.manager!.stopDeviceScan(); } catch {}
             return;
           }
           
@@ -837,6 +875,7 @@ export class BluetoothManager {
         }, timeoutMs);
       }
     } catch (error) {
+      this.isScanning = false;
       // Provide specific error messages for common issues
       if (error instanceof BluetoothError) {
         throw error;
@@ -1033,6 +1072,7 @@ export class BluetoothManager {
     if (this.manager && this.isBleAvailable()) {
       this.manager.stopDeviceScan();
     }
+    this.isScanning = false;
     logger.info('[BLE] Scan stopped');
   }
 

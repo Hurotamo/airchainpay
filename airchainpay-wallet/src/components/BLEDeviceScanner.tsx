@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -46,6 +46,7 @@ export default function BLEDeviceScanner({
   const { colorScheme } = useThemeContext();
   const theme = colorScheme || 'light';
   const bluetoothManager = BluetoothManager.getInstance();
+  const discoverySubscriptionRef = useRef<{ remove: () => void } | null>(null);
 
   // Effects are declared after callbacks
 
@@ -54,11 +55,30 @@ export default function BLEDeviceScanner({
     if (isScanning) return;
 
     try {
+      // Quick pre-check to avoid native start errors
+      if (!bluetoothManager.isBleAvailable() || !(await bluetoothManager.isBluetoothEnabled())) {
+        setScanError('Bluetooth is off or unavailable');
+        return;
+      }
+
+      // Ensure permissions on Android; surface friendly error
+      try {
+        const ok = await bluetoothManager.requestAllPermissions();
+        if (!ok) {
+          setScanError('Bluetooth permissions are required');
+          return;
+        }
+      } catch {}
+
       setScanError(null);
       setIsScanning(true);
       setScanStartTime(Date.now());
       setScanProgress(0);
       setDevices([]);
+
+      // Remove any stale listener before starting again
+      try { discoverySubscriptionRef.current?.remove?.(); } catch {}
+      discoverySubscriptionRef.current = null;
 
       const success = await bluetoothManager.startScanning();
       if (!success) {
@@ -66,7 +86,7 @@ export default function BLEDeviceScanner({
       }
 
       // Listen for discovered devices
-      bluetoothManager.onDeviceDiscovered((device, paymentData) => {
+      const subscription = bluetoothManager.onDeviceDiscovered((device, paymentData) => {
         const newDevice: ScannedDevice = {
           device,
           paymentData,
@@ -87,6 +107,8 @@ export default function BLEDeviceScanner({
         });
       });
 
+      discoverySubscriptionRef.current = subscription;
+
       logger.info('[BLE Scanner] Started scanning for devices');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -103,6 +125,8 @@ export default function BLEDeviceScanner({
 
     try {
       await bluetoothManager.stopScanning();
+      try { discoverySubscriptionRef.current?.remove?.(); } catch {}
+      discoverySubscriptionRef.current = null;
       setIsScanning(false);
       setScanStartTime(null);
       setScanProgress(0);
@@ -118,6 +142,17 @@ export default function BLEDeviceScanner({
       startScan();
     }
   }, [autoScan, startScan]);
+
+  // Ensure scanning stops and listeners are removed on unmount
+  useEffect(() => {
+    return () => {
+      try {
+        bluetoothManager.stopScanning();
+      } catch {}
+      try { discoverySubscriptionRef.current?.remove?.(); } catch {}
+      discoverySubscriptionRef.current = null;
+    };
+  }, [bluetoothManager]);
 
   // Scan progress effect
   useEffect(() => {
