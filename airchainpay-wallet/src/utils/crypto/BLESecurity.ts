@@ -471,7 +471,8 @@ export class BLESecurity {
   private async verifySignature(message: string, signature: string, publicKey: string): Promise<boolean> {
     try {
       const recoveredAddress = ethers.verifyMessage(message, signature);
-      const expectedAddress = new ethers.Wallet(publicKey).address;
+      // Derive address from the provided public key (no private key construction)
+      const expectedAddress = ethers.computeAddress(publicKey);
       return recoveredAddress.toLowerCase() === expectedAddress.toLowerCase();
     } catch (error) {
       logger.error('[BLESecurity] Failed to verify signature:', error);

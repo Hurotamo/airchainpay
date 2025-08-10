@@ -502,9 +502,10 @@ export class BLETransport implements IPaymentTransport<BLEPaymentRequest, Enhanc
         throw new Error('BLE advertising not supported on this device');
       }
       
+      const walletAddress = await this.walletManager.getWalletAddress();
       const paymentData: BLEPaymentData = {
-        walletAddress: '0x0000000000000000000000000000000000000000', // Placeholder
-        amount: '0', // No amount for receiver
+        walletAddress,
+        amount: '0',
         token: 'ETH' as SupportedToken,
         timestamp: Date.now()
       };
