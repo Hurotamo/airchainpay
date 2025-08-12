@@ -16,8 +16,8 @@ export interface SecurityConfig {
  * BLE Advertising Security for simplified payment data
  */
 export interface Advertiser {
-  startBroadcast(message: string): Promise<any>;
-  stopBroadcast(): Promise<any>;
+  startBroadcast(message: string): Promise<void>;
+  stopBroadcast(): Promise<void>;
 }
 
 export class BLEAdvertisingSecurity {
@@ -323,4 +323,4 @@ export class BLEAdvertisingSecurity {
       logger.info('[BLE] Cleared old security metrics', { count: oldSessions.length });
     }
   }
-} 
+}

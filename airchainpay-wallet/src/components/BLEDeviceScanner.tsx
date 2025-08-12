@@ -17,6 +17,7 @@ import { logger } from '../utils/Logger';
 
 interface BLEDeviceScannerProps {
   onDeviceSelect: (device: Device, paymentData?: BLEPaymentData) => void;
+  onPaymentSelect?: (walletAddress: string, token: string, device: Device) => void;
   autoScan?: boolean;
   scanTimeout?: number;
   showPaymentButton?: boolean;
@@ -31,6 +32,7 @@ interface ScannedDevice {
 
 export default function BLEDeviceScanner({
   onDeviceSelect,
+  onPaymentSelect,
   autoScan = false,
   scanTimeout = 30000,
   showPaymentButton = false,
@@ -202,6 +204,17 @@ export default function BLEDeviceScanner({
     }
   }, [isConnecting, bluetoothManager, onDeviceSelect]);
 
+  // Handle payment selection
+  const handlePaymentSelect = useCallback((scannedDevice: ScannedDevice) => {
+    if (scannedDevice.paymentData && onPaymentSelect) {
+      onPaymentSelect(
+        scannedDevice.paymentData.walletAddress,
+        scannedDevice.paymentData.token,
+        scannedDevice.device
+      );
+    }
+  }, [onPaymentSelect]);
+
   // Refresh devices list
   const handleRefresh = useCallback(() => {
     if (isScanning) {
@@ -241,7 +254,7 @@ export default function BLEDeviceScanner({
             borderWidth: 1
           }
         ]}
-        onPress={() => handleDeviceSelect(item)}
+        onPress={() => hasPaymentData ? handlePaymentSelect(item) : handleDeviceSelect(item)}
         disabled={isConnecting}
         activeOpacity={0.8}
       >
@@ -254,7 +267,10 @@ export default function BLEDeviceScanner({
                 color={theme === 'dark' ? '#3b82f6' : '#1d4ed8'} 
               />
               <Text style={[styles.deviceName, { color: theme === 'dark' ? '#ffffff' : '#111827' }]}>
-                {item.device.name || item.device.localName || 'Unknown Device'}
+                {hasPaymentData ? 
+                  `Wallet: ${item.paymentData?.walletAddress}` : 
+                  (item.device.name || item.device.localName || 'Unknown Device')
+                }
               </Text>
               {hasPaymentData && (
                 <View style={styles.paymentBadge}>
@@ -293,7 +309,16 @@ export default function BLEDeviceScanner({
                 Wallet:
               </Text>
               <Text style={[styles.paymentValue, { color: theme === 'dark' ? '#ffffff' : '#111827' }]}>
-                {item.paymentData.walletAddress.substring(0, 8)}...{item.paymentData.walletAddress.slice(-6)}
+                {item.paymentData.walletAddress}
+              </Text>
+            </View>
+            
+            <View style={styles.paymentRow}>
+              <Text style={[styles.paymentLabel, { color: theme === 'dark' ? '#9ca3af' : '#6b7280' }]}>
+                Token:
+              </Text>
+              <Text style={[styles.paymentValue, { color: theme === 'dark' ? '#10b981' : '#059669' }]}>
+                {item.paymentData.token}
               </Text>
             </View>
           </View>
@@ -306,7 +331,7 @@ export default function BLEDeviceScanner({
               hasPaymentData ? styles.payButton : styles.connectButton,
               isSelected && styles.actionButtonSelected
             ]}
-            onPress={() => handleDeviceSelect(item)}
+            onPress={() => hasPaymentData ? handlePaymentSelect(item) : handleDeviceSelect(item)}
             disabled={isConnecting}
             activeOpacity={0.8}
           >
@@ -320,7 +345,7 @@ export default function BLEDeviceScanner({
               />
             )}
             <Text style={styles.actionButtonText}>
-              {isConnecting && isSelected ? 'Connecting...' : hasPaymentData ? 'Pay Now' : 'Connect'}
+              {isConnecting && isSelected ? 'Connecting...' : hasPaymentData ? `Pay ${item.paymentData?.token}` : 'Connect'}
             </Text>
           </TouchableOpacity>
         </View>

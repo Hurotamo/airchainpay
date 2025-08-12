@@ -102,7 +102,7 @@ export class BLEAdvertisingMonitor {
   /**
    * Record error metrics
    */
-  recordErrorMetrics(sessionId: string, error: Error, context: any): void {
+  recordErrorMetrics(sessionId: string, error: Error, context: Record<string, unknown>): void {
     const metrics = this.metrics.get(sessionId);
     if (metrics) {
       metrics.errorCount++;
@@ -263,4 +263,4 @@ export class BLEAdvertisingMonitor {
     
     logger.info('[BLE Monitor] Cleanup completed');
   }
-} 
+}

@@ -1,5 +1,5 @@
 import { Platform, PermissionsAndroid, NativeModules } from 'react-native';
-import { BleManager, Device, State, Service } from 'react-native-ble-plx';
+import { BleManager, Device, State, Service, Subscription } from 'react-native-ble-plx';
 import TpBleAdvertiser from 'tp-rn-ble-advertiser';
 import { logger } from '../utils/Logger';
 
@@ -17,6 +17,43 @@ export const SUPPORTED_TOKENS = {
 } as const;
 
 export type SupportedToken = keyof typeof SUPPORTED_TOKENS;
+
+// BLE Advertiser interface
+interface BLEAdvertiser {
+  startBroadcast: ((deviceName: string) => void) | ((config?: AdvertisingConfig) => Promise<void>) | (() => Promise<void>);
+  stopBroadcast: () => void;
+  setDeviceName?: (name: string) => Promise<void>;
+  setManufacturerData?: (companyId: number[], data: string) => Promise<void>;
+  [key: string]: unknown;
+}
+
+// Advertising configuration interface
+interface AdvertisingConfig {
+  advertiseMode?: string;
+  txPowerLevel?: string;
+  connectable?: boolean;
+  includeDeviceName?: boolean;
+  includeTxPowerLevel?: boolean;
+}
+
+// Native Android Location Enabler interface
+interface AndroidLocationEnabler {
+  isLocationEnabled?: () => Promise<boolean>;
+  checkLocationSetting?: (options: { needGPSEnable: boolean }) => Promise<boolean | string>;
+  [key: string]: unknown;
+}
+
+// Native BLE Advertiser interface
+interface NativeBLEAdvertiser {
+  canAdvertise?: () => Promise<boolean>;
+  isMultipleAdvertisementSupported?: () => Promise<boolean>;
+  isAdvertiseSupported?: () => Promise<boolean>;
+  isSupported?: () => Promise<boolean>;
+  [key: string]: unknown;
+}
+
+// Unknown data type for validation
+type UnknownData = Record<string, unknown>;
 
 // BLE Payment Data Interface
 export interface BLEPaymentData {
@@ -58,16 +95,16 @@ export class BluetoothError extends Error {
 export class BluetoothManager {
   private static instance: BluetoothManager | null = null;
   private manager: BleManager | null = null;
-  private advertiser: any = null;
+  private advertiser: BLEAdvertiser | null = null;
   private isAdvertising: boolean = false;
   private connectedDevices: Map<string, DeviceConnectionState> = new Map();
-  private scanSubscription: any = null;
+  private scanSubscription: Subscription | null = null;
   public deviceName: string = '';
   private connectionListeners: Set<(deviceId: string, status: ConnectionStatus) => void> = new Set();
   private discoveryListeners: Set<(device: Device, paymentData?: BLEPaymentData) => void> = new Set();
   private bleAvailable: boolean = false;
   private initializationError: string | null = null;
-  private stateSubscription: any = null;
+  private stateSubscription: Subscription | null = null;
   private advertisingTimeout: NodeJS.Timeout | null = null;
   private isScanning: boolean = false;
   private static readonly CONFIG = {
@@ -188,7 +225,7 @@ export class BluetoothManager {
     }
 
     // Use NativeModules if RNAndroidLocationEnabler is present; otherwise do not block
-    const RNAndroidLocationEnabler: any = (NativeModules as any).RNAndroidLocationEnabler;
+    const RNAndroidLocationEnabler: AndroidLocationEnabler = (NativeModules as Record<string, unknown>).RNAndroidLocationEnabler as AndroidLocationEnabler;
     if (RNAndroidLocationEnabler) {
       try {
         if (typeof RNAndroidLocationEnabler.isLocationEnabled === 'function') {
@@ -283,9 +320,9 @@ export class BluetoothManager {
     }
 
     // If the native module exposes a capability probe, use it
-    const nativeAdvertiser: any = (NativeModules as any).TpBleAdvertiser
-      || (NativeModules as any).ReactNativeBleAdvertiser
-      || (NativeModules as any).BleAdvertiser
+    const nativeAdvertiser: NativeBLEAdvertiser = (NativeModules as Record<string, unknown>).TpBleAdvertiser as NativeBLEAdvertiser
+       || (NativeModules as Record<string, unknown>).ReactNativeBleAdvertiser as NativeBLEAdvertiser
+       || (NativeModules as Record<string, unknown>).BleAdvertiser as NativeBLEAdvertiser
       || null;
 
     try {
@@ -768,7 +805,7 @@ export class BluetoothManager {
       PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
       PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
     ];
-    const criticalMissing = permissionStatus.missing.filter((perm) => criticalPermissions.includes(perm as any));
+    const criticalMissing = permissionStatus.missing.filter((perm) => criticalPermissions.includes(perm as (typeof PermissionsAndroid.PERMISSIONS)[keyof typeof PermissionsAndroid.PERMISSIONS]));
     if (criticalMissing.length > 0) {
       return false;
     }
@@ -818,56 +855,121 @@ export class BluetoothManager {
         logger.info('[BLE] Location services check passed:', locationStatus.message);
       }
 
-      // Avoid concurrent scans
+      // Avoid concurrent scans with proper async handling
       if (this.isScanning) {
         logger.info('[BLE] Scan already in progress, stopping before restart');
-        this.stopScan();
-        await new Promise(resolve => setTimeout(resolve, 400));
+        await this.forceResetScanState();
+        // Wait for the native layer to fully stop scanning
+        await new Promise(resolve => setTimeout(resolve, 800));
       }
+      
+      // Double-check that we're not still scanning
+      try {
+        this.manager!.stopDeviceScan();
+        await new Promise(resolve => setTimeout(resolve, 200));
+      } catch (error) {
+        // Ignore errors from stopping non-existent scan
+        logger.debug('[BLE] Ignored error stopping scan:', error);
+      }
+      
       this.isScanning = true;
       
-      this.manager!.startDeviceScan(
-        null,
-        { allowDuplicates: false },
-        (error, device) => {
-          if (error) {
-            // Handle specific BLE errors
-            if (error.message?.includes('Location services are disabled')) {
-              logger.error('[BLE] Location services disabled - cannot scan for devices');
-              logger.error('[BLE] Please enable location services in device settings');
-            } else {
-              logger.warn('[BLE] Scan error:', error);
+      try {
+        this.manager!.startDeviceScan(
+          null,
+          { allowDuplicates: false },
+          (error, device) => {
+            if (error) {
+              // Handle specific BLE errors
+              if (error.message?.includes('Location services are disabled')) {
+                logger.error('[BLE] Location services disabled - cannot scan for devices');
+                logger.error('[BLE] Please enable location services in device settings');
+              } else if (error.message?.includes('Cannot start scanning operation')) {
+                logger.warn('[BLE] Scanning operation conflict detected - attempting recovery');
+                // Try to recover from scanning conflict
+                setTimeout(async () => {
+                  try {
+                    await this.forceResetScanState();
+                    logger.info('[BLE] Recovery completed, scan state reset');
+                  } catch (recoveryError) {
+                    logger.error('[BLE] Recovery failed:', recoveryError);
+                  }
+                }, 500);
+              } else {
+                logger.warn('[BLE] Scan error:', error);
+              }
+              // End scanning state on error from native
+              this.isScanning = false;
+              // Best-effort stop to clear native scanning state
+              try { this.manager!.stopDeviceScan(); } catch {}
+              return;
             }
-            // End scanning state on error from native
-            this.isScanning = false;
-            // Best-effort stop to clear native scanning state
-            try { this.manager!.stopDeviceScan(); } catch {}
-            return;
-          }
-          
-          if (device) {
-            const deviceName = device.name || '';
-            const localName = device.localName || '';
             
-            // Enhanced filtering for AirChainPay devices
-            const isAirChainPayDevice = this.isAirChainPayDevice(device);
-            
-            if (isAirChainPayDevice) {
-              logger.info('[BLE] Found AirChainPay device:', {
-                name: deviceName || localName,
+            if (device) {
+              const deviceName = device.name || '';
+              const localName = device.localName || '';
+              const displayName = deviceName || localName || 'UNNAMED';
+              
+              // Log ALL discovered devices for debugging
+              logger.info('[BLE] Device discovered:', {
+                name: deviceName || 'NO_NAME',
+                localName: localName || 'NO_LOCAL_NAME',
                 id: device.id,
                 rssi: device.rssi,
-                manufacturerData: device.manufacturerData
+                manufacturerData: device.manufacturerData ? 'PRESENT' : 'NONE'
               });
               
-              // Try to parse payment data from device
-              const paymentData = this.parsePaymentDataFromDevice(device);
-              onDeviceFound(device, paymentData);
-              this.emitDeviceDiscovered(device, paymentData);
+              // Enhanced filtering for AirChainPay devices
+              const isAirChainPayDevice = this.isAirChainPayDevice(device);
+              
+              logger.info(`[BLE] Device "${displayName}" is AirChainPay: ${isAirChainPayDevice}`);
+              
+              if (isAirChainPayDevice) {
+                logger.info('[BLE] ✅ Found AirChainPay device:', {
+                  name: displayName,
+                  id: device.id,
+                  rssi: device.rssi,
+                  manufacturerData: device.manufacturerData
+                });
+                
+                // Try to parse payment data from device
+                const paymentData = this.parsePaymentDataFromDevice(device);
+                if (paymentData) {
+                  logger.info('[BLE] ✅ Parsed payment data:', paymentData);
+                } else {
+                  logger.warn('[BLE] ⚠️ Could not parse payment data from device');
+                }
+                
+                onDeviceFound(device, paymentData);
+                this.emitDeviceDiscovered(device, paymentData);
+              } else {
+                logger.info(`[BLE] ❌ Device "${displayName}" filtered out (not AirChainPay)`);
+              }
             }
           }
+        );
+      } catch (startScanError) {
+        this.isScanning = false;
+        logger.error('[BLE] Failed to start device scan:', startScanError);
+        
+        // If it's a "Cannot start scanning operation" error, try recovery
+        if (startScanError instanceof Error && startScanError.message?.includes('Cannot start scanning operation')) {
+          logger.warn('[BLE] Attempting scan recovery after start failure');
+          setTimeout(async () => {
+            try {
+              await this.forceResetScanState();
+              logger.info('[BLE] Scan recovery completed');
+            } catch (recoveryError) {
+              logger.error('[BLE] Scan recovery failed:', recoveryError);
+            }
+          }, 1000);
         }
-      );
+        
+        throw new BluetoothError(
+          `Failed to start scanning: ${startScanError instanceof Error ? startScanError.message : String(startScanError)}`,
+          'SCAN_START_ERROR'
+        );
+      }
       
       if (timeoutMs > 0) {
         setTimeout(() => {
@@ -965,8 +1067,18 @@ export class BluetoothManager {
               id: device.id,
               rssi: device.rssi,
               manufacturerData: manufacturerData ? 'PRESENT' : 'NONE',
-              isAirChainPay: this.isAirChainPayDevice(device)
+              isAirChainPay: this.isAirChainPayDevice(device),
+              rawManufacturerData: manufacturerData || 'NONE'
             });
+            
+            // Additional debug info for AirChainPay-like devices
+            if (deviceName?.includes('AirChainPay') || localName?.includes('AirChainPay')) {
+              logger.info('[BLE] 🔍 Potential AirChainPay device detected:', {
+                deviceName,
+                localName,
+                manufacturerData
+              });
+            }
             
             if (this.isAirChainPayDevice(device)) {
               logger.info('[BLE] 🎯 This IS an AirChainPay device!');
@@ -1009,13 +1121,39 @@ export class BluetoothManager {
     const deviceName = device.name || '';
     const localName = device.localName || '';
     const name = deviceName || localName;
-    if (!name) return false;
+    const displayName = name || 'UNNAMED';
+    
+    logger.info(`[BLE] Checking device "${displayName}" (deviceName: "${deviceName}", localName: "${localName}")`);
+    
+    if (!name) {
+      logger.info(`[BLE] Device "${displayName}" rejected: no name`);
+      return false;
+    }
 
-    // Strict match: either exact prefix or hyphenated unique suffix e.g., AirChainPay-1234
-    if (
-      name === AIRCHAINPAY_DEVICE_PREFIX ||
-      name.startsWith(`${AIRCHAINPAY_DEVICE_PREFIX}-`)
-    ) {
+    // Enhanced matching for AirChainPay devices with various formats:
+    // - Exact match: "AirChainPay"
+    // - Hyphenated: "AirChainPay-1234" or "AirChainPay-wallet-amount-token"
+    // - Underscore with payment data: "AirChainPay_0x1234...abcd_USDC"
+    // - Case insensitive matching for robustness
+    const nameUpper = name.toUpperCase();
+    const prefixUpper = AIRCHAINPAY_DEVICE_PREFIX.toUpperCase();
+    
+    const exactMatch = nameUpper === prefixUpper;
+    const hyphenMatch = nameUpper.startsWith(`${prefixUpper}-`);
+    const underscoreMatch = nameUpper.startsWith(`${prefixUpper}_`);
+    const containsMatch = nameUpper.includes(prefixUpper); // More permissive matching
+    
+    logger.info(`[BLE] Device "${displayName}" name checks:`, {
+      exactMatch,
+      hyphenMatch,
+      underscoreMatch,
+      containsMatch,
+      prefix: AIRCHAINPAY_DEVICE_PREFIX,
+      nameLength: name.length
+    });
+    
+    if (exactMatch || hyphenMatch || underscoreMatch || containsMatch) {
+      logger.info(`[BLE] Device "${displayName}" ACCEPTED by name matching`);
       return true;
     }
 
@@ -1024,12 +1162,20 @@ export class BluetoothManager {
     if (manufacturerData) {
       try {
         const decoded = Buffer.from(manufacturerData, 'base64').toString('utf8');
-        if (decoded.includes(AIRCHAINPAY_DEVICE_PREFIX)) {
+        const manufacturerMatch = decoded.toUpperCase().includes(prefixUpper);
+        logger.info(`[BLE] Device "${displayName}" manufacturer data check: ${manufacturerMatch}`);
+        if (manufacturerMatch) {
+          logger.info(`[BLE] Device "${displayName}" ACCEPTED by manufacturer data`);
           return true;
         }
-      } catch {}
+      } catch (error) {
+        logger.warn(`[BLE] Device "${displayName}" manufacturer data decode error:`, error);
+      }
+    } else {
+      logger.info(`[BLE] Device "${displayName}" has no manufacturer data`);
     }
 
+    logger.info(`[BLE] Device "${displayName}" REJECTED: does not match AirChainPay patterns`);
     return false;
   }
 
@@ -1038,12 +1184,50 @@ export class BluetoothManager {
    */
   private parsePaymentDataFromDevice(device: Device): BLEPaymentData | undefined {
     try {
-      // Legacy-friendly: do not parse detailed payment data from ADV
-      // Only detect presence of our identifier and defer details to GATT after connect
       const deviceName = device.name || device.localName || '';
-      if (deviceName.includes(AIRCHAINPAY_DEVICE_PREFIX)) {
-        return undefined;
+      const displayName = deviceName || 'UNNAMED';
+      
+      logger.info(`[BLE] Parsing payment data from device "${displayName}"`);
+      
+      // Parse wallet address and token from device name
+      // Format: AirChainPay_0x1234567890abcdef1234567890abcdef12345678_USDC
+      if (deviceName.startsWith(AIRCHAINPAY_DEVICE_PREFIX)) {
+        logger.info(`[BLE] Device "${displayName}" starts with AirChainPay prefix`);
+        const parts = deviceName.split('_');
+        logger.info(`[BLE] Device "${displayName}" name parts:`, parts);
+        
+        if (parts.length >= 3) {
+          const walletAddress = parts[1];
+          const token = parts[2] as SupportedToken;
+          
+          logger.info(`[BLE] Device "${displayName}" extracted: address="${walletAddress}", token="${token}"`);
+          
+          // Validate wallet address format (should start with 0x and be 42 characters)
+          if (walletAddress.startsWith('0x') && walletAddress.length === 42) {
+            if (Object.keys(SUPPORTED_TOKENS).includes(token)) {
+              logger.info(`[BLE] Device "${displayName}" token "${token}" is valid`);
+              const paymentData = {
+                walletAddress,
+                amount: '0', // Amount not in advertising for security
+                token,
+                timestamp: Date.now()
+              };
+              logger.info(`[BLE] Device "${displayName}" payment data created:`, paymentData);
+              return paymentData;
+            } else {
+              logger.warn(`[BLE] Device "${displayName}" token "${token}" is not supported. Supported tokens:`, Object.keys(SUPPORTED_TOKENS));
+            }
+          } else {
+            logger.warn(`[BLE] Device "${displayName}" wallet address "${walletAddress}" is invalid format`);
+          }
+        } else {
+          logger.warn(`[BLE] Device "${displayName}" name has insufficient parts (expected >= 3, got ${parts.length})`);
+        }
+      } else {
+        logger.info(`[BLE] Device "${displayName}" does not start with AirChainPay prefix`);
       }
+      
+      logger.warn(`[BLE] Device "${displayName}" could not extract payment data`);
       return undefined;
     } catch (error) {
       logger.warn('[BLE] Error parsing payment data from device:', error);
@@ -1054,14 +1238,15 @@ export class BluetoothManager {
   /**
    * Validate payment data structure
    */
-  private isValidPaymentData(data: any): data is BLEPaymentData {
+  private isValidPaymentData(data: unknown): data is BLEPaymentData {
     return (
       typeof data === 'object' &&
-      typeof data.walletAddress === 'string' &&
-      typeof data.amount === 'string' &&
-      typeof data.token === 'string' &&
-      Object.keys(SUPPORTED_TOKENS).includes(data.token) &&
-      typeof data.timestamp === 'number'
+      data !== null &&
+      typeof (data as Record<string, unknown>).walletAddress === 'string' &&
+      typeof (data as Record<string, unknown>).amount === 'string' &&
+      typeof (data as Record<string, unknown>).token === 'string' &&
+      Object.keys(SUPPORTED_TOKENS).includes((data as Record<string, unknown>).token as string) &&
+      typeof (data as Record<string, unknown>).timestamp === 'number'
     );
   }
 
@@ -1074,6 +1259,44 @@ export class BluetoothManager {
     }
     this.isScanning = false;
     logger.info('[BLE] Scan stopped');
+  }
+
+  private async stopScanAsync(): Promise<void> {
+    return new Promise((resolve) => {
+      if (this.manager && this.isBleAvailable()) {
+        try {
+          this.manager.stopDeviceScan();
+        } catch (error) {
+          logger.debug('[BLE] Error stopping scan:', error);
+        }
+      }
+      this.isScanning = false;
+      logger.info('[BLE] Scan stopped (async)');
+      // Give the native layer time to process the stop command
+      setTimeout(resolve, 300);
+    });
+  }
+
+  /**
+   * Force reset scanning state - use when scan is stuck
+   */
+  async forceResetScanState(): Promise<void> {
+    logger.info('[BLE] Force resetting scan state');
+    
+    // Multiple attempts to stop scanning
+    for (let i = 0; i < 3; i++) {
+      try {
+        if (this.manager && this.isBleAvailable()) {
+          this.manager.stopDeviceScan();
+        }
+        await new Promise(resolve => setTimeout(resolve, 200));
+      } catch (error) {
+        logger.debug(`[BLE] Stop attempt ${i + 1} failed:`, error);
+      }
+    }
+    
+    this.isScanning = false;
+    logger.info('[BLE] Scan state force reset completed');
   }
 
   /**
@@ -1100,8 +1323,8 @@ export class BluetoothManager {
     }
 
     try {
-      // Generate a unique device name for this advertising session
-      this.deviceName = `${AIRCHAINPAY_DEVICE_PREFIX}-${Math.floor(Math.random() * 10000)}`;
+      // Generate advertising message with payment data as device name
+      this.deviceName = this.createAdvertisingMessage(paymentData);
       
       if (!this.isBleAvailable()) {
         return {
@@ -1133,7 +1356,7 @@ export class BluetoothManager {
         const needsSettings = criticalPermissionStatus.missing.some(perm => 
           [PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN, 
            PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT, 
-           PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE].includes(perm as any)
+           PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE].includes(perm as (typeof PermissionsAndroid.PERMISSIONS)[keyof typeof PermissionsAndroid.PERMISSIONS])
         );
         
         return {
@@ -1151,8 +1374,8 @@ export class BluetoothManager {
         };
       }
 
-      const advertisingMessage = this.createAdvertisingMessage(paymentData);
-      await this.startAdvertisingWithRetry(advertisingMessage);
+      // Device name is already set with payment data, use it for advertising
+      await this.startAdvertisingWithRetry(this.deviceName);
       
       this.advertisingTimeout = setTimeout(() => {
         this.stopAdvertising();
@@ -1179,9 +1402,9 @@ export class BluetoothManager {
    * Create advertising message with payment data
    */
   private createAdvertisingMessage(paymentData: BLEPaymentData): string {
-    // Use just the device name for maximum compatibility
-    // This ensures the device is visible to scanners
-    return this.deviceName || AIRCHAINPAY_DEVICE_PREFIX;
+    // Use full wallet address in device name for scanner visibility
+    // Scanner needs to see the actual wallet address for payment selection
+    return `${AIRCHAINPAY_DEVICE_PREFIX}_${paymentData.walletAddress}_${paymentData.token}`;
   }
 
   /**
@@ -1226,28 +1449,80 @@ export class BluetoothManager {
         
         // Force stop any existing advertising first
         if (typeof this.advertiser.stopBroadcast === 'function') {
-          this.advertiser.stopBroadcast();
+          try {
+            this.advertiser.stopBroadcast();
+            logger.info('[BLE] Stopped existing advertising');
+          } catch (stopError) {
+            logger.warn('[BLE] Error stopping existing advertising:', stopError);
+          }
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
         
-        // Try to set device name if the method exists
+        // Set device name first - this is critical for scanner visibility
         if (typeof this.advertiser.setDeviceName === 'function') {
-          this.advertiser.setDeviceName(this.deviceName);
+          try {
+            await this.advertiser.setDeviceName(advertisingMessage);
+            logger.info(`[BLE] ✅ Set device name to: "${advertisingMessage}"`);
+          } catch (nameError) {
+            logger.warn('[BLE] Error setting device name:', nameError);
+            // Continue anyway as some devices may still work
+          }
+          await new Promise(resolve => setTimeout(resolve, 500));
+        } else {
+          logger.warn('[BLE] setDeviceName method not available');
+        }
+        
+        // Also set manufacturer data as backup for device identification
+        if (typeof this.advertiser.setManufacturerData === 'function') {
+          try {
+            const manufacturerData = Buffer.from(advertisingMessage, 'utf8').toString('base64');
+            await this.advertiser.setManufacturerData([255, 255], manufacturerData);
+            logger.info(`[BLE] ✅ Set manufacturer data for backup identification`);
+          } catch (mfgError) {
+            logger.warn('[BLE] Error setting manufacturer data:', mfgError);
+          }
           await new Promise(resolve => setTimeout(resolve, 500));
         }
         
-        // Start broadcasting with a simple, detectable message
-        const simpleMessage = this.deviceName; // Just use the device name for maximum compatibility
-        this.advertiser.startBroadcast(simpleMessage);
+        // Start broadcasting with enhanced configuration
+        const broadcastConfig = {
+          advertiseMode: 'ADVERTISE_MODE_LOW_LATENCY',
+          txPowerLevel: 'ADVERTISE_TX_POWER_HIGH',
+          connectable: true,
+          includeDeviceName: true,
+          includeTxPowerLevel: true
+        };
         
-        // Wait longer for advertising to start
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        if (typeof this.advertiser.startBroadcast === 'function') {
+          // Try with configuration first
+          try {
+            await (this.advertiser.startBroadcast as (config?: AdvertisingConfig) => Promise<void>)(broadcastConfig);
+            logger.info('[BLE] ✅ Started advertising with enhanced config');
+          } catch (configError) {
+            // Fallback to simple broadcast if config not supported
+            logger.warn('[BLE] Config broadcast failed, using simple broadcast:', configError);
+            try {
+              await (this.advertiser.startBroadcast as () => Promise<void>)();
+              logger.info('[BLE] ✅ Started advertising with simple config');
+            } catch (simpleError) {
+              logger.error('[BLE] Simple broadcast also failed:', simpleError);
+              throw simpleError;
+            }
+          }
+        }
+        
+        logger.info(`[BLE] 🎯 Advertising active with device name: "${advertisingMessage}"`);
+        
+        // Wait for advertising to fully initialize
+        await new Promise(resolve => setTimeout(resolve, 2000));
         
         this.isAdvertising = true;
+        this.deviceName = advertisingMessage; // Store the current device name
         return;
         
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
+        logger.warn(`[BLE] Advertising attempt ${attempt} failed:`, error);
         
         if (attempt < maxRetries) {
           await new Promise(resolve => setTimeout(resolve, 2000));
@@ -1594,7 +1869,7 @@ export class BluetoothManager {
     while (true) {
       try {
         const characteristic = await writeOnce();
-        logger.info('[BLE] Data sent successfully:', (characteristic as any).uuid);
+        logger.info('[BLE] Data sent successfully:', (characteristic as { uuid?: string }).uuid || 'unknown');
         return;
       } catch (error) {
         attempt++;
@@ -1742,4 +2017,4 @@ export class BluetoothManager {
   }
 
 
-} 
+}

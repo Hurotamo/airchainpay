@@ -14,8 +14,8 @@ export interface AdvertisingConfig {
 }
 
 export interface Advertiser {
-  startBroadcast(message: string): Promise<any>;
-  stopBroadcast(): Promise<any>;
+  startBroadcast(message: string): Promise<void>;
+  stopBroadcast(): Promise<void>;
 }
 
 export class BLEAdvertisingEnhancements {
@@ -300,4 +300,4 @@ export class BLEAdvertisingEnhancements {
   getTokenInfo(token: SupportedToken) {
     return SUPPORTED_TOKENS[token];
   }
-} 
+}
