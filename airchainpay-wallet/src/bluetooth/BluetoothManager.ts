@@ -20,7 +20,7 @@ export type SupportedToken = keyof typeof SUPPORTED_TOKENS;
 
 // BLE Advertiser interface
 interface BLEAdvertiser {
-  startBroadcast: ((deviceName: string) => void) | ((config?: AdvertisingConfig) => Promise<void>) | (() => Promise<void>);
+  startBroadcast: (deviceName: string) => void;
   stopBroadcast: () => void;
   setDeviceName?: (name: string) => Promise<void>;
   setManufacturerData?: (companyId: number[], data: string) => Promise<void>;
@@ -52,8 +52,6 @@ interface NativeBLEAdvertiser {
   [key: string]: unknown;
 }
 
-// Unknown data type for validation
-type UnknownData = Record<string, unknown>;
 
 // BLE Payment Data Interface
 export interface BLEPaymentData {
@@ -1459,6 +1457,7 @@ export class BluetoothManager {
         }
         
         // Set device name first - this is critical for scanner visibility
+        // Note: tp-rn-ble-advertiser uses device name in startBroadcast() call instead of separate setDeviceName
         if (typeof this.advertiser.setDeviceName === 'function') {
           try {
             await this.advertiser.setDeviceName(advertisingMessage);
@@ -1469,7 +1468,8 @@ export class BluetoothManager {
           }
           await new Promise(resolve => setTimeout(resolve, 500));
         } else {
-          logger.warn('[BLE] setDeviceName method not available');
+          // tp-rn-ble-advertiser doesn't provide setDeviceName - device name is set via startBroadcast
+          logger.info('[BLE] Using device name in startBroadcast call (tp-rn-ble-advertiser)');
         }
         
         // Also set manufacturer data as backup for device identification
@@ -1484,30 +1484,16 @@ export class BluetoothManager {
           await new Promise(resolve => setTimeout(resolve, 500));
         }
         
-        // Start broadcasting with enhanced configuration
-        const broadcastConfig = {
-          advertiseMode: 'ADVERTISE_MODE_LOW_LATENCY',
-          txPowerLevel: 'ADVERTISE_TX_POWER_HIGH',
-          connectable: true,
-          includeDeviceName: true,
-          includeTxPowerLevel: true
-        };
-        
+        // Start broadcasting with device name
         if (typeof this.advertiser.startBroadcast === 'function') {
-          // Try with configuration first
+          // The tp-rn-ble-advertiser startBroadcast method expects a device name string
           try {
-            await (this.advertiser.startBroadcast as (config?: AdvertisingConfig) => Promise<void>)(broadcastConfig);
-            logger.info('[BLE] ✅ Started advertising with enhanced config');
-          } catch (configError) {
-            // Fallback to simple broadcast if config not supported
-            logger.warn('[BLE] Config broadcast failed, using simple broadcast:', configError);
-            try {
-              await (this.advertiser.startBroadcast as () => Promise<void>)();
-              logger.info('[BLE] ✅ Started advertising with simple config');
-            } catch (simpleError) {
-              logger.error('[BLE] Simple broadcast also failed:', simpleError);
-              throw simpleError;
-            }
+            // Call startBroadcast with the advertising message (device name)
+            this.advertiser.startBroadcast(advertisingMessage);
+            logger.info(`[BLE] ✅ Started advertising with device name: "${advertisingMessage}"`);
+          } catch (broadcastError) {
+            logger.error('[BLE] Broadcast failed:', broadcastError);
+            throw broadcastError;
           }
         }
         
