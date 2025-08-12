@@ -8,6 +8,7 @@ import {
   RefreshControl,
   Alert,
   ActivityIndicator,
+  TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Device } from 'react-native-ble-plx';
@@ -21,6 +22,8 @@ interface BLEDeviceScannerProps {
   autoScan?: boolean;
   scanTimeout?: number;
   showPaymentButton?: boolean;
+  targetWalletAddress?: string; // Filter devices by specific wallet address
+  showWalletFilter?: boolean; // Show wallet address input field
 }
 
 interface ScannedDevice {
@@ -36,6 +39,8 @@ export default function BLEDeviceScanner({
   autoScan = false,
   scanTimeout = 30000,
   showPaymentButton = false,
+  targetWalletAddress,
+  showWalletFilter = false,
 }: BLEDeviceScannerProps) {
   const [devices, setDevices] = useState<ScannedDevice[]>([]);
   const [isScanning, setIsScanning] = useState(false);
@@ -44,11 +49,34 @@ export default function BLEDeviceScanner({
   const [isConnecting, setIsConnecting] = useState(false);
   const [scanStartTime, setScanStartTime] = useState<number | null>(null);
   const [scanProgress, setScanProgress] = useState(0);
+  const [walletFilter, setWalletFilter] = useState<string>(targetWalletAddress || '');
+  const [filteredDevices, setFilteredDevices] = useState<ScannedDevice[]>([]);
 
   const { colorScheme } = useThemeContext();
   const theme = colorScheme || 'light';
   const bluetoothManager = BluetoothManager.getInstance();
   const discoverySubscriptionRef = useRef<{ remove: () => void } | null>(null);
+
+  // Filter devices by wallet address
+  const filterDevicesByWallet = useCallback((deviceList: ScannedDevice[], filterAddress: string): ScannedDevice[] => {
+    if (!filterAddress.trim()) {
+      return deviceList;
+    }
+    
+    const normalizedFilter = filterAddress.toLowerCase().trim();
+    return deviceList.filter(device => {
+      if (!device.paymentData?.walletAddress) {
+        return false;
+      }
+      return device.paymentData.walletAddress.toLowerCase().includes(normalizedFilter);
+    });
+  }, []);
+
+  // Update filtered devices when devices or wallet filter changes
+  useEffect(() => {
+    const filtered = filterDevicesByWallet(devices, walletFilter);
+    setFilteredDevices(filtered);
+  }, [devices, walletFilter, filterDevicesByWallet]);
 
   // Effects are declared after callbacks
 
@@ -354,35 +382,102 @@ export default function BLEDeviceScanner({
   };
 
   // Render empty state
-  const renderEmptyState = () => (
-    <View style={styles.emptyState}>
-      <Ionicons 
-        name="bluetooth-outline" 
-        size={64} 
-        color={theme === 'dark' ? '#6b7280' : '#9ca3af'} 
-      />
-      <Text style={[styles.emptyStateTitle, { color: theme === 'dark' ? '#d1d5db' : '#374151' }]}>
-        No Devices Found
-      </Text>
-      <Text style={[styles.emptyStateDescription, { color: theme === 'dark' ? '#9ca3af' : '#6b7280' }]}>
-        {isScanning 
-          ? 'Scanning for nearby devices...' 
-          : 'Start scanning to discover payment devices'
-        }
-      </Text>
-      
-      {!isScanning && (
-        <TouchableOpacity
-          style={styles.startScanButton}
-          onPress={startScan}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="search" size={20} color="#ffffff" />
-          <Text style={styles.startScanButtonText}>Start Scanning</Text>
-        </TouchableOpacity>
-      )}
-    </View>
-  );
+  const renderEmptyState = () => {
+    const hasFilter = showWalletFilter && walletFilter.length > 0;
+    const hasDevicesButFiltered = hasFilter && devices.length > 0 && filteredDevices.length === 0;
+    
+    return (
+      <View style={styles.emptyState}>
+        <Ionicons 
+          name={hasDevicesButFiltered ? "funnel-outline" : "bluetooth-outline"} 
+          size={64} 
+          color={theme === 'dark' ? '#6b7280' : '#9ca3af'} 
+        />
+        <Text style={[styles.emptyStateTitle, { color: theme === 'dark' ? '#d1d5db' : '#374151' }]}>
+          {hasDevicesButFiltered ? 'No Matching Devices' : 'No Devices Found'}
+        </Text>
+        <Text style={[styles.emptyStateDescription, { color: theme === 'dark' ? '#9ca3af' : '#6b7280' }]}>
+          {hasDevicesButFiltered 
+            ? `No devices found with wallet address containing "${walletFilter}". Try adjusting your filter or clear it to see all devices.`
+            : isScanning 
+              ? 'Scanning for nearby devices...' 
+              : 'Start scanning to discover payment devices'
+          }
+        </Text>
+        
+        {hasDevicesButFiltered ? (
+          <TouchableOpacity
+            style={styles.startScanButton}
+            onPress={() => setWalletFilter('')}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="close-circle" size={20} color="#ffffff" />
+            <Text style={styles.startScanButtonText}>Clear Filter</Text>
+          </TouchableOpacity>
+        ) : !isScanning && (
+          <TouchableOpacity
+            style={styles.startScanButton}
+            onPress={startScan}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="search" size={20} color="#ffffff" />
+            <Text style={styles.startScanButtonText}>Start Scanning</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  };
+
+  // Render wallet address filter
+  const renderWalletFilter = () => {
+    if (!showWalletFilter) return null;
+    
+    return (
+      <View style={styles.walletFilterContainer}>
+        <Text style={[styles.walletFilterLabel, { color: theme === 'dark' ? '#d1d5db' : '#374151' }]}>
+          Filter by Wallet Address:
+        </Text>
+        <View style={styles.walletFilterInputContainer}>
+          <Ionicons 
+            name="wallet-outline" 
+            size={20} 
+            color={theme === 'dark' ? '#9ca3af' : '#6b7280'} 
+            style={styles.walletFilterIcon}
+          />
+          <TextInput
+            style={[
+              styles.walletFilterInput,
+              {
+                color: theme === 'dark' ? '#ffffff' : '#111827',
+                backgroundColor: theme === 'dark' ? '#1f2937' : '#f9fafb',
+                borderColor: theme === 'dark' ? '#374151' : '#d1d5db',
+              }
+            ]}
+            value={walletFilter}
+            onChangeText={setWalletFilter}
+            placeholder="Enter wallet address (0x...)"
+            placeholderTextColor={theme === 'dark' ? '#6b7280' : '#9ca3af'}
+            autoCapitalize="none"
+            autoCorrect={false}
+            spellCheck={false}
+          />
+          {walletFilter.length > 0 && (
+            <TouchableOpacity
+              onPress={() => setWalletFilter('')}
+              style={styles.clearFilterButton}
+            >
+              <Ionicons name="close-circle" size={20} color={theme === 'dark' ? '#6b7280' : '#9ca3af'} />
+            </TouchableOpacity>
+          )}
+        </View>
+        {walletFilter.length > 0 && (
+          <Text style={[styles.filterResultText, { color: theme === 'dark' ? '#9ca3af' : '#6b7280' }]}>
+            {filteredDevices.length} of {devices.length} devices match filter
+          </Text>
+        )}
+      </View>
+    );
+  };
 
   // Render scan controls
   const renderScanControls = () => (
@@ -452,6 +547,9 @@ export default function BLEDeviceScanner({
     </View>
   );
 
+  // Get the devices to display (filtered or all)
+  const devicesToDisplay = showWalletFilter ? filteredDevices : devices;
+
   return (
     <View style={styles.container}>
       {scanError && (
@@ -465,11 +563,12 @@ export default function BLEDeviceScanner({
       )}
 
       {renderScanControls()}
+      {renderWalletFilter()}
 
       <View style={styles.deviceListContainer}>
-        {devices.length > 0 ? (
+        {devicesToDisplay.length > 0 ? (
           <FlatList
-            data={devices}
+            data={devicesToDisplay}
             renderItem={renderDeviceItem}
             keyExtractor={(item) => item.device.id}
             showsVerticalScrollIndicator={false}
@@ -492,7 +591,10 @@ export default function BLEDeviceScanner({
       {devices.length > 0 && (
         <View style={styles.deviceCount}>
           <Text style={[styles.deviceCountText, { color: theme === 'dark' ? '#9ca3af' : '#6b7280' }]}>
-            {devices.length} device{devices.length !== 1 ? 's' : ''} found
+            {showWalletFilter && walletFilter.length > 0 
+              ? `${devicesToDisplay.length} of ${devices.length} devices match filter`
+              : `${devices.length} device${devices.length !== 1 ? 's' : ''} found`
+            }
           </Text>
         </View>
       )}
@@ -775,5 +877,42 @@ const styles = StyleSheet.create({
   deviceCountText: {
     fontSize: 14,
     fontWeight: '500',
+  },
+  walletFilterContainer: {
+    marginBottom: 20,
+    gap: 12,
+  },
+  walletFilterLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  walletFilterInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  walletFilterIcon: {
+    position: 'absolute',
+    left: 12,
+    zIndex: 1,
+  },
+  walletFilterInput: {
+    flex: 1,
+    paddingLeft: 44,
+    paddingRight: 44,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    fontSize: 14,
+    fontFamily: 'monospace',
+  },
+  clearFilterButton: {
+    position: 'absolute',
+    right: 12,
+    zIndex: 1,
+  },
+  filterResultText: {
+    fontSize: 14,
+    fontStyle: 'italic',
   },
 });
