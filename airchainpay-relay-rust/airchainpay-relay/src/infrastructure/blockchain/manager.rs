@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use ethers::{
     providers::{Provider, Http},
-    core::types::{Address, U256, H256, Log, Bytes},
+    core::types::{Address, U256, H256, Log, Bytes, Filter, BlockNumber},
     prelude::*,
 };
 use crate::app::transaction_service::QueuedTransaction;
@@ -31,6 +31,18 @@ pub struct TransactionReceipt {
 pub enum ContractType {
     AirChainPay,
     AirChainPayToken,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaymentEvent {
+    pub from: Address,
+    pub to: Address,
+    pub amount: U256,
+    pub payment_reference: String,
+    pub is_relayed: bool,
+    pub tx_hash: H256,
+    pub block_number: u64,
+    pub log_index: u64,
 }
 
 pub struct BlockchainManager {
@@ -249,6 +261,99 @@ impl BlockchainManager {
         let pending_tx = provider.send_raw_transaction(Bytes::from(raw_tx_bytes)).await?;
         let receipt = pending_tx.await?;
         Ok(receipt.unwrap().transaction_hash)
+    }
+
+    /// Fetch Payment events from contracts
+    pub async fn get_contract_events(
+        &self,
+        chain_id: u64,
+        from_block: Option<u64>,
+        to_block: Option<u64>,
+        from_address: Option<Address>,
+        to_address: Option<Address>,
+    ) -> Result<Vec<PaymentEvent>> {
+        let provider = self.providers.get(&chain_id)
+            .ok_or_else(|| anyhow!("Provider not found for chain_id {}", chain_id))?;
+
+        // Payment event signature: Payment(address indexed from, address indexed to, uint256 amount, string paymentReference, bool isRelayed)
+        let payment_event_signature = "Payment(address,address,uint256,string,bool)";
+        let event_signature_hash = ethers::core::utils::keccak256(payment_event_signature.as_bytes());
+        let event_hash = H256::from(event_signature_hash);
+
+        let mut filter = Filter::new()
+            .topic0(event_hash);
+
+        // Set block range
+        if let Some(from) = from_block {
+            filter = filter.from_block(BlockNumber::Number(from.into()));
+        }
+        if let Some(to) = to_block {
+            filter = filter.to_block(BlockNumber::Number(to.into()));
+        }
+
+        // Add contract addresses for both AirChainPay and AirChainPayToken
+        let mut contract_addresses = Vec::new();
+        if let Ok(airchainpay_contract) = self.get_contract(chain_id, ContractType::AirChainPay) {
+            contract_addresses.push(airchainpay_contract.address());
+        }
+        if let Ok(airchainpay_token_contract) = self.get_contract(chain_id, ContractType::AirChainPayToken) {
+            contract_addresses.push(airchainpay_token_contract.address());
+        }
+        
+        if !contract_addresses.is_empty() {
+            filter = filter.address(contract_addresses);
+        }
+
+        // Add indexed parameter filters if provided
+        if let Some(from_addr) = from_address {
+            filter = filter.topic1(from_addr);
+        }
+        if let Some(to_addr) = to_address {
+            filter = filter.topic2(to_addr);
+        }
+
+        let logs = provider.get_logs(&filter).await
+            .map_err(|e| anyhow!("Failed to fetch logs: {}", e))?;
+
+        let mut events = Vec::new();
+        for log in logs {
+            if let Ok(event) = self.parse_payment_event(&log) {
+                events.push(event);
+            }
+        }
+
+        Ok(events)
+    }
+
+    /// Parse a Payment event from a log
+    fn parse_payment_event(&self, log: &Log) -> Result<PaymentEvent> {
+        if log.topics.len() < 3 {
+            return Err(anyhow!("Invalid Payment event: insufficient topics"));
+        }
+
+        let from = Address::from(log.topics[1]);
+        let to = Address::from(log.topics[2]);
+
+        // Decode non-indexed parameters: amount, paymentReference, isRelayed
+        let decoded = ethers::abi::decode(
+            &[ethers::abi::ParamType::Uint(256), ethers::abi::ParamType::String, ethers::abi::ParamType::Bool],
+            &log.data
+        ).map_err(|e| anyhow!("Failed to decode event data: {}", e))?;
+
+        let amount = decoded[0].clone().into_uint().ok_or_else(|| anyhow!("Invalid amount"))?;
+        let payment_reference = decoded[1].clone().into_string().ok_or_else(|| anyhow!("Invalid payment reference"))?;
+        let is_relayed = decoded[2].clone().into_bool().ok_or_else(|| anyhow!("Invalid isRelayed flag"))?;
+
+        Ok(PaymentEvent {
+            from,
+            to,
+            amount,
+            payment_reference,
+            is_relayed,
+            tx_hash: log.transaction_hash.unwrap_or_default(),
+            block_number: log.block_number.unwrap_or_default().as_u64(),
+            log_index: log.log_index.unwrap_or_default().as_u64(),
+        })
     }
 }
  

@@ -14,12 +14,35 @@ use std::collections::HashMap;
 use std::env;
 use actix_web::web::{Json, Query, Path};
 use chrono::{DateTime, Utc};
-use crate::app::transaction_service::{QueuedTransaction, TransactionProcessor};
+use crate::app::transaction_service::{QueuedTransaction, TransactionProcessor, TransactionPriority};
 use serde_json::json;
 use crate::domain::auth;
 use crate::domain::error::{RelayError, BlockchainError};
 use ethers::core::types::Address;
 use std::str::FromStr;
+
+#[derive(Debug, Deserialize)]
+pub struct ContractPaymentsQuery {
+    pub chain_id: Option<u64>,
+    pub from_block: Option<u64>,
+    pub to_block: Option<u64>,
+    pub from_address: Option<String>,
+    pub to_address: Option<String>,
+    pub limit: Option<u64>,
+    pub offset: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PaymentResponse {
+    pub from: String,
+    pub to: String,
+    pub amount: String,
+    pub payment_reference: String,
+    pub is_relayed: bool,
+    pub tx_hash: String,
+    pub block_number: u64,
+    pub log_index: u64,
+}
 
 // Helper function to get block explorer URL for a given chain ID
 fn get_block_explorer_url(chain_id: u64, tx_hash: &str) -> String {
@@ -68,6 +91,7 @@ async fn handle_transaction_submission(
     blockchain_manager: Data<Arc<BlockchainManager>>,
     error_handler: Data<Arc<EnhancedErrorHandler>>,
     config_manager: Data<Arc<DynamicConfigManager>>,
+    processor: Data<Arc<TransactionProcessor>>,
 ) -> impl Responder {
     // Basic raw tx hex sanity check (do not treat as a tx hash)
     let signed_tx_str = req.signed_tx.as_str();
@@ -185,14 +209,102 @@ async fn handle_transaction_submission(
             // Update metrics
             let _ = storage.update_metrics("transactions_received", 1);
             
-            // Return success response with proper transaction ID
-            HttpResponse::Ok().json(serde_json::json!({
-                "success": true,
-                "message": "Transaction received and stored",
-                "transaction_id": transaction.id,
-                "chain_id": req.chain_id,
-                "timestamp": chrono::Utc::now().to_rfc3339(),
-            }))
+            // Create QueuedTransaction and enqueue for processing
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("signedTx".to_string(), serde_json::Value::String(req.signed_tx.clone()));
+            
+            let queued_tx = QueuedTransaction {
+                transaction: serde_json::json!({
+                    "id": transaction.id,
+                    "signed_tx": req.signed_tx,
+                    "chain_id": req.chain_id,
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                }),
+                priority: TransactionPriority::Normal,
+                queued_at: chrono::Utc::now(),
+                retry_count: 0,
+                max_retries: 3,
+                retry_delay: std::time::Duration::from_secs(2),
+                chain_id: req.chain_id,
+                metadata,
+            };
+            
+            // Enqueue transaction for blockchain processing
+            match processor.enqueue_transaction(queued_tx).await {
+                Ok(_) => {
+                    // Return queued response with proper transaction ID
+                    HttpResponse::Ok().json(serde_json::json!({
+                        "status": "queued",
+                        "message": "Transaction received, stored, and queued for processing",
+                        "transaction_id": transaction.id,
+                        "chain_id": req.chain_id,
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    }))
+                }
+                Err(e) => {
+                    // Record queue failure error
+                    let error_record = crate::utils::error_handler::ErrorRecord {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        timestamp: chrono::Utc::now(),
+                        path: crate::utils::error_handler::CriticalPath::TransactionProcessing,
+                        error_type: crate::utils::error_handler::ErrorType::System,
+                        error_message: format!("Failed to enqueue transaction {}: {}", transaction.id, e),
+                        context: {
+                            let mut context = std::collections::HashMap::new();
+                            context.insert("transaction_id".to_string(), transaction.id.clone());
+                            context.insert("chain_id".to_string(), req.chain_id.to_string());
+                            context.insert("error".to_string(), e.to_string());
+                            context
+                        },
+                        severity: crate::utils::error_handler::ErrorSeverity::High,
+                        retry_count: 0,
+                        max_retries: 0,
+                        resolved: false,
+                        resolution_time: None,
+                        stack_trace: None,
+                        user_id: None,
+                        device_id: None,
+                        transaction_id: Some(transaction.id.clone()),
+                        chain_id: Some(req.chain_id),
+                        ip_address: None,
+                        component: "transaction_queue".to_string(),
+                    };
+                    let _ = error_handler.record_error(error_record).await;
+                    
+                    // Update transaction status to queue_failed with error details
+                    if let Err(update_err) = storage.update_transaction_status_with_error(&transaction.id, "queue_failed", None, Some(format!("Queue enqueue failed: {}", e))) {
+                        let error_record = crate::utils::error_handler::ErrorRecord {
+                            id: uuid::Uuid::new_v4().to_string(),
+                            timestamp: chrono::Utc::now(),
+                            path: crate::utils::error_handler::CriticalPath::TransactionProcessing,
+                            error_type: crate::utils::error_handler::ErrorType::Database,
+                            error_message: format!("Failed to update transaction status: {}", update_err),
+                            context: std::collections::HashMap::new(),
+                            severity: crate::utils::error_handler::ErrorSeverity::High,
+                            retry_count: 0,
+                            max_retries: 0,
+                            resolved: false,
+                            resolution_time: None,
+                            stack_trace: None,
+                            user_id: None,
+                            device_id: None,
+                            transaction_id: Some(transaction.id.clone()),
+                            chain_id: Some(req.chain_id),
+                            ip_address: None,
+                            component: "transaction_storage".to_string(),
+                        };
+                        let _ = error_handler.record_error(error_record).await;
+                    }
+                    
+                    // Return service unavailable response
+                    HttpResponse::ServiceUnavailable().json(serde_json::json!({
+                        "error": "queue_full",
+                        "message": "Transaction queue is full, please try again later",
+                        "transaction_id": transaction.id,
+                        "status": "queue_failed"
+                    }))
+                }
+            }
         }
         Err(e) => {
             // Use error_utils for storage error handling with enhanced context
@@ -240,8 +352,9 @@ async fn process_transaction(
     blockchain_manager: Data<Arc<BlockchainManager>>,
     error_handler: Data<Arc<EnhancedErrorHandler>>,
     config_manager: Data<Arc<DynamicConfigManager>>,
+    processor: Data<Arc<TransactionProcessor>>,
 ) -> impl Responder {
-    handle_transaction_submission(req, storage, blockchain_manager, error_handler, config_manager).await
+    handle_transaction_submission(req, storage, blockchain_manager, error_handler, config_manager, processor).await
 }
 
 #[post("/simple_send_tx")]
@@ -296,7 +409,7 @@ async fn simple_send_tx(
                 Ok(tx_hash) => {
                     // Update transaction with hash
                     let tx_hash_str = format!("{:?}", tx_hash);
-                    let _ = storage.update_transaction_status(&transaction.id, "completed", Some(tx_hash_str.clone()));
+                    let _ = storage.update_transaction_status_with_error(&transaction.id, "completed", Some(tx_hash_str.clone()), None);
                     
                     HttpResponse::Ok().json(serde_json::json!({
                         "success": true,
@@ -312,7 +425,7 @@ async fn simple_send_tx(
                 }
                 Err(e) => {
                     // Update transaction as failed
-                    let _ = storage.update_transaction_status(&transaction.id, "failed", None);
+                    let _ = storage.update_transaction_status_with_error(&transaction.id, "failed", None, Some(format!("Blockchain error: {}", e)));
                     
                     HttpResponse::InternalServerError().json(serde_json::json!({
                         "success": false,
@@ -345,37 +458,61 @@ async fn legacy_submit_transaction(
     blockchain_manager: Data<Arc<BlockchainManager>>,
     error_handler: Data<Arc<EnhancedErrorHandler>>,
     config_manager: Data<Arc<DynamicConfigManager>>,
+    processor: Data<Arc<TransactionProcessor>>,
 ) -> impl Responder {
-    handle_transaction_submission(req, storage, blockchain_manager, error_handler, config_manager).await
+    handle_transaction_submission(req, storage, blockchain_manager, error_handler, config_manager, processor).await
 }
 
 #[get("/contract/payments")]
 async fn get_contract_payments(
-    _blockchain_manager: Data<Arc<BlockchainManager>>,
+    blockchain_manager: Data<Arc<BlockchainManager>>,
+    query: Query<ContractPaymentsQuery>,
 ) -> impl Responder {
-    // In test mode, return mock data
-    let is_test_mode = std::env::var("TEST_MODE").unwrap_or_else(|_| "false".to_string()) == "true";
+    let chain_id = query.chain_id.unwrap_or(1);
+    let from_address = query.from_address.as_ref()
+        .and_then(|addr| addr.parse::<Address>().ok());
+    let to_address = query.to_address.as_ref()
+        .and_then(|addr| addr.parse::<Address>().ok());
     
-    if is_test_mode {
-        return HttpResponse::Ok().json(serde_json::json!({
-            "payments": [
-                {
-                    "from": "0xsender",
-                    "to": "0xrecipient",
-                    "amount": "1000000000000000000",
-                    "payment_reference": "test-payment",
-                    "tx_hash": "0xtxhash",
-                    "block_number": 12345,
-                },
-            ],
-        }));
+    match blockchain_manager.get_contract_events(
+        chain_id,
+        query.from_block,
+        query.to_block,
+        from_address,
+        to_address,
+    ).await {
+        Ok(events) => {
+            // Apply pagination
+            let offset = query.offset.unwrap_or(0) as usize;
+            let limit = query.limit.unwrap_or(100) as usize;
+            let paginated_events: Vec<_> = events.into_iter()
+                .skip(offset)
+                .take(limit)
+                .collect();
+            
+            let payments: Vec<PaymentResponse> = paginated_events.into_iter().map(|event| PaymentResponse {
+                from: format!("{:?}", event.from),
+                to: format!("{:?}", event.to),
+                amount: event.amount.to_string(),
+                payment_reference: event.payment_reference,
+                tx_hash: format!("{:?}", event.tx_hash),
+                block_number: event.block_number,
+                is_relayed: event.is_relayed,
+                log_index: event.log_index,
+            }).collect();
+            
+            HttpResponse::Ok().json(serde_json::json!({
+                "payments": payments,
+                "count": payments.len()
+            }))
+        },
+        Err(e) => {
+            HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": "Failed to fetch contract events",
+                "message": e.to_string()
+            }))
+        }
     }
-    
-    // TODO: Implement actual contract event fetching
-    HttpResponse::Ok().json(serde_json::json!({
-        "payments": [],
-        "message": "Contract payments endpoint - to be implemented"
-    }))
 }
 
 #[derive(Deserialize)]
@@ -2123,8 +2260,13 @@ pub async fn submit_transaction(
     tx: web::Json<QueuedTransaction>,
     processor: web::Data<std::sync::Arc<TransactionProcessor>>,
 ) -> impl Responder {
-    processor.enqueue_transaction(tx.into_inner()).await;
-    HttpResponse::Ok().json(json!({ "status": "queued" }))
+    match processor.enqueue_transaction(tx.into_inner()).await {
+        Ok(_) => HttpResponse::Ok().json(json!({ "status": "queued" })),
+        Err(e) => HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": format!("Failed to enqueue transaction: {}", e)
+        }))
+    }
 }
 
 #[post("/test_tx")]

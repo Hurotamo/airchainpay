@@ -183,9 +183,13 @@ impl TransactionProcessor {
         }
     }
 
-    pub async fn enqueue_transaction(&self, tx: QueuedTransaction) {
+    pub async fn enqueue_transaction(&self, tx: QueuedTransaction) -> Result<()> {
         let mut queue_guard = self.queue.lock().await;
+        if queue_guard.queue.len() >= self.config.max_queue_size {
+            return Err(anyhow::anyhow!("Transaction queue is full (max: {})", self.config.max_queue_size));
+        }
         queue_guard.queue.push_back(tx);
+        Ok(())
     }
 
     async fn process_transaction(&self, tx: QueuedTransaction, worker_name: &str) {
@@ -194,24 +198,40 @@ impl TransactionProcessor {
         let mut attempt = 0;
         let tx_id = tx.metadata.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let mut last_err = None;
+        
+        // Update status to processing
+        let _ = self.storage.update_transaction_status_with_error(&tx_id, "processing", None, None);
+        
         while attempt < max_retries {
             match self.blockchain_manager.send_transaction(&tx).await {
                 Ok(tx_hash) => {
                     println!("{} successfully sent transaction: {:?}, hash: {}", worker_name, tx, tx_hash);
-                    let _ = self.storage.update_transaction_status(&tx_id, "completed", Some(format!("{:?}", tx_hash)));
+                    let _ = self.storage.update_transaction_status_with_error(&tx_id, "completed", Some(format!("{:?}", tx_hash)), None);
                     return;
                 }
                 Err(e) => {
                     println!("{} failed to send transaction (attempt {}): {:?}, error: {:?}", worker_name, attempt + 1, tx, e);
                     last_err = Some(e);
                     attempt += 1;
+                    
+                    // Update status to retrying if not the last attempt
+                    if attempt < max_retries {
+                        let _ = self.storage.update_transaction_status_with_error(&tx_id, "retrying", None, Some(format!("Attempt {} failed: {}", attempt, last_err.as_ref().unwrap())));
+                    }
+                    
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 }
             }
         }
-        // If we reach here, all attempts failed
-        let _ = self.storage.update_transaction_status(&tx_id, "failed", None);
-        println!("{} permanently failed to send transaction: {:?}, last error: {:?}", worker_name, tx, last_err);
+        
+        // If we reach here, all attempts failed - provide detailed error information
+        let error_details = match &last_err {
+            Some(err) => format!("Failed after {} attempts. Last error: {}", max_retries, err),
+            None => format!("Failed after {} attempts. No error details available.", max_retries)
+        };
+        
+        let _ = self.storage.update_transaction_status_with_error(&tx_id, "failed", None, Some(error_details.clone()));
+        println!("{} permanently failed to send transaction: {:?}, error: {}", worker_name, tx, error_details);
     }
 
     pub async fn start(&self) -> Result<()> {
@@ -269,4 +289,4 @@ impl Clone for TransactionProcessor {
             running: Arc::clone(&self.running),
         }
     }
-} 
+}

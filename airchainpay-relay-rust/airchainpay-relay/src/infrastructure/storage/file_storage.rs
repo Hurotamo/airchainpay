@@ -15,6 +15,7 @@ pub struct Transaction {
     pub timestamp: DateTime<Utc>,
     pub status: String,
     pub tx_hash: Option<String>,
+    pub error_details: Option<String>,
     pub security: TransactionSecurity,
 }
 
@@ -128,6 +129,19 @@ impl Storage {
             Err(anyhow::anyhow!("Transaction not found: {}", id))
         }
     }
+    
+    pub fn update_transaction_status_with_error(&self, id: &str, status: &str, tx_hash: Option<String>, error_details: Option<String>) -> Result<()> {
+        let mut transactions = self.transactions.lock().unwrap();
+        if let Some(tx) = transactions.iter_mut().find(|t| t.id == id) {
+            tx.status = status.to_string();
+            tx.tx_hash = tx_hash;
+            tx.error_details = error_details;
+            self.save_data()?;
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Transaction not found: {}", id))
+        }
+    }
 
     
     pub fn update_metrics(&self, field: &str, value: u64) -> Result<()> {
@@ -191,6 +205,7 @@ impl Transaction {
             timestamp: Utc::now(),
             status: "pending".to_string(),
             tx_hash: None,
+            error_details: None,
             security: TransactionSecurity {
                 hash: "".to_string(),
                 created_at: Utc::now(),
@@ -198,4 +213,4 @@ impl Transaction {
             },
         }
     }
-} 
+}
