@@ -21,7 +21,6 @@ interface BLEDeviceScannerProps {
   onPaymentSelect?: (walletAddress: string, token: string, device: Device) => void;
   autoScan?: boolean;
   scanTimeout?: number;
-  showPaymentButton?: boolean;
   targetWalletAddress?: string; // Filter devices by specific wallet address
   showWalletFilter?: boolean; // Show wallet address input field
 }
@@ -38,7 +37,6 @@ export default function BLEDeviceScanner({
   onPaymentSelect,
   autoScan = false,
   scanTimeout = 30000,
-  showPaymentButton = false,
   targetWalletAddress,
   showWalletFilter = false,
 }: BLEDeviceScannerProps) {
@@ -59,17 +57,49 @@ export default function BLEDeviceScanner({
 
   // Filter devices by wallet address
   const filterDevicesByWallet = useCallback((deviceList: ScannedDevice[], filterAddress: string): ScannedDevice[] => {
+    logger.info('[BLE Scanner] 🔍 Filtering devices by wallet:', {
+      totalDevices: deviceList.length,
+      filterAddress: filterAddress,
+      deviceWallets: deviceList.map(d => ({
+        deviceId: d.device.id,
+        deviceName: d.device.name || d.device.localName || 'Unknown',
+        walletAddress: d.paymentData?.walletAddress || 'No wallet data',
+      })),
+    });
+    
     if (!filterAddress.trim()) {
       return deviceList;
     }
     
     const normalizedFilter = filterAddress.toLowerCase().trim();
-    return deviceList.filter(device => {
+    const filtered = deviceList.filter(device => {
       if (!device.paymentData?.walletAddress) {
+        logger.info('[BLE Scanner] 🎯 Device filter check (no wallet):', {
+          deviceId: device.device.id,
+          deviceName: device.device.name || device.device.localName || 'Unknown',
+          hasPaymentData: !!device.paymentData,
+          matches: false,
+        });
         return false;
       }
-      return device.paymentData.walletAddress.toLowerCase().includes(normalizedFilter);
+      const matches = device.paymentData.walletAddress.toLowerCase().includes(normalizedFilter);
+      logger.info('[BLE Scanner] 🎯 Device filter check:', {
+        deviceId: device.device.id,
+        deviceName: device.device.name || device.device.localName || 'Unknown',
+        deviceWallet: device.paymentData.walletAddress,
+        filterAddress: filterAddress,
+        matches,
+      });
+      return matches;
     });
+    
+    logger.info('[BLE Scanner] ✅ Filter results:', {
+      totalDevices: deviceList.length,
+      filteredDevices: filtered.length,
+      filterAddress: filterAddress,
+    });
+    
+    return filtered;
   }, []);
 
   // Update filtered devices when devices or wallet filter changes
@@ -85,15 +115,24 @@ export default function BLEDeviceScanner({
     if (isScanning) return;
 
     try {
+      logger.info('[BLE Scanner] 🚀 Starting BLE scan process');
+      
       // Quick pre-check to avoid native start errors
-      if (!bluetoothManager.isBleAvailable() || !(await bluetoothManager.isBluetoothEnabled())) {
+      logger.info('[BLE Scanner] 📡 Checking BLE availability...');
+      const isBleAvailable = bluetoothManager.isBleAvailable();
+      const isBluetoothEnabled = await bluetoothManager.isBluetoothEnabled();
+      logger.info('[BLE Scanner] 📡 Pre-check results:', { isBleAvailable, isBluetoothEnabled });
+      
+      if (!isBleAvailable || !isBluetoothEnabled) {
         setScanError('Bluetooth is off or unavailable');
         return;
       }
 
       // Ensure permissions on Android; surface friendly error
+      logger.info('[BLE Scanner] 🔐 Requesting BLE permissions...');
       try {
         const ok = await bluetoothManager.requestAllPermissions();
+        logger.info('[BLE Scanner] 🔐 Permission request result:', { ok });
         if (!ok) {
           setScanError('Bluetooth permissions are required');
           return;
@@ -105,18 +144,35 @@ export default function BLEDeviceScanner({
       setScanStartTime(Date.now());
       setScanProgress(0);
       setDevices([]);
+      logger.info('[BLE Scanner] 🔄 Scan state initialized, clearing device list');
 
       // Remove any stale listener before starting again
       try { discoverySubscriptionRef.current?.remove?.(); } catch {}
       discoverySubscriptionRef.current = null;
 
+      logger.info('[BLE Scanner] 🔍 Initiating BLE device scan...');
       const success = await bluetoothManager.startScanning();
+      logger.info('[BLE Scanner] 🔍 Scan initiation result:', { success });
       if (!success) {
         throw new Error('Failed to start scanning');
       }
+      logger.info('[BLE Scanner] ✅ BLE scan started successfully');
 
       // Listen for discovered devices
       const subscription = bluetoothManager.onDeviceDiscovered((device, paymentData) => {
+        logger.info('[BLE Scanner] 🔍 Device discovery callback triggered:', {
+          deviceId: device.id,
+          deviceName: device.name,
+          localName: device.localName,
+          hasPaymentData: !!paymentData,
+          paymentData: paymentData ? {
+            walletAddress: paymentData.walletAddress,
+            token: paymentData.token,
+            amount: paymentData.amount,
+          } : null,
+          rssi: device.rssi,
+        });
+
         const newDevice: ScannedDevice = {
           device,
           paymentData,
@@ -124,15 +180,29 @@ export default function BLEDeviceScanner({
           lastSeen: Date.now(),
         };
 
+        logger.info('[BLE Scanner] 📱 Adding device to UI list:', {
+          deviceId: device.id,
+          deviceName: device.name || device.localName || 'Unknown',
+          hasPaymentData: !!paymentData,
+        });
+
         setDevices(prev => {
           const existingIndex = prev.findIndex(d => d.device.id === device.id);
           if (existingIndex >= 0) {
+            logger.info('[BLE Scanner] 🔄 Updating existing device in list:', {
+              deviceId: device.id,
+              existingIndex,
+            });
             return [
               ...prev.slice(0, existingIndex),
               newDevice,
               ...prev.slice(existingIndex + 1),
             ];
           }
+          logger.info('[BLE Scanner] ➕ Adding new device to list:', {
+            deviceId: device.id,
+            totalDevicesAfter: prev.length + 1,
+          });
           return [newDevice, ...prev];
         });
       });
@@ -142,10 +212,14 @@ export default function BLEDeviceScanner({
       logger.info('[BLE Scanner] Started scanning for devices');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error('[BLE Scanner] ❌ Scan start failed:', {
+        error: errorMessage,
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+        scanState: { isScanning, devices: devices.length }
+      });
       setScanError(`Failed to start scanning: ${errorMessage}`);
       setIsScanning(false);
       setScanStartTime(null);
-      logger.error('[BLE Scanner] Start scan error:', error);
     }
   }, [isScanning, bluetoothManager]);
 
@@ -549,6 +623,21 @@ export default function BLEDeviceScanner({
 
   // Get the devices to display (filtered or all)
   const devicesToDisplay = showWalletFilter ? filteredDevices : devices;
+  
+  logger.info('[BLE Scanner] 📱 UI Render State:', {
+    totalDevices: devices.length,
+    filteredDevices: filteredDevices.length,
+    walletFilter: walletFilter.trim(),
+    devicesToDisplay: devicesToDisplay.length,
+    isScanning,
+    scanError,
+    deviceDetails: devicesToDisplay.map(d => ({
+      id: d.device.id,
+      name: d.device.name || d.device.localName || 'Unknown',
+      hasPaymentData: !!d.paymentData,
+      walletAddress: d.paymentData?.walletAddress || 'No wallet',
+    })),
+  });
 
   return (
     <View style={styles.container}>

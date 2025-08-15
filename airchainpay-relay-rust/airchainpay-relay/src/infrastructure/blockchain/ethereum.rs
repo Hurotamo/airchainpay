@@ -5,9 +5,6 @@ use ethers::{
     middleware::Middleware,
 };
 use serde::{Deserialize, Serialize};
-// Remove logger import and replace with simple logging
-// use chrono::{DateTime, Utc};
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChainConfig {
     pub chain_id: u64,

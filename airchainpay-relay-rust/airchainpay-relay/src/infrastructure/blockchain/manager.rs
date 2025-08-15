@@ -43,7 +43,6 @@ impl BlockchainManager {
         let mut providers = HashMap::new();
         let mut contracts = HashMap::new();
         
-        // Initialize providers for all supported chains
         for (chain_id, chain_config) in &config.supported_chains {
             let provider = Provider::<Http>::try_from(&chain_config.rpc_url)
                 .map_err(|e| anyhow!("Failed to create HTTP provider for chain {}: {}", chain_id, e))?;

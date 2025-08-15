@@ -28,7 +28,7 @@ interface BLEAdvertiser {
 }
 
 // Advertising configuration interface
-interface AdvertisingConfig {
+export interface AdvertisingConfig {
   advertiseMode?: string;
   txPowerLevel?: string;
   connectable?: boolean;
@@ -1305,15 +1305,26 @@ export class BluetoothManager {
     needsSettingsRedirect?: boolean;
     message?: string;
   }> {
+    logger.info('[BLE Advertiser] 🚀 Starting BLE advertising process:', {
+      walletAddress: paymentData.walletAddress,
+      token: paymentData.token,
+      amount: paymentData.amount,
+      isCurrentlyAdvertising: this.isAdvertising,
+      platform: Platform.OS,
+    });
+
     if (this.isAdvertising) {
+      logger.info('[BLE Advertiser] ✅ Already advertising, returning success');
       return { success: true };
     }
 
     if (Platform.OS !== 'android') {
+      logger.warn('[BLE Advertiser] ❌ iOS platform detected - advertising not supported');
       return { success: false, message: 'BLE advertising is not supported on iOS. Scanning is available.' };
     }
 
     if (!this.advertiser) {
+      logger.error('[BLE Advertiser] ❌ Advertiser module not available');
       return { 
         success: false, 
         message: 'BLE advertiser not available. Please ensure tp-rn-ble-advertiser is properly installed.' 
@@ -1323,20 +1334,35 @@ export class BluetoothManager {
     try {
       // Generate advertising message with payment data as device name
       this.deviceName = this.createAdvertisingMessage(paymentData);
+      logger.info('[BLE Advertiser] 📱 Generated device name:', {
+        deviceName: this.deviceName,
+        prefix: AIRCHAINPAY_DEVICE_PREFIX,
+      });
       
+      logger.info('[BLE Advertiser] 📡 Checking BLE availability...');
       if (!this.isBleAvailable()) {
+        logger.error('[BLE Advertiser] ❌ BLE not available on device');
         return {
           success: false,
           message: 'Bluetooth LE is not available on this device'
         };
       }
+      logger.info('[BLE Advertiser] ✅ BLE is available');
 
+      logger.info('[BLE Advertiser] 🔍 Checking advertising capability...');
       const canAdv = await this.canAdvertise();
+      logger.info('[BLE Advertiser] 🔍 Advertising capability check result:', { canAdvertise: canAdv });
       if (!canAdv) {
+        logger.error('[BLE Advertiser] ❌ Device does not support BLE advertising');
         return { success: false, message: 'Device does not support BLE peripheral advertising' };
       }
 
+      logger.info('[BLE Advertiser] 🔐 Checking critical permissions...');
       const criticalPermissionStatus = await this.hasCriticalPermissions();
+      logger.info('[BLE Advertiser] 🔐 Permission check result:', {
+        granted: criticalPermissionStatus.granted,
+        missing: criticalPermissionStatus.missing,
+      });
       if (!criticalPermissionStatus.granted) {
         const missingPermissions = criticalPermissionStatus.missing.map(perm => {
           switch (perm) {
@@ -1364,8 +1390,11 @@ export class BluetoothManager {
         };
       }
 
+      logger.info('[BLE Advertiser] 🔵 Checking Bluetooth enabled status...');
       const bluetoothEnabled = await this.isBluetoothEnabled();
+      logger.info('[BLE Advertiser] 🔵 Bluetooth enabled check result:', { bluetoothEnabled });
       if (!bluetoothEnabled) {
+        logger.error('[BLE Advertiser] ❌ Bluetooth is not enabled');
         return {
           success: false,
           message: 'Bluetooth is not enabled. Please enable Bluetooth in your device settings.'
@@ -1373,16 +1402,36 @@ export class BluetoothManager {
       }
 
       // Device name is already set with payment data, use it for advertising
+      logger.info('[BLE Advertiser] 📡 Starting advertising with device name:', {
+        deviceName: this.deviceName,
+        advertisingMessage: this.deviceName,
+      });
       await this.startAdvertisingWithRetry(this.deviceName);
       
+      logger.info('[BLE Advertiser] ✅ Advertising started successfully');
+      
       this.advertisingTimeout = setTimeout(() => {
+        logger.info('[BLE Advertiser] ⏰ Advertising timeout reached, stopping...');
         this.stopAdvertising();
       }, 60000);
+      
+      logger.info('[BLE Advertiser] 🎯 Advertising setup complete:', {
+        deviceName: this.deviceName,
+        timeoutSet: true,
+        isAdvertising: this.isAdvertising,
+      });
       
       return { success: true };
       
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error('[BLE Advertiser] ❌ Advertising start failed:', {
+        error: errorMessage,
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+        deviceName: this.deviceName,
+        isAdvertising: this.isAdvertising,
+        advertiserAvailable: !!this.advertiser,
+      });
       
       if (errorMessage.includes('timeout')) {
         return { success: false, message: 'Advertising start timed out. Please try again.' };
@@ -1439,8 +1488,13 @@ export class BluetoothManager {
     const maxRetries = 3;
     let lastError: Error | null = null;
 
+    logger.info(`[BLE] 🚀 Starting advertising with retry mechanism (max ${maxRetries} attempts)`);
+    logger.info(`[BLE] 📡 Advertising message: "${advertisingMessage}"`);
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
+        logger.info(`[BLE] 🔄 Attempt ${attempt}/${maxRetries}`);
+        
         if (!this.advertiser || typeof this.advertiser.startBroadcast !== 'function') {
           throw new Error('Advertiser not available or missing startBroadcast method');
         }
@@ -1448,10 +1502,11 @@ export class BluetoothManager {
         // Force stop any existing advertising first
         if (typeof this.advertiser.stopBroadcast === 'function') {
           try {
+            logger.info('[BLE] 🛑 Stopping existing advertising...');
             this.advertiser.stopBroadcast();
-            logger.info('[BLE] Stopped existing advertising');
+            logger.info('[BLE] ✅ Stopped existing advertising');
           } catch (stopError) {
-            logger.warn('[BLE] Error stopping existing advertising:', stopError);
+            logger.warn('[BLE] ⚠️ Error stopping existing advertising:', stopError);
           }
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
@@ -1460,14 +1515,16 @@ export class BluetoothManager {
         // Note: tp-rn-ble-advertiser uses device name in startBroadcast() call instead of separate setDeviceName
         if (typeof this.advertiser.setDeviceName === 'function') {
           try {
+            logger.info(`[BLE] 📝 Setting device name to: "${advertisingMessage}"`);
             await this.advertiser.setDeviceName(advertisingMessage);
             logger.info(`[BLE] ✅ Set device name to: "${advertisingMessage}"`);
           } catch (nameError) {
-            logger.warn('[BLE] Error setting device name:', nameError);
+            logger.warn('[BLE] ⚠️ Error setting device name:', nameError);
             // Continue anyway as some devices may still work
           }
           await new Promise(resolve => setTimeout(resolve, 500));
         } else {
+          logger.info('[BLE] ℹ️ setDeviceName not available - device name will be set via startBroadcast');
           // tp-rn-ble-advertiser doesn't provide setDeviceName - device name is set via startBroadcast
           logger.info('[BLE] Using device name in startBroadcast call (tp-rn-ble-advertiser)');
         }
@@ -1475,42 +1532,63 @@ export class BluetoothManager {
         // Also set manufacturer data as backup for device identification
         if (typeof this.advertiser.setManufacturerData === 'function') {
           try {
+            logger.info('[BLE] 📊 Setting manufacturer data for backup identification...');
             const manufacturerData = Buffer.from(advertisingMessage, 'utf8').toString('base64');
             await this.advertiser.setManufacturerData([255, 255], manufacturerData);
             logger.info(`[BLE] ✅ Set manufacturer data for backup identification`);
           } catch (mfgError) {
-            logger.warn('[BLE] Error setting manufacturer data:', mfgError);
+            logger.warn('[BLE] ⚠️ Error setting manufacturer data:', mfgError);
           }
           await new Promise(resolve => setTimeout(resolve, 500));
+        } else {
+          logger.info('[BLE] ℹ️ setManufacturerData not available');
         }
         
         // Start broadcasting with device name
         if (typeof this.advertiser.startBroadcast === 'function') {
           // The tp-rn-ble-advertiser startBroadcast method expects a device name string
           try {
+            logger.info(`[BLE] 🚀 Calling startBroadcast with device name: "${advertisingMessage}"`);
             // Call startBroadcast with the advertising message (device name)
             this.advertiser.startBroadcast(advertisingMessage);
-            logger.info(`[BLE] ✅ Started advertising with device name: "${advertisingMessage}"`);
+            logger.info(`[BLE] ✅ startBroadcast call completed successfully`);
+            logger.info(`[BLE] 📡 Device should now be advertising as: "${advertisingMessage}"`);
           } catch (broadcastError) {
-            logger.error('[BLE] Broadcast failed:', broadcastError);
+            logger.error('[BLE] ❌ startBroadcast failed:', broadcastError);
+            logger.error('[BLE] ❌ Broadcast error details:', {
+              message: broadcastError instanceof Error ? broadcastError.message : String(broadcastError),
+              stack: broadcastError instanceof Error ? broadcastError.stack : undefined
+            });
             throw broadcastError;
           }
+        } else {
+          logger.error('[BLE] ❌ startBroadcast function not available on advertiser');
+          throw new Error('startBroadcast function not available');
         }
         
-        logger.info(`[BLE] 🎯 Advertising active with device name: "${advertisingMessage}"`);
+        logger.info(`[BLE] 🎯 Advertising should now be active with device name: "${advertisingMessage}"`);
         
         // Wait for advertising to fully initialize
+        logger.info('[BLE] ⏳ Waiting 2 seconds for advertising to fully initialize...');
         await new Promise(resolve => setTimeout(resolve, 2000));
         
         this.isAdvertising = true;
         this.deviceName = advertisingMessage; // Store the current device name
+        logger.info(`[BLE] 🎉 Advertising setup completed successfully!`);
+        logger.info(`[BLE] 📋 Final state - isAdvertising: ${this.isAdvertising}, deviceName: "${this.deviceName}"`);
         return;
         
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
-        logger.warn(`[BLE] Advertising attempt ${attempt} failed:`, error);
+        logger.error(`[BLE] ❌ Advertising attempt ${attempt}/${maxRetries} failed:`, {
+          message: lastError.message,
+          stack: lastError.stack,
+          attempt,
+          maxRetries
+        });
         
         if (attempt < maxRetries) {
+          logger.info(`[BLE] 🔄 Retrying in 2 seconds... (${maxRetries - attempt} attempts remaining)`);
           await new Promise(resolve => setTimeout(resolve, 2000));
         }
       }
